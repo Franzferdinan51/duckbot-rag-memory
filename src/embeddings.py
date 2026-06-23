@@ -317,7 +317,8 @@ async def auto_detect_provider() -> EmbeddingProvider:
     try:
         async with httpx.AsyncClient(timeout=2.0) as client:
             r = await client.get(f"{lm_url.rstrip('/v1')}/v1/models")
-            if r.status_code == 200:
+            # 200 = no-auth server, 401 = auth required (still reachable)
+            if r.status_code in (200, 401):
                 return LMStudioEmbeddings(base_url=lm_url)
     except Exception:
         pass

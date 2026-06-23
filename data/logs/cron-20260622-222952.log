@@ -32,3 +32,8 @@ Traceback (most recent call last):
 src.embeddings.EmbeddingError: MiniMax API key not set. Set MINIMAX_API_KEY env var.
 [2026-06-23T02:29:53Z] stats FAILED (exit 1) — see /Users/duckets/Desktop/duckbot-rag-memory/data/logs/cron-20260622-222952.log
 [2026-06-23T02:29:53Z] Phase: commit
+[main 37a25fb] cron: ingest + eval + consolidate at 20260622-222952
+ 2 files changed, 61 insertions(+)
+ create mode 100644 data/logs/cron-20260622-222952.log
+[2026-06-23T02:29:53Z] Commit OK
+[2026-06-23T02:29:53Z] === DuckBot RAG cron finished ===

@@ -9,6 +9,10 @@ Usage:
     python -m src.cli consolidate <days>           # episodic → semantic
     python -m src.cli reset                        # wipe all collections
     python -m src.cli doctor                       # check env + deps
+
+Embedding provider is auto-detected from env. Set DUCKBOT_EMBEDDING to
+"openai" | "minimax" | "lmstudio" | "local" to override. The .env file
+is read automatically; copy from .env.example.
 """
 
 from __future__ import annotations
@@ -40,8 +44,17 @@ from src.consolidate import extract_facts_from_chunk, deduplicate_facts
 
 
 async def _resolve_store_and_embedder() -> tuple[MemoryStore, "EmbeddingProvider"]:
-    """Auto-detect embedding provider, then build a store with matching dim."""
-    embedder = await auto_detect_provider()
+    """Auto-detect embedding provider, then build a store with matching dim.
+
+    Falls back to a 1536-d OpenAI-shaped store if no provider is available
+    (so stats and reset still work even when no embeddings can be produced).
+    """
+    try:
+        embedder = await auto_detect_provider()
+    except EmbeddingError:
+        # No provider available — return a default-shaped store (1536d, OpenAI)
+        # so commands like stats and reset still work.
+        return MemoryStore(embedding_dim=1536, embedding_provider_name="unconfigured"), None
     # Make sure the dim is resolved (call embed once if provider supports it)
     if embedder.name in ("lmstudio", "local", "minimax"):
         try:
@@ -63,6 +76,8 @@ EVAL_HISTORY_PATH = Path(__file__).resolve().parent.parent / "data" / "eval_hist
 def cmd_ingest(args: argparse.Namespace) -> int:
     async def run() -> IngestStats:
         store, embedder = await _resolve_store_and_embedder()
+        if embedder is None:
+            raise SystemExit("No embedding provider configured. Set DUCKBOT_EMBEDDING or one of the API keys in .env")
         print(f"  embedding provider: {embedder.name} ({embedder.dim}d)", file=sys.stderr)
         return await ingest_paths(
             args.paths,
@@ -80,6 +95,8 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 def cmd_query(args: argparse.Namespace) -> int:
     async def run():
         store, embedder = await _resolve_store_and_embedder()
+        if embedder is None:
+            raise SystemExit("No embedding provider configured. Set DUCKBOT_EMBEDDING or one of the API keys in .env")
         results, stats = await hybrid_query(
             args.question, store, embedder,
             n_results=args.n, tier=None,
