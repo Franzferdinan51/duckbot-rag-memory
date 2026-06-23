@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/install.sh — bootstrap the project + wire the cron.
+# scripts/install.sh — bootstrap the project + wire the watcher to launchd.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,7 +23,7 @@ echo "Installing deps..."
 # 3. .env
 if [[ ! -f .env ]]; then
   cp .env.example .env
-  echo "Created .env from template. EDIT IT to set OPENAI_API_KEY."
+  echo "Created .env from template. EDIT IT to set LMSTUDIO_URL, LMSTUDIO_KEY, MINIMAX_API_KEY."
 else
   echo ".env already exists"
 fi
@@ -35,33 +35,41 @@ chmod +x scripts/*.sh
 if [[ ! -d .git ]]; then
   git init
   git add -A
-  git commit -m "init: duckbot-rag-memory v0.1.0"
+  git commit -m "init: duckbot-rag-memory v0.2.0"
   echo "Initialized git repo. Push with: git remote add origin <url> && git push -u origin main"
 else
   echo "Git repo already initialized"
 fi
 
-# 6. Wire the cron (macOS launchd or Linux cron)
+# 6. Wire the watcher to launchd (auto-restart on crash + on boot)
 echo ""
-echo "Cron schedule (12 invocations across 22:00-10:00):"
-echo "  0 22-23,0-9 * * *  bash $REPO_ROOT/scripts/cron.sh"
+echo "macOS launchd setup (auto-restart on crash + on boot):"
+echo "  cp scripts/com.duckbot.memory-watcher.plist ~/Library/LaunchAgents/"
+echo "  launchctl load -w ~/Library/LaunchAgents/com.duckbot.memory-watcher.plist"
 echo ""
-read -p "Wire this into your crontab now? [y/N] " install_cron
-if [[ "$install_cron" == "y" || "$install_cron" == "Y" ]]; then
-  CRON_LINE="0 22-23,0-9 * * *  bash $REPO_ROOT/scripts/cron.sh"
-  # Remove existing entry first
-  crontab -l 2>/dev/null | grep -v "duckbot-rag-memory/scripts/cron.sh" | crontab - || true
-  (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
-  echo "Cron installed:"
-  crontab -l | grep "duckbot-rag-memory"
+
+if [[ "$(uname)" == "Darwin" ]]; then
+  read -p "Install the launchd plist now? [y/N] " install_launchd
+  if [[ "$install_launchd" == "y" || "$install_launchd" == "Y" ]]; then
+    PLIST_SRC="$REPO_ROOT/scripts/com.duckbot.memory-watcher.plist"
+    PLIST_DST="$HOME/Library/LaunchAgents/com.duckbot.memory-watcher.plist"
+    cp "$PLIST_SRC" "$PLIST_DST"
+    launchctl unload "$PLIST_DST" 2>/dev/null || true
+    launchctl load -w "$PLIST_DST"
+    echo "Installed and started: $PLIST_DST"
+    echo "Manage with:"
+    echo "  launchctl list | grep duckbot.memory"
+    echo "  launchctl unload ~/Library/LaunchAgents/com.duckbot.memory-watcher.plist  # to stop"
+  fi
 fi
 
 echo ""
 echo "=== Install complete ==="
 echo ""
 echo "Next steps:"
-echo "  1. Edit .env to set OPENAI_API_KEY"
-echo "  2. Run: .venv/bin/python -m src.cli doctor  (verify all green)"
-echo "  3. Run: .venv/bin/python -m src.cli ingest ~/.openclaw/workspace/memory"
-echo "  4. Run: .venv/bin/python -m src.cli query 'What did we decide about cloud-only models?'"
-echo "  5. Push to GitHub: git remote add origin <url> && git push -u origin main"
+echo "  1. Edit .env to set LMSTUDIO_URL + LMSTUDIO_KEY (and optional MiniMax key for fallback)"
+echo "  2. Run: .venv/bin/python -m src.cli doctor         (verify all green)"
+echo "  3. Run: .venv/bin/python -m src.watcher once       (cold-start full sync)"
+echo "  4. Run: .venv/bin/python -m src.watcher status     (should show: running)"
+echo "  5. Query: .venv/bin/python -m src.cli query 'What did we decide about cloud-only models?'"
+echo "  6. Push to GitHub: git remote add origin <url> && git push -u origin main"

@@ -84,25 +84,42 @@ await mem.reflect()  # sleep-time consolidation
 Per Duckets (2026-06-23): **no automatic cron** — memory updates in real time.
 
 ```bash
-# Start the daemon (uses watchdog FSEvents/inotify if available, polling otherwise)
-./.venv/bin/python -m src.watcher daemon
-./.venv/bin/python -m src.watcher status
-./.venv/bin/python -m src.watcher stop
-
-# One-shot full sync (good for cold-start or recovery)
+# 1. One-shot full sync (good for cold start or recovery)
 ./.venv/bin/python -m src.watcher once
 
-# Or trigger via MCP from any agent
+# 2. Run as a long-lived process (foreground; survives exec-tool sessions)
+nohup ./.venv/bin/python -m src.watcher run </dev/null >data/watcher.log 2>&1 &
+
+# 3. Or wire it into launchd (auto-restart on crash + on boot)
+cp scripts/com.duckbot.memory-watcher.plist ~/Library/LaunchAgents/
+launchctl load -w ~/Library/LaunchAgents/com.duckbot.memory-watcher.plist
+
+# 4. Or trigger via MCP from any agent
 call_tool("watch", {"daemon": true})
 ```
 
-The daemon watches the same paths as the cron used to:
+Management:
+
+```bash
+./.venv/bin/python -m src.watcher status   # check if running
+./.venv/bin/python -m src.watcher stop     # SIGTERM the daemon
+```
+
+The watcher (uses `watchdog` for FSEvents/inotify, falls back to polling) watches:
 - `~/.openclaw/workspace/memory/` (all daily logs)
 - `~/.openclaw/workspace/MEMORY.md`, `AGENTS.md`, `SOUL.md`, `IDENTITY.md`
 - `~/Desktop/ai-Py-boy-emulation-main/` (project docs)
 - `~/Desktop/Newest Desktop Control/` (project docs)
 
-Add `add a path: ./scripts/install.sh` or pass paths to `watcher daemon <paths...>`.
+Override with extra paths: `./.venv/bin/python -m src.watcher run <path1> <path2>`.
+
+### Why `run` not `daemon`
+
+`watcher daemon` uses an internal double-fork that gets killed by SIGHUP from the
+parent shell on macOS (the orphaned grandchild inherits a defunct controlling tty).
+The working pattern is `nohup ... &` from a script that does `exec </dev/null` first,
+or `launchd` which provides a proper background process tree. The `daemon` subcommand
+is kept for compatibility but not the recommended path on macOS.
 
 ## Embedding providers
 

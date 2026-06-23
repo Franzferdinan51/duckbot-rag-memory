@@ -327,7 +327,15 @@ def cmd_run(args) -> int:
 
 
 def cmd_daemon(args) -> int:
-    """Daemonize: fork, write pid, return."""
+    """Daemonize: fork, write pid, return.
+
+    The trick that makes this work where naive double-fork fails:
+      - Grandchild ignores SIGHUP/SIGPIPE before any stdio work
+      - We write_pid BEFORE redirecting stdio so any post-write debug output is captured
+      - All three stdio streams are closed AND dup2'd to /dev/null + log file
+        (close() alone leaves fd 0/1/2 pointing at the now-defunct parent tty)
+    """
+    import signal as _signal
     if PID_PATH.exists():
         pid = int(PID_PATH.read_text().strip())
         try:
@@ -336,31 +344,77 @@ def cmd_daemon(args) -> int:
             return 1
         except ProcessLookupError:
             PID_PATH.unlink()
+
+    # First fork: detach from parent
     pid = os.fork()
     if pid > 0:
-        # Parent
-        print(f"Watcher daemonized: pid={pid}")
+        # Parent: poll for grandchild pid to appear in pidfile
+        for _ in range(20):
+            time.sleep(0.1)
+            if PID_PATH.exists():
+                gp = PID_PATH.read_text().strip()
+                if gp and gp != str(pid):
+                    print(f"Watcher daemonized: pid={gp}")
+                    return 0
+        print(f"Watcher daemonized (initial pid={pid}). Check data/watcher.pid.")
         return 0
-    # Child
+
+    # First child: become session leader
     os.setsid()
+
+    # Second fork: ensure we can't reacquire a controlling terminal
     pid2 = os.fork()
     if pid2 > 0:
         os._exit(0)
-    # Grandchild
-    sys.stdin.close()
-    sys.stdout.close()
-    sys.stderr.close()
-    with open("/dev/null", "r") as devnull:
-        os.dup2(devnull.fileno(), 0)
-    with open(str(LOG_PATH), "a+") as logf:
+
+    # === Grandchild (the actual daemon) ===
+    # Block SIGHUP/SIGPIPE so the parent-shell-exit cascade can't kill us
+    for sig in (_signal.SIGHUP, _signal.SIGPIPE, _signal.SIGTERM):
+        try:
+            _signal.signal(sig, _signal.SIG_IGN)
+        except Exception:
+            pass
+
+    # Write pid BEFORE stdio redirect so any debug output after is captured
+    try:
+        PID_PATH.write_text(str(os.getpid()))
+        os.chmod(str(PID_PATH), 0o644)
+    except Exception:
+        pass
+
+    # Redirect stdio: close first, then dup2 (closing alone leaves fds pointing at dead tty)
+    try:
+        sys.stdin.close()
+    except Exception:
+        pass
+    try:
+        sys.stdout.close()
+    except Exception:
+        pass
+    try:
+        sys.stderr.close()
+    except Exception:
+        pass
+    try:
+        logf = open(str(LOG_PATH), "a+")
         os.dup2(logf.fileno(), 1)
         os.dup2(logf.fileno(), 2)
-    write_pid()
+    except Exception:
+        pass
+    try:
+        dn = open("/dev/null", "r")
+        os.dup2(dn.fileno(), 0)
+    except Exception:
+        pass
+
     paths = args.paths or [str(p) for p in DEFAULT_WATCH]
     try:
         start_watchdog_handler(paths, interval=args.interval)
     finally:
-        clear_pid()
+        try:
+            PID_PATH.unlink(missing_ok=True)
+        except Exception:
+            pass
     return 0
 
 
