@@ -16,3 +16,30 @@
 }
 [2026-06-23T02:29:24Z] stats OK
 [2026-06-23T02:29:24Z] Phase: commit
+[main (root-commit) e33077f] cron: ingest + eval + consolidate at 20260622-222924
+ 23 files changed, 3150 insertions(+)
+ create mode 100644 AGENTS.md
+ create mode 100644 CHANGELOG.md
+ create mode 100644 README.md
+ create mode 100644 benchmarks/golden.jsonl
+ create mode 100644 data/logs/cron-20260622-220135.log
+ create mode 100644 data/logs/cron-20260622-222924.log
+ create mode 100644 docs/ARCHITECTURE.md
+ create mode 100644 docs/RESEARCH.md
+ create mode 100644 src/__init__.py
+ create mode 100644 src/chunk.py
+ create mode 100644 src/cli.py
+ create mode 100644 src/consolidate.py
+ create mode 100644 src/embeddings.py
+ create mode 100644 src/eval.py
+ create mode 100644 src/ingest.py
+ create mode 100644 src/query.py
+ create mode 100644 src/store.py
+ create mode 100644 src/tier.py
+ create mode 100644 tests/_mock_embedder.py
+ create mode 100644 tests/test_chunk.py
+ create mode 100644 tests/test_consolidate.py
+ create mode 100644 tests/test_query.py
+ create mode 100644 tests/test_tier.py
+[2026-06-23T02:29:24Z] Commit OK
+[2026-06-23T02:29:24Z] === DuckBot RAG cron finished ===
