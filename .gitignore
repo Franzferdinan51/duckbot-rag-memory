@@ -22,3 +22,7 @@ venv/
 
 # OS
 Thumbs.db
+# Runtime state (PID files, logs) — generated at runtime
+data/*.pid
+data/*.log
+data/watcher_state.json
