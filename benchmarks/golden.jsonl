@@ -1,0 +1,25 @@
+{"query": "When did we install cua-driver and what version?", "expected_keywords": ["cua-driver", "0.6.2"]}
+{"query": "What was Duckets' rule about local models?", "expected_keywords": ["local models", "2026-06-10", "cloud"]}
+{"query": "What is the home address?", "expected_keywords": ["7516 Pomeranian", "Huber Heights", "45424"]}
+{"query": "Why did we pivot from birdclaw to BrowserOS?", "expected_keywords": ["birdclaw", "BrowserOS", "CDP"]}
+{"query": "What was the X outage data from Downdetector?", "expected_keywords": ["15,734", "Downdetector", "9:46"]}
+{"query": "What is the cua-driver install command?", "expected_keywords": ["install.sh", "cua-driver"]}
+{"query": "What did we decide about RTX Spark?", "expected_keywords": ["RTX Spark", "$4,499", "inference"]}
+{"query": "What new desktop control tools were added?", "expected_keywords": ["desktop_ax_tree", "desktop_som_capture", "desktop_click_element"]}
+{"query": "What is Deno Desktop and is it production-ready?", "expected_keywords": ["Deno Desktop", "canary", "WebView"]}
+{"query": "What's Duckets' favorite song and movie?", "expected_keywords": ["Lose Yourself", "Interstellar"]}
+{"query": "What was the Hermes CUA upgrade commit hash?", "expected_keywords": ["e3978e7"]}
+{"query": "Why did check.sh fail before the fix?", "expected_keywords": ["grep", "set -e", "device"]}
+{"query": "What was the check.sh bug fix commit?", "expected_keywords": ["7256d32"]}
+{"query": "Where is the cua-driver binary located?", "expected_keywords": ["~/.local/bin/cua-driver", "/Applications/CuaDriver.app"]}
+{"query": "What chunk size and overlap are used for memory chunks?", "expected_keywords": ["512", "15%"]}
+{"query": "What are the four CoALA memory tiers?", "expected_keywords": ["working", "episodic", "semantic", "procedural"]}
+{"query": "Which projects did we borrow from for the RAG architecture?", "expected_keywords": ["mem0", "Letta", "Cognee"]}
+{"query": "What embedding model is the primary choice?", "expected_keywords": ["text-embedding-3-small", "OpenAI"]}
+{"query": "Why is recursive chunking better than semantic for our use case?", "expected_keywords": ["recursive", "512", "overlap"]}
+{"query": "What is the cron schedule for this RAG system?", "expected_keywords": ["90 min", "10pm", "10am"]}
+{"query": "What evaluation metrics are used?", "expected_keywords": ["recall@5", "MRR", "p95"]}
+{"query": "Who is the founder of MiniMax?", "expected_keywords": ["MiniMax"]}
+{"query": "What is the cloud-only directive date?", "expected_keywords": ["2026-06-10"]}
+{"query": "Where is the ai-Py-Boy project located?", "expected_keywords": ["Desktop", "ai-Py-boy-emulation-main"]}
+{"query": "What is the address coordinate for Huber Heights?", "expected_keywords": ["39.8645108", "-84.1321902"]}

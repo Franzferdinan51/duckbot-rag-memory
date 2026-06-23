@@ -1,0 +1,18 @@
+[2026-06-23T02:29:24Z] === DuckBot RAG cron starting (python: /Users/duckets/Desktop/duckbot-rag-memory/.venv/bin/python) ===
+[2026-06-23T02:29:24Z] Repo: /Users/duckets/Desktop/duckbot-rag-memory
+[2026-06-23T02:29:24Z] Source memory: /Users/duckets/.openclaw/workspace/memory
+[2026-06-23T02:29:24Z] Embedding mode: none
+[2026-06-23T02:29:24Z] Phase: ingest — SKIPPED (no embedding provider; set OPENAI_API_KEY or DUCKBOT_EMBEDDING=local)
+[2026-06-23T02:29:24Z] Phase: eval — SKIPPED (no benchmark or no embedding provider)
+[2026-06-23T02:29:24Z] Phase: stats
+{
+  "working": 0,
+  "episodic": 0,
+  "semantic": 0,
+  "procedural": 0,
+  "total": 0,
+  "last_ingest_ts": 0.0,
+  "last_query_ts": 0.0
+}
+[2026-06-23T02:29:24Z] stats OK
+[2026-06-23T02:29:24Z] Phase: commit
