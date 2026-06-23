@@ -111,6 +111,33 @@ TOOLS = [
 
 
 # -----------------------------------------------------------------------------
+# Connector tools (Layers 1-4 + dashboard) — backed by the framework-agnostic
+# Brain facade. OpenClaw picks them up automatically because they're in TOOLS.
+# -----------------------------------------------------------------------------
+
+def _import_connector_tools() -> tuple[list[dict], dict]:
+    """Import the OpenClaw connector's TOOL_DEFINITIONS and dispatchers.
+    Returns (extra_tools, extra_handlers)."""
+    from src.connectors.openclaw import TOOL_DEFINITIONS, handle as _handle
+    extra_tools = list(TOOL_DEFINITIONS)
+    extra_handlers = {t["name"]: (lambda args, h=_handle: h(t["name"], args)) for t in TOOL_DEFINITIONS}
+    return extra_tools, extra_handlers
+
+
+# Tool definitions and handlers are loaded lazily so a missing layer doesn't
+# break the whole server. We populate them right after HANDLERS is defined below.
+def _register_connector_tools() -> None:
+    try:
+        from src.connectors.openclaw import TOOL_DEFINITIONS, handle as _handle
+        TOOLS.extend(TOOL_DEFINITIONS)
+        for t in TOOL_DEFINITIONS:
+            HANDLERS[t["name"]] = (lambda args, h=_handle, n=t["name"]: h(n, args))
+    except Exception as _e:
+        import sys as _s
+        print(f"[mcp_server] connector tools not loaded: {_e}", file=_s.stderr)
+
+
+# -----------------------------------------------------------------------------
 # Tool implementations
 # -----------------------------------------------------------------------------
 
@@ -234,6 +261,10 @@ HANDLERS = {
     "watch": handle_watch,
     "doctor": handle_doctor,
 }
+
+# Register the 18 connector tools (graph + blocks + quarantine + scan).
+# Called after HANDLERS is defined so the dispatch table is ready.
+_register_connector_tools()
 
 
 # -----------------------------------------------------------------------------

@@ -272,6 +272,14 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     return 0
 
 
+
+
+def cmd_hermes(args: argparse.Namespace) -> int:
+    """Hermes CLI shim: 'python -m src.cli hermes <verb> [args...]' delegates to the connectors.hermes module."""
+    from .connectors import hermes
+    return hermes.main(args.verb + [args.remainder] if hasattr(args, "remainder") and args.remainder else args.verb)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="duckbot-rag-memory",
@@ -308,6 +316,10 @@ def main() -> int:
 
     p_doc = sub.add_parser("doctor", help="check env + deps")
     p_doc.set_defaults(func=cmd_doctor)
+
+    p_hermes = sub.add_parser("hermes", help="Hermes agent CLI shim: hermes <verb> [args...]")
+    p_hermes.add_argument("verb", nargs="+", help="verb (remember, recall, stats, etc.) + args")
+    p_hermes.set_defaults(func=cmd_hermes)
 
     p_dash = sub.add_parser("dashboard", help="brain observability dashboard")
     p_dash.add_argument("--json", action="store_true", help="output as JSON")
