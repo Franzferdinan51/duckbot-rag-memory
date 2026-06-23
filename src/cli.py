@@ -35,6 +35,7 @@ from src.embeddings import (
     LMStudioEmbeddings,
     LocalEmbeddings,
     MiniMaxEmbeddings,
+    make_query_embedder,
 )
 from src.ingest import ingest_paths, write_stats_jsonl, IngestStats
 from src.store import MemoryStore
@@ -73,6 +74,33 @@ HISTORY_PATH = Path(__file__).resolve().parent.parent / "data" / "ingest_history
 EVAL_HISTORY_PATH = Path(__file__).resolve().parent.parent / "data" / "eval_history.jsonl"
 
 
+def _load_dotenv() -> None:
+    """Load .env from the repo root into os.environ. Idempotent. Silent on missing."""
+    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if not env_file.exists():
+        return
+    try:
+        # Prefer python-dotenv if installed
+        from dotenv import load_dotenv
+        load_dotenv(env_file, override=False)
+        return
+    except ImportError:
+        pass
+    # Fallback: manual parse (handles KEY=VALUE with optional quotes / comments)
+    for raw in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip()
+        v = v.strip().strip('"').strip("'")
+        if k and k not in os.environ:
+            os.environ[k] = v
+
+
+_load_dotenv()
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
     async def run() -> IngestStats:
         store, embedder = await _resolve_store_and_embedder()
@@ -97,8 +125,10 @@ def cmd_query(args: argparse.Namespace) -> int:
         store, embedder = await _resolve_store_and_embedder()
         if embedder is None:
             raise SystemExit("No embedding provider configured. Set DUCKBOT_EMBEDDING or one of the API keys in .env")
+        # Use query-optimized embedding pass for MiniMax (different vectors than ingest)
+        query_emb = make_query_embedder(embedder)
         results, stats = await hybrid_query(
-            args.question, store, embedder,
+            args.question, store, query_emb,
             n_results=args.n, tier=None,
         )
         return results, stats

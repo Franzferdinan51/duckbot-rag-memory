@@ -228,13 +228,20 @@ class LocalEmbeddings:
 class MiniMaxEmbeddings:
     """MiniMax Embeddings API provider.
 
-    Uses the minimax-portal MiniMax embeddings endpoint (compatible with
-    OpenAI /v1/embeddings shape).
+    Uses the minimax-portal MiniMax embeddings endpoint. Response shape is
+    OpenAI-incompatible: returns {"vectors": [[...]], "base_resp": {...}}
+    instead of {"data": [{"embedding": [...]}]}.
+
+    Required request body uses:
+      - "texts" (list[str])  not "input"
+      - "type"  ("db" or "query" — db for indexing, query for retrieval)
 
     Configure via:
       MINIMAX_API_KEY     — required
       MINIMAX_BASE_URL    — default https://api.minimax.io/v1
       MINIMAX_EMBED_MODEL — default text-embedding-01 (1536d)
+      MINIMAX_EMBED_TYPE  — default "db" (for ingest); switch to "query" for retrieval
+                            (different optimization pass; matters for accuracy)
     """
 
     model: str = "text-embedding-01"
@@ -242,7 +249,10 @@ class MiniMaxEmbeddings:
     dim: int = 1536
     api_key: str = ""
     base_url: str = ""
-    batch_size: int = 100
+    batch_size: int = 32  # RPM limit is tight; small batches
+    embed_type: str = ""  # "db" for indexing, "query" for retrieval
+    max_retries: int = 3
+    retry_base_delay: float = 5.0  # seconds, for rate-limit backoff
 
     def __post_init__(self) -> None:
         if not self.api_key:
@@ -255,6 +265,69 @@ class MiniMaxEmbeddings:
             self.base_url = os.environ.get("MINIMAX_BASE_URL", "https://api.minimax.io/v1")
         if "MINIMAX_EMBED_MODEL" in os.environ:
             self.model = os.environ["MINIMAX_EMBED_MODEL"]
+        if "MINIMAX_EMBED_TYPE" in os.environ:
+            self.embed_type = os.environ["MINIMAX_EMBED_TYPE"]
+        if not self.embed_type:
+            self.embed_type = "db"  # default for ingest
+
+    async def _embed_batch(self, batch: list[str]) -> list[list[float]]:
+        """One HTTP call. Raises EmbeddingError on rate-limit or HTTP error.
+
+        MiniMax returns HTTP 200 even on rate-limit — the actual error is in
+        base_resp.status_code. We treat 1002/1003/1004/1005/1006 as rate limits
+        and back off accordingly.
+        """
+        import asyncio as _asyncio
+        payload = {"model": self.model, "texts": batch, "type": self.embed_type}
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        last_exc: Exception | None = None
+        for attempt in range(self.max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    resp = await client.post(
+                        f"{self.base_url}/embeddings",
+                        json=payload,
+                        headers=headers,
+                    )
+                    if resp.status_code == 429:
+                        # Standard rate-limit response
+                        retry_after = float(resp.headers.get("Retry-After", 0)) or (
+                            self.retry_base_delay * (2 ** attempt)
+                        )
+                        await _asyncio.sleep(retry_after)
+                        last_exc = EmbeddingError(f"rate limited (attempt {attempt + 1})")
+                        continue
+                    resp.raise_for_status()
+                    data = resp.json()
+                # MiniMax shape: {"vectors": [[...]], "base_resp": {...}}
+                base = data.get("base_resp", {}) or {}
+                base_code = base.get("status_code", 0)
+                # Rate-limit codes per MiniMax docs
+                if base_code in (1002, 1003, 1004, 1005, 1006):
+                    # Rate limit / quota / RPM / RPS. Exponential backoff.
+                    delay = self.retry_base_delay * (2 ** attempt)
+                    await _asyncio.sleep(delay)
+                    last_exc = EmbeddingError(
+                        f"minimax base_resp status={base_code} msg={base.get('status_msg', '')[:120]}"
+                    )
+                    continue
+                if base_code and base_code != 0:
+                    # Non-rate-limit API error — fail fast
+                    raise EmbeddingError(
+                        f"MiniMax error: status_code={base_code} "
+                        f"msg={base.get('status_msg', '')[:200]}"
+                    )
+                vectors = data.get("vectors")
+                if not vectors:
+                    raise EmbeddingError(f"MiniMax returned no vectors: {data}")
+                return vectors
+            except httpx.HTTPError as exc:
+                last_exc = exc
+                await _asyncio.sleep(self.retry_base_delay * (2 ** attempt))
+        raise EmbeddingError(f"MiniMax embed failed after {self.max_retries} attempts: {last_exc}")
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -262,20 +335,7 @@ class MiniMaxEmbeddings:
         results: list[list[float]] = []
         for i in range(0, len(texts), self.batch_size):
             batch = texts[i:i + self.batch_size]
-            payload = {"model": self.model, "input": batch}
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            }
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    f"{self.base_url}/embeddings",
-                    json=payload,
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-            vectors = [item["embedding"] for item in data["data"]]
+            vectors = await self._embed_batch(batch)
             if vectors and self.dim != len(vectors[0]):
                 self.dim = len(vectors[0])
             results.extend(vectors)
@@ -334,6 +394,23 @@ async def auto_detect_provider() -> EmbeddingProvider:
         "No embedding provider available. Set DUCKBOT_EMBEDDING=openai|minimax|lmstudio|local "
         "or install sentence-transformers for offline mode."
     )
+
+
+def make_query_embedder(ingest_embedder: EmbeddingProvider) -> EmbeddingProvider:
+    """Return a fresh provider configured for query-time embedding.
+
+    For MiniMax, "type=query" uses a different retrieval-optimized pass
+    that produces better results when matching queries against the
+    "type=db" pass used during ingest.
+
+    For other providers, returns a copy with no behavior change.
+    """
+    if isinstance(ingest_embedder, MiniMaxEmbeddings):
+        import copy
+        q = copy.copy(ingest_embedder)
+        q.embed_type = "query"
+        return q
+    return ingest_embedder
 
 
 def get_default_provider() -> EmbeddingProvider:
