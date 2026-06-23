@@ -113,13 +113,35 @@ The watcher (uses `watchdog` for FSEvents/inotify, falls back to polling) watche
 
 Override with extra paths: `./.venv/bin/python -m src.watcher run <path1> <path2>`.
 
+### Why polling, not watchdog
+
+On macOS, `watchdog` (FSEvents) combined with `chromadb` + `httpx` in the same
+process segfaults reliably. The polling handler (default since 2026-06-23) is
+rock-solid and trades a 2-second poll for that stability. To opt back into
+FSEvents: `DUCKBOT_WATCH_USE_FSEVENTS=1 ./.venv/bin/python -m src.watcher run`.
+
 ### Why `run` not `daemon`
 
 `watcher daemon` uses an internal double-fork that gets killed by SIGHUP from the
 parent shell on macOS (the orphaned grandchild inherits a defunct controlling tty).
-The working pattern is `nohup ... &` from a script that does `exec </dev/null` first,
-or `launchd` which provides a proper background process tree. The `daemon` subcommand
-is kept for compatibility but not the recommended path on macOS.
+The working pattern is `subprocess.Popen(start_new_session=True)` from a Python
+helper script (see `scripts/start-watcher.sh`), or `launchd` which provides a
+proper background process tree. The `daemon` subcommand is kept for compatibility
+but not the recommended path on macOS.
+
+### Why Python 3.12, not 3.9
+
+The Xcode-shipped Python 3.9.6 + chromadb 1.5.9 + arm64 segfaults on `coll.count()`
+and `coll.upsert()`. The fix is to recreate the venv with the homebrew Python 3.12
+or 3.13:
+
+```bash
+cd ~/Desktop/duckbot-rag-memory
+/opt/homebrew/bin/python3.12 -m venv .venv
+# If the symlinks still point to Python 3.9, fix them:
+cd .venv/bin && rm -f python python3 python3.9 && ln -s python3.12 python3 && ln -s python3.12 python
+cd ../.. && ./.venv/bin/python -m pip install -r requirements.txt
+```
 
 ## Embedding providers
 

@@ -272,7 +272,33 @@ class MemoryStore:
         return results[:n_results]
 
     def stats(self) -> StoreStats:
+        """Snapshot of collection sizes. Falls back to direct SQLite when the
+        ChromaDB count() is slow (>1000 chunks this matters)."""
         s = StoreStats()
+        # Fast path: query SQLite directly
+        try:
+            import sqlite3
+            db_path = self.persist_dir / "chroma.sqlite3"
+            if db_path.exists():
+                conn = sqlite3.connect(str(db_path), timeout=5)
+                try:
+                    rows = conn.execute(
+                        "SELECT c.name, count(e.id) FROM collections c "
+                        "LEFT JOIN segments s ON s.collection=c.id "
+                        "LEFT JOIN embeddings e ON e.segment_id=s.id "
+                        "WHERE c.name LIKE 'duckbot_%' GROUP BY c.name"
+                    ).fetchall()
+                    name_to_count = {name: count for name, count in rows}
+                finally:
+                    conn.close()
+                for tier in Tier:
+                    count = name_to_count.get(f"duckbot_{tier.value}", 0)
+                    setattr(s, tier.value, count)
+                    s.total += count
+                return s
+        except Exception:
+            pass
+        # Fallback: slow path
         for tier in Tier:
             coll = self._collections[tier]
             count = coll.count()

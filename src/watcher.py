@@ -1,9 +1,9 @@
 """
-watcher.py — automatic memory update daemon.
+watcher.py — automatic memory update daemon (polling, macOS-safe).
 
 Watches a directory tree for new/changed/deleted markdown files and syncs them
-into the memory store. The auto-update pattern from mem0's hook system,
-adapted for filesystem events.
+into the memory store in real time. The auto-update pattern from mem0's hook
+system, adapted for filesystem polling.
 
 This is the replacement for cron-based batch ingestion. Per Duckets (2026-06-23):
   - No automatic cron
@@ -16,9 +16,13 @@ How others do it (research 2026-06-23):
   - Cognee: add() is the canonical entry; cognify() is opt-in batch
   - Hermes Agent: FTS5 + periodic nudge
 
-We combine: filesystem-event triggers (inotify/FSEvents) + add() on every change.
-Result: latency is seconds, not hours. Cost is the same (only changed chunks
-re-embed, and we have content-hash dedup so unchanged content is free).
+We use **polling** (2s interval) by default. On macOS, `watchdog`'s FSEvents
+segfaults when combined with `chromadb` + `httpx` in the same process. Polling
+gives us the same latency profile (seconds, not hours) without the crash.
+Set `DUCKBOT_WATCH_USE_FSEVENTS=1` to opt into watchdog. Sort by mtime DESC
+so newly-changed files get processed first.
+
+Requires Python 3.12+ (3.9.6 from Xcode segfaults in chromadb).
 
 Usage:
     python -m src.watcher /path/to/watch                 # foreground
@@ -36,6 +40,7 @@ import json
 import os
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -88,16 +93,28 @@ async def sync_files(paths: list[str], state: dict) -> dict:
     store, _ = await mem._ensure_initialized()
     stats = {"added": 0, "updated": 0, "deleted": 0, "skipped": 0, "errors": []}
 
-    # Build the set of current files
+    # Build the set of current files. Sort by mtime DESC so newly-created
+    # or recently-modified files get processed first — important so that
+    # live edits become queryable quickly during backfill.
+    EXCLUDE_DIR_NAMES = {"node_modules", ".git", "__pycache__", ".venv", "venv",
+                         ".next", ".nuxt", "dist", "build", ".cache", ".pytest_cache",
+                         "target", ".tox", "node-gyp", "coverage", ".mypy_cache",
+                         ".ruff_cache", "Pods", "DerivedData"}
+    def _is_excluded(path: str) -> bool:
+        from pathlib import Path as _P
+        parts = set(_P(path).parts)
+        return bool(parts & EXCLUDE_DIR_NAMES)
     current_files: dict[str, float] = {}  # path -> mtime
     for source, contents in iter_markdown_files(paths):
-        if not source:
+        if not source or _is_excluded(source):
             continue
         try:
             mtime = os.path.getmtime(source)
         except OSError:
             continue
         current_files[source] = mtime
+    # Sort: highest mtime first
+    current_files = dict(sorted(current_files.items(), key=lambda kv: kv[1], reverse=True))
 
     # 1. Handle deletes (files in state but no longer present)
     known_files = set(state.get("files", {}).keys())
@@ -204,70 +221,127 @@ class PollingHandler:
         log("Polling watcher stopped")
 
 
-def start_watchdog_handler(paths: list[str], interval: float = 2.0):
-    """Try to use watchdog (FSEvents on macOS, inotify on Linux). Falls back to polling."""
+def start_watchdog_handler(paths: list[str], interval: float = 2.0, initial_sync: bool = True):
+    """Block on a watchdog Observer until killed. Optionally does an initial sync first.
+
+    Args:
+      paths: list of files/directories to watch
+      interval: poll interval for coalesced events (default 2s)
+      initial_sync: if True, ingest all existing markdown before watching for events.
+        This can segfault on macOS when ChromaDB+httpx+watchdog are all loaded in
+        the same process — if that happens, run `watcher once` separately first.
+
+    Returns when SIGTERM/SIGINT is received.
+    """
+    # Per 2026-06-23 diagnostic: watchdog+FSEvents segfaults when ChromaDB+httpx
+    # are also loaded in the same process on macOS. The polling handler does
+    # the same job (per-file mtime check + sync_files) and is rock-solid.
+    # Set DUCKBOT_WATCH_USE_FSEVENTS=1 to opt into the native observer.
+    import os as _os
+    if not _os.environ.get("DUCKBOT_WATCH_USE_FSEVENTS"):
+        log("using polling handler (set DUCKBOT_WATCH_USE_FSEVENTS=1 to opt into FSEvents)")
+        return asyncio.run(PollingHandler(paths, interval=interval).run())
     try:
         from watchdog.observers import Observer
         from watchdog.events import FileSystemEventHandler
-
-        class MDHandler(FileSystemEventHandler):
-            def __init__(self, state: dict, paths: list[str]):
-                self.state = state
-                self.paths = paths
-                self._pending = False
-
-            def _maybe_trigger(self, event_path: str):
-                if event_path.endswith(".md"):
-                    log(f"  event: {event_path}")
-                    # Coalesce events: schedule a sync
-                    self._pending = True
-
-            def on_created(self, event):
-                if not event.is_directory:
-                    self._maybe_trigger(event.src_path)
-
-            def on_modified(self, event):
-                if not event.is_directory:
-                    self._maybe_trigger(event.src_path)
-
-            def on_deleted(self, event):
-                if not event.is_directory:
-                    self._maybe_trigger(event.src_path)
-
-            def on_moved(self, event):
-                if not event.is_directory:
-                    self._maybe_trigger(event.dest_path)
-
-        state = load_state()
-        handler = MDHandler(state, paths)
-        observer = Observer()
-        for p in paths:
-            pp = Path(p)
-            if pp.is_file():
-                pp = pp.parent
-            if pp.exists():
-                observer.schedule(handler, str(pp), recursive=True)
-                log(f"  watching {pp}")
-        observer.start()
-
-        async def loop():
-            try:
-                while True:
-                    await asyncio.sleep(interval)
-                    if handler._pending:
-                        handler._pending = False
-                        try:
-                            await sync_files(paths, state)
-                        except Exception as exc:
-                            log(f"sync error: {exc}")
-            finally:
-                observer.stop()
-                observer.join()
-
-        return asyncio.run(loop())
     except ImportError:
         log("watchdog not installed, using polling")
         return PollingHandler(paths, interval=interval).run()
+
+    state = load_state()
+    # threading.Event is loop-agnostic, avoids the "attached to a different loop"
+    # error you get with asyncio.Event when sync_files has already torn down a loop.
+    stop_event = threading.Event()
+
+    def _request_stop(*_):
+        if not stop_event.is_set():
+            log("stop requested")
+            stop_event.set()
+
+    # Use signal handlers if we're in the main thread
+    try:
+        loop = asyncio.get_running_loop()
+        for sig_name in ("SIGTERM", "SIGINT", "SIGHUP"):
+            sig = getattr(signal, sig_name, None)
+            if sig is not None:
+                try:
+                    loop.add_signal_handler(sig, _request_stop)
+                except (NotImplementedError, RuntimeError):
+                    pass
+    except RuntimeError:
+        pass
+
+    class MDHandler(FileSystemEventHandler):
+        def __init__(self, state: dict, paths: list[str]):
+            self.state = state
+            self.paths = paths
+            self._pending = False
+
+        def _maybe_trigger(self, event_path: str):
+            if event_path.endswith(".md"):
+                log(f"  event: {event_path}")
+                self._pending = True
+
+        def on_created(self, event):
+            if not event.is_directory:
+                self._maybe_trigger(event.src_path)
+
+        def on_modified(self, event):
+            if not event.is_directory:
+                self._maybe_trigger(event.src_path)
+
+        def on_deleted(self, event):
+            if not event.is_directory:
+                self._maybe_trigger(event.src_path)
+
+        def on_moved(self, event):
+            if not event.is_directory:
+                self._maybe_trigger(event.dest_path)
+
+    handler = MDHandler(state, paths)
+    observer = Observer()
+    for p in paths:
+        pp = Path(p)
+        if pp.is_file():
+            pp = pp.parent
+        if pp.exists():
+            observer.schedule(handler, str(pp), recursive=True)
+            log(f"  watching {pp}")
+    observer.start()
+
+    async def main_loop():
+        # Initial sync so files that existed before we started watching get ingested.
+        # Skip on macOS if you hit a segfault — run `watcher once` separately first.
+        if initial_sync:
+            try:
+                log("initial sync starting...")
+                stats = await sync_files(paths, state)
+                log(f"initial sync done: added={stats.get('added', 0)} updated={stats.get('updated', 0)} skipped={stats.get('skipped', 0)}")
+            except Exception as exc:
+                log(f"initial sync error: {exc}")
+        # Event-driven sync loop. Sleeps `interval` seconds between sync passes,
+        # checking the threading.Event each iteration so SIGTERM stops promptly.
+        try:
+            while not stop_event.is_set():
+                if handler._pending:
+                    handler._pending = False
+                    try:
+                        stats = await sync_files(paths, state)
+                        if stats.get("added") or stats.get("updated") or stats.get("deleted"):
+                            log(f"sync pass: {stats}")
+                    except Exception as exc:
+                        log(f"sync error: {exc}")
+                # Sleep in small slices so we react to stop_event promptly
+                slices = max(1, int(interval * 10))
+                for _ in range(slices):
+                    if stop_event.is_set():
+                        break
+                    await asyncio.sleep(0.1)
+        finally:
+            observer.stop()
+            observer.join()
+
+    asyncio.run(main_loop())
 
 
 def write_pid() -> None:
@@ -316,11 +390,22 @@ def cmd_once(args) -> int:
 
 
 def cmd_run(args) -> int:
-    """Run the watcher in foreground."""
+    """Run the watcher in foreground.
+
+    Performs an initial sync so files that existed before we started watching
+    get ingested. watchdog's FSEvents-based Observer only fires on actual
+    file changes after schedule(), so without an initial pass we'd miss
+    everything that's already on disk.
+
+    Use --no-initial-sync if the initial sync segfaults on your platform
+    (known macOS issue with ChromaDB+httpx+watchdog in the same process).
+    In that case run `watcher once` separately first to do the backfill.
+    """
     paths = args.paths or [str(p) for p in DEFAULT_WATCH]
     write_pid()
     try:
-        start_watchdog_handler(paths, interval=args.interval)
+        initial = getattr(args, "initial_sync", True)
+        start_watchdog_handler(paths, interval=args.interval, initial_sync=initial)
     finally:
         clear_pid()
     return 0
@@ -425,6 +510,8 @@ def main():
     p_run = sub.add_parser("run", help="run in foreground")
     p_run.add_argument("paths", nargs="*", help="paths to watch (files or directories)")
     p_run.add_argument("--interval", type=float, default=2.0, help="poll interval seconds")
+    p_run.add_argument("--no-initial-sync", dest="initial_sync", action="store_false",
+                       help="skip the startup backfill (use `watcher once` separately)")
     p_run.set_defaults(func=cmd_run)
 
     p_d = sub.add_parser("daemon", help="daemonize (fork into background)")
