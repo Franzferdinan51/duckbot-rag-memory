@@ -1,0 +1,313 @@
+"""
+mcp_server.py — Model Context Protocol server for DuckBot memory.
+
+Exposes the Memory facade as MCP tools so any MCP-aware client (OpenClaw
+agents, Claude Code, Cursor, Codex, etc.) can remember/recall directly.
+
+Tools:
+  - remember(text, source_path?, metadata?)  → store a memory
+  - recall(query, k?, tier?)                  → hybrid retrieval
+  - reflect()                                 → consolidate episodic
+  - forget(chunk_id)                          → delete a memory
+  - stats()                                   → dashboard snapshot
+  - watch(paths?)                             → start the auto-update daemon
+
+Run: `python -m src.mcp_server` (stdio) or `python -m src.mcp_server --http PORT`
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+
+# Add parent to path so this can be run as `python -m src.mcp_server`
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.memory import Memory
+
+
+# -----------------------------------------------------------------------------
+# Tool definitions (MCP format)
+# -----------------------------------------------------------------------------
+
+TOOLS = [
+    {
+        "name": "remember",
+        "description": "Save a memory. Auto-chunks long text, classifies tier, extracts entities, embeds, and stores. Returns chunk_id, tier, importance.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "the memory content"},
+                "source_path": {"type": "string", "description": "where this came from (e.g. file path, conversation id)", "default": "<remember>"},
+                "metadata": {"type": "object", "description": "arbitrary metadata to attach"},
+                "force_tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "override auto tier"},
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "recall",
+        "description": "Search memory. Hybrid vector + BM25 retrieval. Returns top-k results with tier, importance, source_path.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "the search query"},
+                "k": {"type": "integer", "default": 5, "description": "number of results"},
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "filter by tier"},
+                "min_importance": {"type": "number", "description": "filter by importance threshold (0..1)"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "reflect",
+        "description": "Sleep-time consolidation: pull recent episodic chunks, extract facts, dedupe, promote to semantic tier. The 'dream' pass.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "lookback_days": {"type": "integer", "default": 7},
+                "max_chunks": {"type": "integer", "default": 200},
+            },
+        },
+    },
+    {
+        "name": "forget",
+        "description": "Delete a specific memory by chunk_id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chunk_id": {"type": "string"},
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+            },
+            "required": ["chunk_id"],
+        },
+    },
+    {
+        "name": "stats",
+        "description": "Snapshot of memory store: chunk counts by tier, provider, last timestamps, LM Studio reachability.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "watch",
+        "description": "Start the auto-update daemon. Watches the given paths (or defaults) and ingests new/changed markdown files in real time.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "paths": {"type": "array", "items": {"type": "string"}, "description": "paths to watch"},
+                "daemon": {"type": "boolean", "default": True, "description": "fork into background"},
+            },
+        },
+    },
+    {
+        "name": "doctor",
+        "description": "Sanity check: env, deps, store, provider reachability.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+]
+
+
+# -----------------------------------------------------------------------------
+# Tool implementations
+# -----------------------------------------------------------------------------
+
+async def handle_remember(args: dict) -> dict:
+    mem = Memory()
+    from src.tier import Tier
+    ft = args.get("force_tier")
+    force = Tier(ft) if ft else None
+    r = await mem.remember(
+        args["text"],
+        source_path=args.get("source_path", "<remember>"),
+        metadata=args.get("metadata"),
+        force_tier=force,
+    )
+    return {
+        "chunk_id": r.chunk_id,
+        "tier": r.tier.value,
+        "confidence": r.confidence,
+        "importance": r.importance,
+        "entities": r.entities,
+        "relationships": r.relationships,
+        "stored": r.stored,
+        "duration_ms": r.duration_ms,
+    }
+
+
+async def handle_recall(args: dict) -> dict:
+    mem = Memory()
+    results, stats = await mem.recall(
+        args["query"],
+        k=args.get("k", 5),
+        tier=args.get("tier"),
+        min_importance=args.get("min_importance"),
+    )
+    return {
+        "results": [r.to_dict() for r in results],
+        "stats": stats.to_dict(),
+    }
+
+
+async def handle_reflect(args: dict) -> dict:
+    mem = Memory()
+    return await mem.reflect(
+        lookback_days=args.get("lookback_days", 7),
+        max_chunks=args.get("max_chunks", 200),
+    )
+
+
+async def handle_forget(args: dict) -> dict:
+    mem = Memory()
+    from src.tier import Tier
+    tier = Tier(args["tier"]) if args.get("tier") else None
+    ok = await mem.forget(args["chunk_id"], tier=tier)
+    return {"deleted": ok}
+
+
+async def handle_stats(args: dict) -> dict:
+    mem = Memory()
+    snap = await mem.stats()
+    return {
+        "total": snap.total,
+        "by_tier": snap.by_tier,
+        "by_provider": snap.by_provider,
+        "last_remember_ts": snap.last_remember_ts,
+        "last_recall_ts": snap.last_recall_ts,
+        "lmstudio_reachable": snap.lmstudio_reachable,
+    }
+
+
+async def handle_watch(args: dict) -> dict:
+    """Spawn the watcher (daemon by default). Returns PID."""
+    paths = args.get("paths") or None
+    daemon = args.get("daemon", True)
+    # Subprocess so we don't block the MCP server
+    import subprocess
+    cmd = [sys.executable, "-m", "src.watcher"]
+    if daemon:
+        cmd.append("daemon")
+    else:
+        cmd.append("run")
+    if paths:
+        cmd.extend(paths)
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return {"pid": proc.pid, "command": " ".join(cmd)}
+
+
+async def handle_doctor(args: dict) -> dict:
+    """Same as CLI doctor but as a tool."""
+    import importlib
+    checks = []
+    # Python
+    import sys as _s
+    checks.append({"name": "python", "value": f"{_s.version_info.major}.{_s.version_info.minor}.{_s.version_info.micro}", "ok": True})
+    # Critical deps
+    for mod in ["chromadb", "httpx", "numpy"]:
+        try:
+            importlib.import_module(mod)
+            checks.append({"name": mod, "value": "imported", "ok": True})
+        except ImportError as exc:
+            checks.append({"name": mod, "value": str(exc), "ok": False})
+    # Embedder
+    mem = Memory()
+    try:
+        store, emb = await mem._ensure_initialized()
+        checks.append({"name": "embedder", "value": f"{emb.name} ({emb.dim}d)", "ok": True})
+    except Exception as exc:
+        checks.append({"name": "embedder", "value": str(exc), "ok": False})
+    # LM Studio
+    from src.embeddings import is_lmstudio_reachable
+    ok = await is_lmstudio_reachable()
+    checks.append({"name": "lmstudio", "value": "reachable" if ok else "unreachable", "ok": ok})
+    return {"checks": checks}
+
+
+HANDLERS = {
+    "remember": handle_remember,
+    "recall": handle_recall,
+    "reflect": handle_reflect,
+    "forget": handle_forget,
+    "stats": handle_stats,
+    "watch": handle_watch,
+    "doctor": handle_doctor,
+}
+
+
+# -----------------------------------------------------------------------------
+# MCP stdio transport
+# -----------------------------------------------------------------------------
+
+def mcp_stdio():
+    """Run the MCP server on stdio. JSON-RPC 2.0 protocol."""
+    import sys as _s
+    while True:
+        try:
+            line = _s.stdin.readline()
+            if not line:
+                break
+            msg = json.loads(line)
+            method = msg.get("method")
+            mid = msg.get("id")
+            if method == "initialize":
+                resp = {
+                    "jsonrpc": "2.0", "id": mid,
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "serverInfo": {"name": "duckbot-memory", "version": "0.2.0"},
+                        "capabilities": {"tools": {}},
+                    },
+                }
+            elif method == "notifications/initialized":
+                continue
+            elif method == "tools/list":
+                resp = {"jsonrpc": "2.0", "id": mid, "result": {"tools": TOOLS}}
+            elif method == "tools/call":
+                params = msg.get("params", {})
+                name = params.get("name")
+                args = params.get("arguments", {})
+                handler = HANDLERS.get(name)
+                if not handler:
+                    resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"unknown tool: {name}"}}
+                else:
+                    try:
+                        result = asyncio.run(handler(args))
+                        resp = {
+                            "jsonrpc": "2.0", "id": mid,
+                            "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]},
+                        }
+                    except Exception as exc:
+                        resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(exc)}}
+            else:
+                resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"unknown method: {method}"}}
+            _s.stdout.write(json.dumps(resp) + "\n")
+            _s.stdout.flush()
+        except json.JSONDecodeError:
+            continue
+        except KeyboardInterrupt:
+            break
+        except Exception as exc:
+            err = {"jsonrpc": "2.0", "error": {"code": -32603, "message": str(exc)}}
+            try:
+                _s.stdout.write(json.dumps(err) + "\n")
+                _s.stdout.flush()
+            except Exception:
+                pass
+
+
+def main():
+    p = argparse.ArgumentParser(description="DuckBot memory MCP server")
+    p.add_argument("--http", type=int, help="run as HTTP server on PORT (instead of stdio)")
+    args = p.parse_args()
+    if args.http:
+        # Minimal HTTP wrapper using aiohttp or similar
+        # For now just print a hint
+        print(f"HTTP mode not yet implemented. Use stdio for now. (Would listen on {args.http})", file=sys.stderr)
+        sys.exit(1)
+    mcp_stdio()
+
+
+if __name__ == "__main__":
+    main()

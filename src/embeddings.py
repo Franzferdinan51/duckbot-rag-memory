@@ -29,6 +29,41 @@ from typing import Protocol
 import httpx
 
 
+# ---------------------------------------------------------------------------
+# .env loader — runs at import time so any entry point gets a populated env.
+# Idempotent, silent, and doesn't override already-set vars.
+# ---------------------------------------------------------------------------
+def _load_dotenv() -> None:
+    env_file = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"
+    )
+    if not os.path.exists(env_file):
+        return
+    try:
+        from dotenv import load_dotenv  # optional dep
+        load_dotenv(env_file, override=False)
+        return
+    except ImportError:
+        pass
+    # Fallback: manual parse
+    try:
+        with open(env_file, "r", encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip('"').strip("'")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    except Exception:
+        pass
+
+
+_load_dotenv()
+
+
 class EmbeddingProvider(Protocol):
     """Pluggable embedding interface. All providers must return float32 lists."""
 
@@ -120,7 +155,7 @@ class LMStudioEmbeddings:
         if not self.base_url:
             self.base_url = os.environ.get("LMSTUDIO_URL", "http://127.0.0.1:1234/v1")
         if not self.model:
-            self.model = os.environ.get("LMSTUDIO_MODEL", "text-embedding-nomic-embed-text-v1.5")
+            self.model = os.environ.get("LMSTUDIO_MODEL", "text-embedding-embeddinggemma-300m")
         if not self.api_key or self.api_key == "lm-studio":
             # Try common env var names
             self.api_key = (
@@ -345,16 +380,20 @@ class MiniMaxEmbeddings:
         return (await self.embed([text]))[0]
 
 
-async def auto_detect_provider() -> EmbeddingProvider:
+async def auto_detect_provider(prefer: str | None = None) -> EmbeddingProvider:
     """Pick the best available provider based on env vars + reachability.
 
+    Priority (per Duckets 2026-06-23): LM Studio primary, MiniMax fallback.
+    Sentence-transformers is the offline last resort.
+
     Order:
-      1. DUCKBOT_EMBEDDING env var (explicit)
-      2. OPENAI_API_KEY set → OpenAI
-      3. MINIMAX_API_KEY set → MiniMax
-      4. LM Studio reachable → LMStudioEmbeddings
-      5. sentence-transformers installed → LocalEmbeddings
-      6. None available → raises EmbeddingError
+      1. DUCKBOT_EMBEDDING env var (explicit) — honored over prefer
+      2. `prefer` argument (e.g. "lmstudio") — used if DUCKBOT_EMBEDDING unset
+      3. LM Studio reachable → LMStudioEmbeddings (DEFAULT)
+      4. MINIMAX_API_KEY set → MiniMax (FALLBACK)
+      5. OPENAI_API_KEY set → OpenAI (alt fallback)
+      6. sentence-transformers installed → LocalEmbeddings
+      7. None available → raises EmbeddingError
     """
     explicit = os.environ.get("DUCKBOT_EMBEDDING", "").lower().strip()
     if explicit == "openai":
@@ -366,22 +405,36 @@ async def auto_detect_provider() -> EmbeddingProvider:
     if explicit == "local":
         return LocalEmbeddings()
 
-    # Auto-detect chain
-    if os.environ.get("OPENAI_API_KEY"):
-        return OpenAIEmbeddings()
-    if os.environ.get("MINIMAX_API_KEY"):
+    target = (prefer or "").lower().strip() or "lmstudio"
+
+    def _make_lmstudio():
+        lm_url = os.environ.get("LMSTUDIO_URL", "http://127.0.0.1:1234/v1")
+        return LMStudioEmbeddings(base_url=lm_url)
+
+    def _make_minimax():
         return MiniMaxEmbeddings()
 
-    # Try LM Studio
-    lm_url = os.environ.get("LMSTUDIO_URL", "http://127.0.0.1:1234/v1")
-    try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            r = await client.get(f"{lm_url.rstrip('/v1')}/v1/models")
-            # 200 = no-auth server, 401 = auth required (still reachable)
-            if r.status_code in (200, 401):
-                return LMStudioEmbeddings(base_url=lm_url)
-    except Exception:
-        pass
+    def _make_openai():
+        return OpenAIEmbeddings()
+
+    # Try the preferred target first, then walk fallback chain
+    chain = []
+    if target == "lmstudio":
+        chain = [_make_lmstudio, _make_minimax, _make_openai]
+    elif target == "minimax":
+        chain = [_make_minimax, _make_lmstudio, _make_openai]
+    elif target == "openai":
+        chain = [_make_openai, _make_lmstudio, _make_minimax]
+    else:
+        chain = [_make_lmstudio, _make_minimax, _make_openai]
+
+    last_exc = None
+    for factory in chain:
+        try:
+            return factory()
+        except EmbeddingError as e:
+            last_exc = e
+            continue
 
     # Try local sentence-transformers
     try:
@@ -391,8 +444,7 @@ async def auto_detect_provider() -> EmbeddingProvider:
         pass
 
     raise EmbeddingError(
-        "No embedding provider available. Set DUCKBOT_EMBEDDING=openai|minimax|lmstudio|local "
-        "or install sentence-transformers for offline mode."
+        f"No embedding provider available. Last error: {last_exc}"
     )
 
 
@@ -419,6 +471,18 @@ def get_default_provider() -> EmbeddingProvider:
     return asyncio.run(auto_detect_provider())
 
 
+async def is_lmstudio_reachable(url: str | None = None, timeout: float = 2.0) -> bool:
+    """Quick check: is LM Studio responding (with or without auth)?"""
+    base = (url or os.environ.get("LMSTUDIO_URL", "http://127.0.0.1:1234/v1")).rstrip("/v1")
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            r = await c.get(f"{base}/v1/models")
+            # 200 (no auth) or 401 (auth required) both mean "server is up"
+            return r.status_code in (200, 401)
+    except Exception:
+        return False
+
+
 __all__ = [
     "EmbeddingProvider",
     "EmbeddingError",
@@ -428,4 +492,6 @@ __all__ = [
     "MiniMaxEmbeddings",
     "auto_detect_provider",
     "get_default_provider",
+    "is_lmstudio_reachable",
+    "make_query_embedder",
 ]

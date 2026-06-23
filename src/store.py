@@ -31,6 +31,21 @@ from .tier import Tier
 DEFAULT_PERSIST_DIR = Path(__file__).resolve().parent.parent / "data" / "chroma"
 
 
+def _coerce_chroma(value: Any) -> str | int | float | bool:
+    """Chroma metadata must be primitive (str/int/float/bool). Coerce lists/dicts."""
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple, set)):
+        # Serialize as comma-separated string; max 200 chars
+        s = ",".join(str(v) for v in value)
+        return s[:200]
+    if isinstance(value, dict):
+        # JSON-encode; cap length
+        s = json.dumps(value, sort_keys=True, default=str)
+        return s[:200]
+    return str(value)[:200]
+
+
 @dataclass
 class StoreStats:
     """Snapshot of collection sizes."""
@@ -102,10 +117,19 @@ class MemoryStore:
         chunks: list[Chunk],
         embeddings: list[list[float]],
         tier: Tier,
+        metadata_override: list[dict] | None = None,
     ) -> int:
         """Add chunks + pre-computed embeddings to a tier collection.
 
-        Returns the number of chunks added (skipped if IDs already exist).
+        Args:
+          chunks: list of Chunk dataclasses
+          embeddings: parallel list of pre-computed embedding vectors
+          tier: which tier collection to add to
+          metadata_override: optional parallel list of metadata dicts to merge
+            on top of the auto-generated metadata. Used by the Memory facade
+            to inject importance, entities, recall_count, etc.
+
+        Returns the number of chunks added (upserted).
         """
         if not chunks:
             return 0
@@ -113,11 +137,15 @@ class MemoryStore:
             raise ValueError(
                 f"chunk/embedding count mismatch: {len(chunks)} chunks, {len(embeddings)} embeddings"
             )
+        if metadata_override is not None and len(metadata_override) != len(chunks):
+            raise ValueError(
+                f"metadata_override count mismatch: {len(chunks)} chunks, {len(metadata_override)} overrides"
+            )
         coll = self._collections[tier]
         ids = [c.id for c in chunks]
         # Build metadata. Keep it flat — Chroma metadata must be primitives.
         metadatas = []
-        for c in chunks:
+        for i, c in enumerate(chunks):
             m = {
                 "source_path": c.source_path,
                 "chunk_index": c.chunk_index,
@@ -129,6 +157,10 @@ class MemoryStore:
             }
             if c.section_header:
                 m["section_header"] = c.section_header[:200]
+            if metadata_override is not None:
+                m.update(metadata_override[i])
+            # Chroma requires primitive values; coerce
+            m = {k: _coerce_chroma(v) for k, v in m.items()}
             metadatas.append(m)
         documents = [c.text for c in chunks]
 

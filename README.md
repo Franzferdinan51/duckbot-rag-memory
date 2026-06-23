@@ -1,174 +1,172 @@
-# 🦆 DuckBot RAG + Memory System
+# 🦆 DuckBot Memory System
 
-> Persistent, searchable, and self-curing memory for OpenClaw + Hermes Agent.
+> Persistent, searchable, and self-curing memory for OpenClaw + Hermes Agent. Auto-updates in real time.
 
-[![Status](https://img.shields.io/badge/status-MVP-yellow)]() [![License](https://img.shields.io/badge/license-MIT-blue)]() [![Open Source](https://img.shields.io/badge/open--source-everything-green)]()
+[![Status](https://img.shields.io/badge/status-v0.2-yellow)]() [![License](https://img.shields.io/badge/license-MIT-blue)]() [![Open Source](https://img.shields.io/badge/open--source-everything-green)]()
 
 ## What this is
 
-A **RAG pipeline + memory layer** built specifically for personal AI agent usage. Inspired by (and pulling heavily from):
+A **RAG pipeline + memory layer + auto-updater** built specifically for personal AI agent usage. Combines:
 
-- **Mem0** (mem0ai/mem0) — lightweight pluggable memory layer with conflict resolution
-- **Letta / MemGPT** (letta-ai/letta) — tiered memory with archival/recall split
-- **Cognee** (topoteretes/cognee) — graph-augmented semantic memory
-- **Hermes Agent** (NousResearch/hermes-agent) — FTS5 session search + LLM summarization
-- **CoALA framework** (Princeton 2023) — 4-tier memory taxonomy (working/episodic/semantic/procedural)
+- **RAG core** — markdown-aware chunking, vector + BM25 hybrid retrieval, Reciprocal Rank Fusion
+- **CoALA 4-tier** — working / episodic / semantic / procedural memory taxonomy
+- **Entity memory** — people, places, orgs, products with relationships (Cognee-inspired)
+- **Auto-updater** — file-watcher daemon syncs new/changed markdown in real time (mem0 hook pattern)
+- **Sleep-time consolidation** — `reflect()` pass that promotes episodic → semantic
+- **Importance scoring** — recall bumps importance; old + unused decays naturally
+- **Pluggable embeddings** — LM Studio (primary), MiniMax (fallback), OpenAI, sentence-transformers
+- **MCP server** — `remember` / `recall` / `reflect` / `forget` / `stats` tools for any MCP client
 
-It is NOT another LangChain wrapper. It's a focused, runnable pipeline tuned for one user's (Duckets') daily memory churn.
+Inspired by (and pulling from):
+- **mem0** (mem0ai/mem0) — hook-based auto-capture, `add`/`update`/`search` API
+- **Letta / MemGPT** (letta-ai/letta) — tiered memory, self-editing blocks, sleep-time agents
+- **Cognee** (topoteretes/cognee) — ECL pipeline (Extract → Cognify → Load), knowledge graph
+- **Hermes Agent** (NousResearch/hermes-agent) — FTS5 session search, LLM summarization
+- **CoALA framework** (Princeton 2023) — 4-tier memory taxonomy
+- **LangChain** RecursiveCharacterTextSplitter, **LlamaIndex** SentenceSplitter
 
-## Why it exists
+## Quick start
 
-DuckBot's `~/.openclaw/workspace/memory/` has **126+ daily session logs** (some 30k+ chars each). Every session, the agent dumps a "memory flush" into a daily file. When Duckets asks "what did we decide about X last month?" we have two options:
+```bash
+cd ~/Desktop/duckbot-rag-memory
+./.venv/bin/python -m src.cli doctor          # verify everything works
+./.venv/bin/python -m src.cli watch once      # one-shot full sync (~5 min for 150 files)
+./.venv/bin/python -m src.watcher daemon      # run auto-updater in background
+./.venv/bin/python -m src.cli query "What did we decide about cloud-only models?" -n 5
+```
 
-1. **Load everything into context** — burns tokens, doesn't scale, hallucination risk.
-2. **Search + retrieve** — pull only the relevant chunks. This is what we built.
+Or programmatically:
+
+```python
+from src.memory import Memory
+mem = Memory()
+await mem.remember("Today we installed cua-driver v0.6.2.")
+results, stats = await mem.recall("cua-driver", k=3)
+await mem.reflect()  # sleep-time consolidation
+```
 
 ## Architecture (one page)
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│                        Cron (every 90 min)                   │
-│                  22:00-10:00 America/New_York                │
-└───────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌───────────────────────────────────────────────────────────────┐
-│                      INGEST PIPELINE                         │
-│                                                               │
-│  ~/.openclaw/workspace/memory/*.md   ──┐                    │
-│  ~/.openclaw/workspace/MEMORY.md     ──┤                    │
-│  ~/.openclaw/workspace/AGENTS.md     ──┤  markdown-aware     │
-│  ~/.openclaw/workspace/SOUL.md       ──┤  chunker            │
-│  ~/Desktop/<project>/docs/*.md       ──┤  (512 tok, 15% OL) │
-│                                       ──┘                    │
-│                              │                                 │
-│                              ▼                                 │
-│  ┌──────────────────────────────────────┐                     │
-│  │ Tier classifier (CoALA-inspired)     │                     │
-│  │  - episodic: dated session logs      │                     │
-│  │  - semantic: facts, prefs, entities  │                     │
-│  │  - procedural: rules, patterns       │                     │
-│  │  - working: today's hot context      │                     │
-│  └──────────────────────────────────────┘                     │
-│                              │                                 │
-│                              ▼                                 │
-│  ┌──────────────────────────────────────┐                     │
-│  │ Embedding (OpenAI text-embedding-3   │                     │
-│  │ -small, 1536d, $0.02/1M tokens)      │                     │
-│  └──────────────────────────────────────┘                     │
-│                              │                                 │
-│                              ▼                                 │
-│  ┌──────────────────────────────────────┐                     │
-│  │ ChromaDB (embedded, persistent)      │                     │
-│  │  data/chroma/                        │                     │
-│  │  Collections: episodic, semantic,    │                     │
-│  │  procedural, working                 │                     │
-│  └──────────────────────────────────────┘                     │
-└───────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌───────────────────────────────────────────────────────────────┐
-│                       QUERY PIPELINE                          │
-│                                                               │
-│  User question → Embed → Hybrid search                       │
-│                  → Reciprocal Rank Fusion (RRF)               │
-│                  → Rerank with cross-encoder (optional)       │
-│                  → Top-K chunks → LLM context window          │
-└───────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌───────────────────────────────────────────────────────────────┐
-│                       EVAL PIPELINE                           │
-│                                                               │
-│  Daily cron runs a 20-query benchmark set                     │
-│  → recall@5, recall@10, MRR, latency                          │
-│  → append to data/eval/history.jsonl                          │
-│  → alert if recall drops >5pp week-over-week                  │
+│                      file watcher (real time)                  │
+│  /memory/*.md, AGENTS.md, SOUL.md, project docs               │
+│  ↓ on change                                                   │
+│  ┌────────────────────────────────────────────────────────┐   │
+│  │            Memory.remember(text)                        │   │
+│  │  chunk → tier classify → entity extract → importance   │   │
+│  │           → embed (LM Studio / MiniMax / OpenAI)        │   │
+│  │           → upsert into ChromaDB (idempotent)           │   │
+│  └────────────────────────────────────────────────────────┘   │
+│                              ↓                                 │
+│  ┌────────────────────────────────────────────────────────┐   │
+│  │ ChromaDB (one collection per tier)                     │   │
+│  │   duckbot_working   (capped, recent sessions)          │   │
+│  │   duckbot_episodic  (daily logs, dated)                │   │
+│  │   duckbot_semantic  (distilled facts, entities)        │   │
+│  │   duckbot_procedural(rules, norms, AGENTS/SOUL)        │   │
+│  └────────────────────────────────────────────────────────┘   │
+│                              ↓                                 │
+│  ┌────────────────────────────────────────────────────────┐   │
+│  │ Memory.recall(query)                                    │   │
+│  │  embed query → vector search + BM25 → RRF fuse         │   │
+│  │  → bump importance of returned chunks                  │   │
+│  │  → spread activation to related chunks                 │   │
+│  └────────────────────────────────────────────────────────┘   │
+│                              ↓                                 │
+│  OpenClaw agents / Claude Code / Cursor / Codex via MCP        │
+│  (tools: remember, recall, reflect, forget, stats, watch)      │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-## Memory tiers (CoALA)
+## Auto-update (no cron)
 
-| Tier | What goes here | Source | Storage |
-|------|---------------|--------|---------|
-| **Working** | Today's active session, in-flight goals | Cron + OpenClaw heartbeat | `working` collection + ephemeral file |
-| **Episodic** | Session logs, dated events, decisions made | `memory/YYYY-MM-DD.md` | `episodic` collection |
-| **Semantic** | Distilled facts, user prefs, entities | LLM-extracted from episodic | `semantic` collection + `MEMORY.md` |
-| **Procedural** | Rules, patterns, behavioral norms | `AGENTS.md`, `SOUL.md`, project docs | `procedural` collection |
-
-## Quick start
+Per Duckets (2026-06-23): **no automatic cron** — memory updates in real time.
 
 ```bash
-# 1. Install deps
-pip install -r requirements.txt
+# Start the daemon (uses watchdog FSEvents/inotify if available, polling otherwise)
+./.venv/bin/python -m src.watcher daemon
+./.venv/bin/python -m src.watcher status
+./.venv/bin/python -m src.watcher stop
 
-# 2. Configure (set OPENAI_API_KEY)
-cp .env.example .env
+# One-shot full sync (good for cold-start or recovery)
+./.venv/bin/python -m src.watcher once
 
-# 3. Ingest all current memory
-python -m src.ingest --source ~/.openclaw/workspace/memory
-
-# 4. Query
-python -m src.query "What did we decide about cua-driver last week?"
-
-# 5. Run benchmark
-python -m src.eval --benchmark benchmarks/golden.jsonl
-
-# 6. Run cron (or schedule it)
-bash scripts/cron.sh
+# Or trigger via MCP from any agent
+call_tool("watch", {"daemon": true})
 ```
 
-## File layout
+The daemon watches the same paths as the cron used to:
+- `~/.openclaw/workspace/memory/` (all daily logs)
+- `~/.openclaw/workspace/MEMORY.md`, `AGENTS.md`, `SOUL.md`, `IDENTITY.md`
+- `~/Desktop/ai-Py-boy-emulation-main/` (project docs)
+- `~/Desktop/Newest Desktop Control/` (project docs)
+
+Add `add a path: ./scripts/install.sh` or pass paths to `watcher daemon <paths...>`.
+
+## Embedding providers
+
+Per Duckets (2026-06-23): **LM Studio primary, MiniMax fallback.**
+
+Set in `.env`:
+```bash
+DUCKBOT_EMBEDDING=lmstudio  # primary
+LMSTUDIO_URL=http://127.0.0.1:1234/v1
+LMSTUDIO_KEY=sk-lm-xxx:yyy
+LMSTUDIO_MODEL=text-embedding-embeddinggemma-300m
+
+# Fallback (cloud, paid, high quality)
+MINIMAX_API_KEY=sk-cp-xxx
+MINIMAX_BASE_URL=https://api.minimax.io/v1
+```
+
+Auto-detect chain: `DUCKBOT_EMBEDDING` env > LM Studio reachable > MiniMax key > OpenAI key > sentence-transformers.
+
+## MCP server (for any agent)
+
+Exposes the memory API to MCP clients. Run as stdio server:
+
+```bash
+./.venv/bin/python -m src.mcp_server
+```
+
+Tools: `remember`, `recall`, `reflect`, `forget`, `stats`, `watch`, `doctor`.
+
+Wire it into OpenClaw, Claude Code, Cursor, Codex via their respective MCP configs. The server returns JSON-RPC 2.0 responses on stdout.
+
+## Files
 
 ```
 duckbot-rag-memory/
-├── README.md
-├── AGENTS.md            ← for future agents / contributors
-├── CHANGELOG.md
-├── LICENSE
-├── requirements.txt
-├── .env.example
 ├── src/
-│   ├── __init__.py
-│   ├── ingest.py        ← markdown → chunks → embeddings → chroma
-│   ├── query.py         ← hybrid search + RRF + rerank
-│   ├── tier.py          ← CoALA tier classifier
-│   ├── chunk.py         ← markdown-aware recursive chunker
-│   ├── eval.py          ← recall@K, MRR, latency benchmarks
-│   ├── consolidate.py   ← dream-like episodic → semantic distillation
-│   └── cli.py           ← `python -m src` entrypoint
-├── scripts/
-│   ├── cron.sh          ← nightly ingest + eval + commit
-│   ├── eval.sh          ← manual eval run
-│   └── seed.py          ← seed golden benchmark queries
-├── data/                ← gitignored (chroma db, eval history)
-├── docs/
-│   ├── ARCHITECTURE.md  ← deeper dive
-│   └── RESEARCH.md      ← every open-source project we cribbed from
-├── examples/
-│   └── query_demo.py
-├── tests/
-│   ├── test_chunk.py
-│   ├── test_tier.py
-│   ├── test_query.py
-│   └── test_consolidate.py
-└── benchmarks/
-    └── golden.jsonl     ← hand-curated eval queries
+│   ├── chunk.py          # markdown-aware recursive chunker (512 tok, 15% overlap)
+│   ├── tier.py           # CoALA 4-tier classifier
+│   ├── embeddings.py     # 4 providers + auto-detect chain
+│   ├── store.py          # ChromaDB wrapper, one collection per tier
+│   ├── ingest.py         # batch ingest pipeline
+│   ├── query.py          # hybrid vector + BM25 + RRF
+│   ├── consolidate.py    # episodic → semantic distillation
+│   ├── eval.py           # recall@K, MRR, latency benchmark
+│   ├── memory.py         # ⭐ unified Memory facade (remember/recall/reflect/forget)
+│   ├── watcher.py        # ⭐ real-time file-watcher daemon
+│   ├── mcp_server.py     # ⭐ MCP stdio server
+│   └── cli.py            # CLI entry point
+├── tests/                # 55 unit + integration tests
+├── benchmarks/           # golden.jsonl for eval
+├── scripts/              # install.sh, cron.sh (legacy)
+├── docs/                 # ARCHITECTURE.md, RESEARCH.md
+├── data/                 # gitignored: chroma, logs, watcher state
+└── .env.example          # config template
 ```
 
-## Status
+## Testing
 
-- [x] Repo scaffold
-- [ ] Chunking pipeline
-- [ ] Embedding + ChromaDB ingest
-- [ ] Tier classifier
-- [ ] Hybrid query + RRF
-- [ ] Eval harness
-- [ ] Consolidation (episodic → semantic)
-- [ ] Cron wiring
-- [ ] Integration test with OpenClaw MEMORY.md
-- [ ] v0.1 release
+```bash
+./.venv/bin/pytest -q                   # all 55 tests
+./.venv/bin/pytest tests/test_memory.py # just the new Memory facade
+./.venv/bin/pytest -k "watcher"         # watcher tests
+```
 
 ## License
 
-MIT
+MIT — see LICENSE.
