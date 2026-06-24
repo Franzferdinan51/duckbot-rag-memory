@@ -167,12 +167,20 @@ class DreamingBridge:
                 if key in ingested:
                     result.skipped += 1
                     continue
-                await self.memory.remember(
-                    entry,
-                    source_path=f"<dreaming/{kind}>{path.name}",
-                    force_tier="semantic",  # dreams = consolidated wisdom
-                    metadata={"dream_kind": kind, "source_file": str(path)},
-                )
+                # Wrap remember() so a single embedding/API failure doesn't
+                # abort the whole cycle and skip _save_state(). The previous
+                # code propagated the exception out, leaving partial ingest
+                # in the `ingested` map and no progress record.
+                try:
+                    await self.memory.remember(
+                        entry,
+                        source_path=f"<dreaming/{kind}>{path.name}",
+                        force_tier="semantic",  # dreams = consolidated wisdom
+                        metadata={"dream_kind": kind, "source_file": str(path)},
+                    )
+                except Exception as e:
+                    result.error = f"remember failed for {kind}:{path.name}: {e}"
+                    continue
                 ingested[key] = time.time()
                 result.new_entries += 1
                 result.by_kind[kind] = result.by_kind.get(kind, 0) + 1

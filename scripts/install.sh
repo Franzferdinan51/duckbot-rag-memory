@@ -54,8 +54,11 @@ else
   echo "⚠ No .env or .env.example; skipping"
 fi
 
-# 4. make scripts executable
-chmod +x scripts/*.sh 2>/dev/null || true
+# 4. make scripts executable. The `*.sh` glob misses `duckbot-ask`
+# (no extension) and the Python helpers (`_format_*.py`), so chmod
+# them explicitly.
+chmod +x scripts/*.sh scripts/duckbot-ask 2>/dev/null || true
+chmod +x scripts/_format_*.py 2>/dev/null || true
 
 # 5. git init if needed
 if [[ ! -d .git ]]; then

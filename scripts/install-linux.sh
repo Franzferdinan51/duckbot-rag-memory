@@ -29,6 +29,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Make shell + helper scripts executable. The `*.sh` glob misses
+# `duckbot-ask` (no extension) and the Python helpers, so chmod them
+# explicitly. Silently ignore if not present.
+chmod +x scripts/*.sh scripts/duckbot-ask 2>/dev/null || true
+chmod +x scripts/_format_*.py 2>/dev/null || true
+
 if [[ "$(uname -s 2>/dev/null || echo unknown)" != "Linux" ]]; then
   echo "❌ install-linux.sh: this is for Linux only. Detected: $(uname -s)" >&2
   exit 1

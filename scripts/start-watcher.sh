@@ -17,10 +17,16 @@
 #   data/watcher.pid  — PID written by the watcher itself in cmd_run
 #   data/watcher.log  — append-only log
 
-set -e
+set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+
+# Default OPENCLAW paths if not set. The previous version only watched
+# when the env var was already exported, which silently produced an
+# empty watch list on fresh installs.
+: "${OPENCLAW_MEMORY:=$HOME/.openclaw/workspace/memory}"
+: "${OPENCLAW_WORKSPACE:=$HOME/.openclaw/workspace}"
 
 # Load .env from the repo root if it exists. Pure bash parser so we don't
 # need python+dotenv on the install path.

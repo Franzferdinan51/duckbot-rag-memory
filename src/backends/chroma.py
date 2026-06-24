@@ -182,7 +182,14 @@ class ChromaBackend(VectorBackend):
         # Use ceil so the union of per-tier hits always has at least
         # n_results candidates after merging. Floor division here caused
         # silent under-fetching (e.g. 5 requested, 4 returned across 4 tiers).
-        per_tier = max(1, math.ceil(n_results / len(tiers))) if len(tiers) > 1 else n_results
+        # Honor n_results=0 literally (return nothing) instead of clamping
+        # to 1 — that was an off-by-one for callers passing 0.
+        if n_results <= 0:
+            per_tier = 0
+        elif len(tiers) > 1:
+            per_tier = math.ceil(n_results / len(tiers))
+        else:
+            per_tier = n_results
         out: list[VectorHit] = []
         for t in tiers:
             coll = self._collections[t]
@@ -259,8 +266,16 @@ class ChromaBackend(VectorBackend):
         ids_list = list(ids)
         if not ids_list:
             return 0
+        # Check which ids actually exist BEFORE deleting so we can report
+        # the real count. The previous implementation always returned
+        # len(ids_list), lying about deletions for unknown ids.
+        try:
+            before = self._collections[tier].get(ids=ids_list, include=[])
+            existing = set((before or {}).get("ids") or [])
+        except Exception:
+            existing = set(ids_list)  # be optimistic if the precheck fails
         self._collections[tier].delete(ids=ids_list)
-        return len(ids_list)
+        return len([i for i in ids_list if i in existing])
 
     def stats(self) -> BackendStats:
         tier_stats: list[TierStats] = []

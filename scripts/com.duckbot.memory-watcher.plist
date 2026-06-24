@@ -53,7 +53,7 @@
   <key>StandardOutPath</key>
   <string>__REPO_ROOT__/data/watcher.log</string>
   <key>StandardErrorPath</key>
-  <string>__REPO_ROOT__/data/watcher.log</string>
+  <string>__REPO_ROOT__/data/watcher.err.log</string>
   <key>ProcessType</key>
   <string>Background</string>
 </dict>

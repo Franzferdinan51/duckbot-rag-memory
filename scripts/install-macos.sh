@@ -28,8 +28,10 @@ else
   echo ".env already exists"
 fi
 
-# 4. make scripts executable
-chmod +x scripts/*.sh
+# 4. make scripts executable. The `*.sh` glob misses `duckbot-ask`
+# (no extension) and the Python helpers, so chmod them explicitly.
+chmod +x scripts/*.sh scripts/duckbot-ask 2>/dev/null || true
+chmod +x scripts/_format_*.py 2>/dev/null || true
 
 # 5. git init if needed
 if [[ ! -d .git ]]; then

@@ -84,21 +84,24 @@ class ActiveMemoryAdapter:
         # Use remember() with force_tier as a string. The v0.10.1 string
         # coercion fix handles that. remember() returns a RememberResult;
         # we surface its chunk_id (plus tier/importance for diagnostics).
+        # A quarantined result has chunk_id=None — distinguish that from
+        # a real store by also surfacing `quarantined`.
         r = self.brain.remember(
             text=text,
             source_path=source,
             force_tier=tier,
             metadata=metadata or {},
         )
-        chunk_id = r.chunk_id if hasattr(r, "chunk_id") else r
+        quarantined = bool(getattr(r, "quarantined", False))
+        stored = bool(getattr(r, "stored", True)) and not quarantined
         return ActiveMemoryResult(
             tool="memory_store",
             data={
-                "chunk_id": chunk_id,
-                "tier": r.tier if hasattr(r, "tier") and r.tier else tier,
+                "chunk_id": getattr(r, "chunk_id", None),
+                "tier": getattr(r, "tier", None) or tier,
                 "source": source,
-                "stored": getattr(r, "stored", True),
-                "quarantined": getattr(r, "quarantined", False),
+                "stored": stored,
+                "quarantined": quarantined,
             },
         ).to_dict()
 

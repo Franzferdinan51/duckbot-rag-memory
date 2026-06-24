@@ -87,11 +87,17 @@ EOF
             echo "❌ Unknown flag: $1 (try -h)" >&2
             exit 1 ;;
         *)
-            # First non-flag arg is the query; ignore trailing args.
+            # First non-flag arg starts the query. Concatenate any
+            # subsequent non-flag args (so unquoted multi-word queries
+            # work), but stop at the first flag. The previous version
+            # appended every trailing arg including flags, which
+            # produced "QUERY='foo -f json'" instead of parsing -f.
             QUERY="$1"
             shift
-            # If more args follow (e.g. unquoted words), concatenate them.
-            while [[ $# -gt 0 ]]; do QUERY="$QUERY $1"; shift; done
+            while [[ $# -gt 0 && "$1" != -* ]]; do
+                QUERY="$QUERY $1"
+                shift
+            done
             break ;;
     esac
 done

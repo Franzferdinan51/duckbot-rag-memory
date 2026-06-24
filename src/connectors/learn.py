@@ -102,15 +102,19 @@ class LearnBridge:
         # Step 3: optionally invoke `hermes learn "<text>"`.
         if self.invoke_hermes and shutil.which("hermes"):
             try:
+                # `--` ensures `text` can't be interpreted as a flag by
+                # hermes (a text starting with "-" being read as an option).
+                # Catch broader OSError so a permission-denied hermes binary
+                # doesn't escape the function.
                 proc = subprocess.run(
-                    ["hermes", "learn", text],
+                    ["hermes", "learn", "--", text],
                     capture_output=True,
                     text=True,
                     timeout=30,
                 )
                 result.hermes_invoked = True
                 result.hermes_output = (proc.stdout or "") + (proc.stderr or "")
-            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            except (subprocess.SubprocessError, OSError) as e:
                 result.hermes_output = f"hermes invocation failed: {e}"
 
         return result

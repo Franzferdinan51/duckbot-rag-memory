@@ -411,7 +411,11 @@ def test_active_memory_memory_store_force_tier_string():
     class FakeBrain:
         def remember(self, **kwargs):
             captured.update(kwargs)
-            return "fake-chunk-id"
+            # Real contract (v0.10.1+): Brain.remember() returns RememberResult,
+            # NOT a bare string. The previous test stub simulated the old buggy
+            # shape and pinned against the wrong code.
+            from src.connectors.base import RememberResult
+            return RememberResult(chunk_id="fake-chunk-id", tier="procedural", stored=True)
 
     adapter = ActiveMemoryAdapter.__new__(ActiveMemoryAdapter)
     adapter.brain = FakeBrain()

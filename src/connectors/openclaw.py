@@ -526,7 +526,16 @@ def handle(tool_name: str, args: dict) -> dict:
 
         return {"error": f"unknown tool: {tool_name}"}
     except Exception as e:
-        return {"error": f"{type(e).__name__}: {e}", "tool": tool_name, "args": args}
+        # Do NOT include `args` in the response — it may contain the user's
+        # raw prompt (including any prompt-injection text that triggered
+        # the quarantine path), and we'd be echoing attacker-controlled
+        # bytes back through the MCP client. Log the full args server-side
+        # if needed; surface only the error class + message.
+        import logging
+        logging.getLogger(__name__).warning(
+            "openclaw tool %s failed: %s", tool_name, e, exc_info=True,
+        )
+        return {"error": f"{type(e).__name__}: {e}", "tool": tool_name}
 
 
 # -----------------------------------------------------------------------------

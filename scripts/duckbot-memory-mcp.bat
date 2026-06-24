@@ -19,10 +19,16 @@ setlocal
 set "REPO_ROOT=%~dp0.."
 cd /d "%REPO_ROOT%"
 
-REM Load .env if present
+REM Load .env if present. The previous `for /f ... delims==` parsed
+REM incorrectly: values containing `=`, `&`, `|`, `<`, `>`, `%` were
+REM mangled, comments/blank lines weren't skipped, and trailing `=`
+REM was lost. Use findstr to skip blanks/comments first, then split
+REM ONLY on the first `=`.
 if exist "%REPO_ROOT%\.env" (
-    for /f "usebackq tokens=1,* delims==" %%A in ("%REPO_ROOT%\.env") do (
-        set "%%A=%%B"
+    for /f "usebackq tokens=1* delims==" %%A in (`
+        findstr /v /r /c:"^$" /c:"^#;" "%REPO_ROOT%\.env"
+    `) do (
+        if not "%%A"=="" set "%%A=%%B"
     )
 )
 
