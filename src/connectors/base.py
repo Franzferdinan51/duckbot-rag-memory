@@ -794,6 +794,71 @@ class Brain:
 
         return _run_async(_search())
 
+    # ----------------------------------------------------- v0.11.0 extensions
+    # The next three methods are the v0.11.0 add-on integrations:
+    #   - OpenClaw dreaming bridge (DREAMS.md + memory/dreaming/*.md)
+    #   - Hermes /learn shim (skill creation + brain ingest)
+    #   - Active Memory tool aliases (memory_query / memory_store / etc.)
+    # They are exposed on the Brain facade so MCP / OpenClaw / Hermes
+    # connectors and CLI callers all share the same entry point.
+
+    def dreaming_read(self) -> dict:
+        """Pull DREAMS.md + memory/dreaming/*.md into the brain as `semantic`.
+
+        Idempotent — uses content-hash state to skip already-ingested entries.
+        Returns a dict with new_entries, skipped, by_kind, sources.
+        """
+        from .dreaming import read_dreams
+        from src.memory import Memory
+        mem = Memory()
+        return read_dreams(mem)
+
+    def dreaming_cycle(self, k: int = 10, min_importance: float = 0.5) -> dict:
+        """Distill high-importance episodic chunks into a new dream entry.
+
+        Writes to memory/dreaming/deep/<date>.md so OpenClaw's dreamer can
+        pick it up on its next pass. Returns distilled_chunks, by_tier,
+        output_files.
+        """
+        from .dreaming import write_dream_cycle
+        from src.memory import Memory
+        mem = Memory()
+        return write_dream_cycle(mem, k=k, min_importance=min_importance)
+
+    def learn(
+        self,
+        text: str,
+        force_tier: str = "procedural",
+        source: str = "<hermes-/learn>",
+        metadata: Optional[dict] = None,
+        invoke_hermes: bool = True,
+    ) -> dict:
+        """Hermes /learn shim. Ingest + write to memory/learning/ + invoke
+        `hermes learn` if available. Returns chunk_id, written_to,
+        hermes_invoked, hermes_output.
+        """
+        from .learn import learn as _learn
+        from src.memory import Memory
+        mem = Memory()
+        return _learn(
+            mem,
+            text=text,
+            force_tier=force_tier,
+            source=source,
+            metadata=metadata,
+            invoke_hermes=invoke_hermes,
+        )
+
+    def active_memory(self, tool: str, args: Optional[dict] = None) -> dict:
+        """OpenClaw Active Memory tool alias.
+
+        Dispatches `memory_query`, `memory_store`, `memory_recent`,
+        `memory_forget` to the brain. Returns {ok, tool, data, error}.
+        """
+        from .active_memory import make_adapter
+        adapter = make_adapter(self)
+        return adapter.call(tool, args or {})
+
     # -------------------------------------------------------------------- stats
     def stats(self, include_vector_store: bool = True) -> BrainStats:
         """One-glance snapshot of all 5 layers.

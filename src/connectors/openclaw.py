@@ -314,6 +314,64 @@ TOOL_DEFINITIONS: list[dict] = [
             "required": ["needle"],
         },
     },
+    # ----- v0.11.0 — OpenClaw dreaming bridge + Hermes /learn + Active Memory -----
+    {
+        "name": "brain_dreaming_read",
+        "description": (
+            "v0.11.0: Pull DREAMS.md + memory/dreaming/*.md into the brain as "
+            "`semantic` tier. Idempotent. Returns new_entries, skipped, by_kind, sources."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "brain_dreaming_cycle",
+        "description": (
+            "v0.11.0: Distill high-importance episodic chunks into a new dream "
+            "entry. Returns distilled_chunks, by_tier, output_files."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "k": {"type": "integer", "default": 10},
+                "min_importance": {"type": "number", "default": 0.5},
+            },
+        },
+    },
+    {
+        "name": "brain_learn",
+        "description": (
+            "v0.11.0: Hermes /learn shim. Ingest + write to memory/learning/ + "
+            "optionally invoke `hermes learn`. Returns chunk_id, written_to, "
+            "hermes_invoked, hermes_output."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "force_tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "default": "procedural"},
+                "source": {"type": "string", "default": "<hermes-/learn>"},
+                "metadata": {"type": "object"},
+                "invoke_hermes": {"type": "boolean", "default": True},
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "brain_active_memory",
+        "description": (
+            "v0.11.0: OpenClaw Active Memory tool alias. Dispatches "
+            "memory_query / memory_store / memory_recent / memory_forget. "
+            "Returns {ok, tool, data, error}."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tool": {"type": "string", "enum": ["memory_query", "memory_store", "memory_recent", "memory_forget"]},
+                "args": {"type": "object"},
+            },
+            "required": ["tool"],
+        },
+    },
 ]  
 
 
@@ -457,6 +515,28 @@ def handle(tool_name: str, args: dict) -> dict:
                 k=args.get("k", 5),
             )}
 
+        # v0.11.0 — OpenClaw dreaming bridge + Hermes /learn + Active Memory
+        if tool_name == "brain_dreaming_read":
+            return brain.dreaming_read()
+        if tool_name == "brain_dreaming_cycle":
+            return brain.dreaming_cycle(
+                k=args.get("k", 10),
+                min_importance=args.get("min_importance", 0.5),
+            )
+        if tool_name == "brain_learn":
+            return brain.learn(
+                text=args["text"],
+                force_tier=args.get("force_tier", "procedural"),
+                source=args.get("source", "<hermes-/learn>"),
+                metadata=args.get("metadata"),
+                invoke_hermes=args.get("invoke_hermes", True),
+            )
+        if tool_name == "brain_active_memory":
+            return brain.active_memory(
+                tool=args["tool"],
+                args=args.get("args", {}),
+            )
+
         return {"error": f"unknown tool: {tool_name}"}
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}", "tool": tool_name, "args": args}
@@ -478,7 +558,7 @@ def openclaw_config_snippet(repo_path: str = "/Users/duckets/Desktop/duckbot-rag
             "command": f"{repo_path}/.venv/bin/python",
             "args": ["-m", "src.mcp_server"],
             "cwd": repo_path,
-            "description": "DuckBot brain: vector + graph + blocks + quarantine (16 tools)",
+            "description": "DuckBot brain: vector + graph + blocks + quarantine + dreaming + /learn + active-memory (39 tools)",
             "env": {
                 "DUCKBOT_EMBEDDING": "minimax",
                 # MINIMAX_API_KEY should be read from openclaw.json's secrets,

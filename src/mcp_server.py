@@ -173,6 +173,67 @@ TOOLS = [
             "required": ["needle"],
         },
     },
+    # ---- v0.11.0 — OpenClaw dreaming bridge + Hermes /learn + Active Memory ----
+    {
+        "name": "dreaming_read",
+        "description": (
+            "v0.11.0: Pull DREAMS.md + memory/dreaming/*.md into the brain as "
+            "`semantic` tier. Idempotent — uses content-hash state to skip "
+            "already-ingested entries. Returns new_entries, skipped, by_kind, sources."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "dreaming_cycle",
+        "description": (
+            "v0.11.0: Distill high-importance episodic chunks into a new dream "
+            "entry at memory/dreaming/deep/<date>.md. OpenClaw's dreamer picks it "
+            "up on its next pass. Returns distilled_chunks, by_tier, output_files."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "k": {"type": "integer", "default": 10, "description": "max chunks to consider"},
+                "min_importance": {"type": "number", "default": 0.5, "description": "floor for inclusion"},
+            },
+        },
+    },
+    {
+        "name": "learn",
+        "description": (
+            "v0.11.0: Hermes /learn shim. Ingest `text` into the brain as "
+            "`procedural` tier + write to memory/learning/<date>.md + (if `hermes` "
+            "is on PATH) shell out to `hermes learn`. Returns chunk_id, "
+            "written_to, hermes_invoked, hermes_output."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "force_tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "default": "procedural"},
+                "source": {"type": "string", "default": "<hermes-/learn>"},
+                "metadata": {"type": "object"},
+                "invoke_hermes": {"type": "boolean", "default": True},
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "active_memory",
+        "description": (
+            "v0.11.0: OpenClaw Active Memory tool alias. Dispatches `memory_query`, "
+            "`memory_store`, `memory_recent`, `memory_forget` to the brain. "
+            "Returns {ok, tool, data, error}."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tool": {"type": "string", "enum": ["memory_query", "memory_store", "memory_recent", "memory_forget"]},
+                "args": {"type": "object", "description": "args for the inner tool"},
+            },
+            "required": ["tool"],
+        },
+    },
 ]  
 
 
@@ -308,6 +369,44 @@ async def handle_search_verbatim(args: dict) -> dict:
     )}
 
 
+# ---- v0.11.0 — OpenClaw dreaming bridge + Hermes /learn + Active Memory ----
+
+async def handle_dreaming_read(args: dict) -> dict:
+    from src.connectors.base import Brain
+    brain = Brain()
+    return brain.dreaming_read()
+
+
+async def handle_dreaming_cycle(args: dict) -> dict:
+    from src.connectors.base import Brain
+    brain = Brain()
+    return brain.dreaming_cycle(
+        k=args.get("k", 10),
+        min_importance=args.get("min_importance", 0.5),
+    )
+
+
+async def handle_learn(args: dict) -> dict:
+    from src.connectors.base import Brain
+    brain = Brain()
+    return brain.learn(
+        text=args["text"],
+        force_tier=args.get("force_tier", "procedural"),
+        source=args.get("source", "<hermes-/learn>"),
+        metadata=args.get("metadata"),
+        invoke_hermes=args.get("invoke_hermes", True),
+    )
+
+
+async def handle_active_memory(args: dict) -> dict:
+    from src.connectors.base import Brain
+    brain = Brain()
+    return brain.active_memory(
+        tool=args["tool"],
+        args=args.get("args", {}),
+    )
+
+
 async def handle_stats(args: dict) -> dict:
     mem = Memory()
     snap = await mem.stats()
@@ -380,6 +479,11 @@ HANDLERS = {
     "decay_status": handle_decay_status,
     "forget_by_query": handle_forget_by_query,
     "search_verbatim": handle_search_verbatim,
+    # v0.11.0 — OpenClaw dreaming bridge + Hermes /learn + Active Memory
+    "dreaming_read": handle_dreaming_read,
+    "dreaming_cycle": handle_dreaming_cycle,
+    "learn": handle_learn,
+    "active_memory": handle_active_memory,
 }
 
 # Register the 18 connector tools (graph + blocks + quarantine + scan).
