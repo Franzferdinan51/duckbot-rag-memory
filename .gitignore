@@ -22,7 +22,14 @@ venv/
 
 # OS
 Thumbs.db
+
 # Runtime state (PID files, logs) — generated at runtime
 data/*.pid
 data/*.log
 data/watcher_state.json
+
+# Session notes — written by the watcher for KAIROS / DuckBot's memory
+# pipeline. These contain private file paths and conversation context that
+# should NOT be committed. The watcher ingests them automatically; the git
+# repo stays clean.
+memory/

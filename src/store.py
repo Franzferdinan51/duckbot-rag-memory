@@ -1,29 +1,49 @@
 """
-store.py — ChromaDB wrapper with tier-aware collections.
+store.py — tier-aware memory store.
 
-Architecture: one collection per memory tier (working/episodic/semantic/procedural).
-This lets us:
-  - Run tier-specific queries (e.g., "show me procedural rules")
-  - Apply different eviction policies per tier
-  - Maintain separate metadata schemas per tier
-  - Track usage stats independently
+This module is the BACKWARDS-COMPATIBLE adapter over the new pluggable
+backend seam (src/backends/). Existing callers (src/ingest.py,
+src/query.py, src/memory.py, src/dashboard.py, src/cli.py, tests/)
+still construct `MemoryStore(...)` and call `.query()`, `.bm25_query()`,
+`.add_chunks()` etc. Internally, MemoryStore now delegates to a
+`VectorBackend` from src/backends/, selected by `DUCKBOT_BACKEND`
+(default "chroma").
 
-Borrowed from Cognee's "collections per semantic layer" pattern.
+This is Layer 14 of the brain-upgrade roadmap. Pattern source:
+MemPalace's `backends/base.py` (MIT).
+
+The delegation is one-for-one:
+  - MemoryStore.add_chunks()    → backend.add_chunks()
+  - MemoryStore.query()         → backend.query()
+  - MemoryStore.bm25_query()    → backend.bm25_query()
+  - MemoryStore.delete()        → backend.delete()
+  - MemoryStore.stats()         → backend.stats()
+  - MemoryStore.collection_for()→ backend.collection_for()
+
+The dictionary-shaped return values are preserved so existing code
+that destructures {id, text, metadata, distance} keeps working.
+
+`MemoryStore.add_chunks()` stays async because some callers
+(src/memory.py:219) `await` it; the backend call is sync but we wrap
+in `asyncio.to_thread` so callers don't pay a cost.
+
+Legacy helpers (mark_ingested, mark_queried, reset) are preserved as
+no-ops or backends. mark_ingested / mark_queried simply update the
+backend's last_*_ts counters. reset() wipes the backend's collections
+when supported (Chroma yes; stubs may raise NotImplementedError).
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import chromadb
-from chromadb.config import Settings as ChromaSettings
-
+from .backends import get_backend
+from .backends.base import BackendStats
 from .chunk import Chunk
 from .tier import Tier
 
@@ -31,24 +51,15 @@ from .tier import Tier
 DEFAULT_PERSIST_DIR = Path(__file__).resolve().parent.parent / "data" / "chroma"
 
 
-def _coerce_chroma(value: Any) -> str | int | float | bool:
-    """Chroma metadata must be primitive (str/int/float/bool). Coerce lists/dicts."""
-    if isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, (list, tuple, set)):
-        # Serialize as comma-separated string; max 200 chars
-        s = ",".join(str(v) for v in value)
-        return s[:200]
-    if isinstance(value, dict):
-        # JSON-encode; cap length
-        s = json.dumps(value, sort_keys=True, default=str)
-        return s[:200]
-    return str(value)[:200]
+# -----------------------------------------------------------------------------
+# Stats (legacy dataclass, kept for backward compat)
+# -----------------------------------------------------------------------------
 
 
 @dataclass
 class StoreStats:
     """Snapshot of collection sizes."""
+
     working: int = 0
     episodic: int = 0
     semantic: int = 0
@@ -69,48 +80,77 @@ class StoreStats:
         }
 
 
-class MemoryStore:
-    """Tier-aware ChromaDB wrapper.
+# -----------------------------------------------------------------------------
+# Legacy adapter over the new VectorBackend ABC
+# -----------------------------------------------------------------------------
 
-    Each tier is its own collection. Metadata is stored alongside embeddings
-    so we can do hybrid (vector + filter) queries.
+
+class MemoryStore:
+    """Backward-compatible adapter over VectorBackend (src/backends/).
+
+    Existing callers (src/query.py, src/ingest.py, src/memory.py,
+    src/dashboard.py, src/cli.py, src/connectors/base.py, src/eval.py,
+    src/watcher.py) construct a `MemoryStore` and call methods on it.
+    Internally we delegate to a configured backend (default: Chroma).
+
+    Selection is driven by DUCKBOT_BACKEND env var (default "chroma").
+    To swap in Qdrant or LanceDB later:
+      - export DUCKBOT_BACKEND=qdrant
+      - pip install qdrant-client
+      - implement the stub methods in src/backends/qdrant.py
+
+    No code in this file touches Chroma directly anymore; that's all
+    in src/backends/chroma.py.
     """
 
     def __init__(
         self,
         persist_dir: Path | str | None = None,
         embedding_dim: int = 1536,
-        embedding_provider_name: str = "openai",
+        embedding_provider_name: str = "lmstudio",
+        backend_name: str | None = None,
     ) -> None:
-        self.persist_dir = Path(persist_dir) if persist_dir else DEFAULT_PERSIST_DIR
-        self.persist_dir.mkdir(parents=True, exist_ok=True)
+        self.persist_dir = (
+            Path(persist_dir) if persist_dir
+            else Path(os.environ.get("DUCKBOT_CHROMA_DIR", str(DEFAULT_PERSIST_DIR)))
+        )
         self.embedding_dim = embedding_dim
         self.embedding_provider_name = embedding_provider_name
-        self._client = chromadb.PersistentClient(
-            path=str(self.persist_dir),
-            settings=ChromaSettings(
-                anonymized_telemetry=False,
-                allow_reset=True,
-            ),
-        )
-        self._collections: dict[Tier, Any] = {}
-        for tier in Tier:
-            self._collections[tier] = self._client.get_or_create_collection(
-                name=f"duckbot_{tier.value}",
-                metadata={
-                    "hnsw:space": "cosine",
-                    "tier": tier.value,
-                    "embedding_dim": embedding_dim,
-                    "embedding_provider": embedding_provider_name,
-                },
-            )
+        self.backend_name = backend_name or os.environ.get("DUCKBOT_BACKEND", "chroma")
+
+        # Build the backend. Only Chroma cares about persist_dir today;
+        # other backends get kwargs as a passthrough.
+        backend_kwargs: dict[str, Any] = {
+            "embedding_dim": embedding_dim,
+            "embedding_provider_name": embedding_provider_name,
+        }
+        if self.backend_name == "chroma":
+            backend_kwargs["persist_dir"] = self.persist_dir
+
+        self._backend = get_backend(self.backend_name, **backend_kwargs)
+
+    # ---- Direct access (for tests / dashboard) -----------------------------
+
+    @property
+    def backend(self):
+        """The underlying VectorBackend. Use this for new code."""
+        return self._backend
 
     def collection_for(self, tier: Tier) -> Any:
-        return self._collections[tier]
+        """Return the underlying collection object (Chroma-specific helper).
+
+        For other backends (Qdrant/LanceDB), this returns whatever the
+        backend exposes as a "collection" handle. Most callers should
+        use the abstract API (query/bm25_query/add_chunks/delete) instead.
+        """
+        return self._backend.collection_for(tier.value)
 
     @property
     def all_collections(self) -> dict[Tier, Any]:
-        return self._collections
+        """All {tier: collection} pairs."""
+        return {Tier(t): self._backend.collection_for(t) for t in self._backend.supported_tiers}
+
+    # ---- Core ops (async wrappers around the sync backend) ------------------
 
     async def add_chunks(
         self,
@@ -121,65 +161,13 @@ class MemoryStore:
     ) -> int:
         """Add chunks + pre-computed embeddings to a tier collection.
 
-        Args:
-          chunks: list of Chunk dataclasses
-          embeddings: parallel list of pre-computed embedding vectors
-          tier: which tier collection to add to
-          metadata_override: optional parallel list of metadata dicts to merge
-            on top of the auto-generated metadata. Used by the Memory facade
-            to inject importance, entities, recall_count, etc.
-
-        Returns the number of chunks added (upserted).
+        Async wrapper around the sync backend call. The original API was
+        `async`, so we preserve that signature for callers like
+        src/memory.py:219 (`await store.add_chunks(...)`).
         """
-        if not chunks:
-            return 0
-        if len(chunks) != len(embeddings):
-            raise ValueError(
-                f"chunk/embedding count mismatch: {len(chunks)} chunks, {len(embeddings)} embeddings"
-            )
-        if metadata_override is not None and len(metadata_override) != len(chunks):
-            raise ValueError(
-                f"metadata_override count mismatch: {len(chunks)} chunks, {len(metadata_override)} overrides"
-            )
-        coll = self._collections[tier]
-        ids = [c.id for c in chunks]
-        # Build metadata. Keep it flat — Chroma metadata must be primitives.
-        metadatas = []
-        for i, c in enumerate(chunks):
-            m = {
-                "source_path": c.source_path,
-                "chunk_index": c.chunk_index,
-                "total_chunks": c.total_chunks,
-                "has_code": c.has_code,
-                "char_count": c.char_count,
-                "tier": tier.value,
-                "ingested_at": int(time.time()),
-            }
-            if c.section_header:
-                m["section_header"] = c.section_header[:200]
-            # L13 verbatim-first: store the pre-overlap original text in
-            # metadata so a "show me exactly what Duckets said" query can
-            # return the source bytes. Truncate to 8KB for Chroma sanity
-            # (we have 40k chunks; total verbatim storage ~ 320 MB worst case).
-            verbatim = c.verbatim_text or c.text
-            if len(verbatim) > 8192:
-                verbatim = verbatim[:8192] + "\n...[truncated]"
-            m["verbatim_text"] = verbatim
-            if metadata_override is not None:
-                m.update(metadata_override[i])
-            # Chroma requires primitive values; coerce
-            m = {k: _coerce_chroma(v) for k, v in m.items()}
-            metadatas.append(m)
-        documents = [c.text for c in chunks]
-
-        # Use upsert so re-ingesting the same chunk is idempotent.
-        coll.upsert(
-            ids=ids,
-            embeddings=embeddings,
-            documents=documents,
-            metadatas=metadatas,
+        return await asyncio.to_thread(
+            self._backend.add_chunks, chunks, embeddings, tier.value, metadata_override
         )
-        return len(chunks)
 
     def query(
         self,
@@ -189,44 +177,20 @@ class MemoryStore:
         where: dict[str, Any] | None = None,
         where_document: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Query one collection (or all if tier=None).
+        """Query the vector index.
 
-        Returns a list of {id, text, metadata, distance} dicts sorted by relevance.
+        Returns a list of {id, text, metadata, distance, tier} dicts
+        (the legacy dict shape — preserved for backward compat with
+        src/query.py which destructures this shape).
         """
-        results: list[dict[str, Any]] = []
-        tiers = [tier] if tier else list(Tier)
-        per_tier = max(1, n_results // len(tiers)) if len(tiers) > 1 else n_results
-
-        for t in tiers:
-            coll = self._collections[t]
-            try:
-                resp = coll.query(
-                    query_embeddings=[query_embedding],
-                    n_results=per_tier,
-                    where=where,
-                    where_document=where_document,
-                    include=["documents", "metadatas", "distances"],
-                )
-            except Exception:
-                # Collection might be empty; skip silently
-                continue
-            if not resp or not resp.get("ids"):
-                continue
-            ids = resp["ids"][0]
-            docs = resp["documents"][0]
-            metas = resp["metadatas"][0]
-            dists = resp["distances"][0]
-            for i, doc_id in enumerate(ids):
-                results.append({
-                    "id": doc_id,
-                    "text": docs[i],
-                    "metadata": metas[i],
-                    "distance": dists[i],
-                    "tier": t.value,
-                })
-        # Sort by distance (cosine; lower = more similar)
-        results.sort(key=lambda r: r["distance"])
-        return results[:n_results]
+        hits = self._backend.query(
+            query_embedding=query_embedding,
+            tier=tier.value if tier else None,
+            n_results=n_results,
+            where=where,
+            where_document=where_document,
+        )
+        return [h.to_dict() for h in hits]
 
     def bm25_query(
         self,
@@ -235,127 +199,90 @@ class MemoryStore:
         n_results: int = 5,
         where_document_contains: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Keyword/BM25-style search using ChromaDB's where_document filter.
+        """Lexical / keyword search.
 
-        ChromaDB doesn't have native BM25 (it uses HNSW on dense vectors), but
-        we approximate it with simple `contains` filters. For a small corpus
-        (50k-100k chunks) this is plenty.
+        The legacy API accepted `where_document_contains` which we ignore
+        (the new ABC takes just query_text + tier). Backends with native
+        where_document support can be wired in later if needed.
         """
-        keywords = [k for k in query_text.split() if len(k) > 2][:8]
-        if not keywords:
-            return []
-        # Build where_document with $or of contains conditions
-        conditions = [{"$contains": k} for k in keywords[:4]]
-        where_doc: dict[str, Any] = conditions[0] if len(conditions) == 1 else {"$or": conditions}
+        del where_document_contains  # legacy kwarg, unused in new API
+        hits = self._backend.bm25_query(
+            query_text=query_text,
+            tier=tier.value if tier else None,
+            n_results=n_results,
+        )
+        return [h.to_dict() for h in hits]
 
-        results: list[dict[str, Any]] = []
-        tiers = [tier] if tier else list(Tier)
-        for t in tiers:
-            coll = self._collections[t]
-            try:
-                resp = coll.get(
-                    where_document=where_doc,
-                    include=["documents", "metadatas"],
-                    limit=n_results * 2,  # over-fetch, then rank
-                )
-            except Exception:
-                continue
-            if not resp or not resp.get("ids"):
-                continue
-            # Rank by number of keyword hits
-            for i, doc_id in enumerate(resp["ids"]):
-                doc_text = resp["documents"][i].lower()
-                hits = sum(1 for k in keywords if k.lower() in doc_text)
-                if hits == 0:
-                    continue
-                results.append({
-                    "id": doc_id,
-                    "text": resp["documents"][i],
-                    "metadata": resp["metadatas"][i],
-                    "distance": 1.0 - (hits / max(len(keywords), 1)),  # pseudo-distance
-                    "tier": t.value,
-                    "bm25_hits": hits,
-                })
-        results.sort(key=lambda r: r.get("bm25_hits", 0), reverse=True)
-        return results[:n_results]
+    def delete(self, ids, tier: Tier) -> int:
+        """Delete chunks by id from a tier collection."""
+        return self._backend.delete(ids, tier.value)
 
     def stats(self) -> StoreStats:
-        """Snapshot of collection sizes. Falls back to direct SQLite when the
-        ChromaDB count() is slow (>1000 chunks this matters)."""
-        s = StoreStats()
-        # Fast path: query SQLite directly
-        try:
-            import sqlite3
-            db_path = self.persist_dir / "chroma.sqlite3"
-            if db_path.exists():
-                conn = sqlite3.connect(str(db_path), timeout=5)
-                try:
-                    rows = conn.execute(
-                        "SELECT c.name, count(e.id) FROM collections c "
-                        "LEFT JOIN segments s ON s.collection=c.id "
-                        "LEFT JOIN embeddings e ON e.segment_id=s.id "
-                        "WHERE c.name LIKE 'duckbot_%' GROUP BY c.name"
-                    ).fetchall()
-                    name_to_count = {name: count for name, count in rows}
-                finally:
-                    conn.close()
-                for tier in Tier:
-                    count = name_to_count.get(f"duckbot_{tier.value}", 0)
-                    setattr(s, tier.value, count)
-                    s.total += count
-                return s
-        except Exception:
-            pass
-        # Fallback: slow path
-        for tier in Tier:
-            coll = self._collections[tier]
-            count = coll.count()
-            setattr(s, tier.value, count)
-            s.total += count
-        # Track last operation timestamps via a meta collection
-        try:
-            meta = self._client.get_or_create_collection("meta_internal")
-            data = meta.get()
-            if data and data.get("metadatas"):
-                for m in data["metadatas"]:
-                    if "last_ingest_ts" in m:
-                        s.last_ingest_ts = m["last_ingest_ts"]
-                    if "last_query_ts" in m:
-                        s.last_query_ts = m["last_query_ts"]
-        except Exception:
-            pass
-        return s
+        """Return a legacy StoreStats view over the backend's BackendStats."""
+        backend_stats = self._backend.stats()
+        per_tier = backend_stats.chunks_per_tier()
+        return StoreStats(
+            working=per_tier.get("working", 0),
+            episodic=per_tier.get("episodic", 0),
+            semantic=per_tier.get("semantic", 0),
+            procedural=per_tier.get("procedural", 0),
+            total=backend_stats.total,
+            last_ingest_ts=backend_stats.last_ingest_ts,
+            last_query_ts=backend_stats.last_query_ts,
+        )
+
+    def backend_stats(self) -> BackendStats:
+        """Return the full BackendStats (richer than legacy StoreStats)."""
+        return self._backend.stats()
+
+    # ---- Legacy helpers (preserved for backward compat) --------------------
 
     def mark_ingested(self) -> None:
-        meta = self._client.get_or_create_collection("meta_internal")
-        meta.upsert(
-            ids=["ingest_marker"],
-            documents=["ingest_marker"],  # Chroma requires documents OR images
-            metadatas=[{"last_ingest_ts": int(time.time()), "total_at_ingest": self.stats().total}],
-        )
+        """Update the last-ingest timestamp on the backend.
+
+        Backends should record this for stats reporting. The Chroma
+        implementation uses an internal 'meta_internal' collection.
+        """
+        # We just touch a backend-level timestamp via stats(); the actual
+        # timestamp tracking happens in the backend's collection upserts.
+        # For backward compat we still allow this method to be called.
+        if hasattr(self._backend, "mark_ingested"):
+            self._backend.mark_ingested()
+        return None
 
     def mark_queried(self) -> None:
-        meta = self._client.get_or_create_collection("meta_internal")
-        meta.upsert(
-            ids=["query_marker"],
-            documents=["query_marker"],  # Chroma requires documents OR images
-            metadatas=[{"last_query_ts": int(time.time())}],
-        )
+        """Update the last-query timestamp on the backend."""
+        if hasattr(self._backend, "mark_queried"):
+            self._backend.mark_queried()
+        return None
 
     def reset(self) -> None:
-        """Wipe all collections. Used by tests."""
-        for tier in Tier:
+        """Wipe all collections. Used by tests.
+
+        Tries the backend's reset() if implemented (ChromaBackend
+        supports it). Falls back to per-tier delete on all known ids.
+        """
+        if hasattr(self._backend, "reset"):
             try:
-                self._client.delete_collection(f"duckbot_{tier.value}")
+                self._backend.reset()
+                return None
             except Exception:
                 pass
-        try:
-            self._client.delete_collection("meta_internal")
-        except Exception:
-            pass
-        # Re-create
-        for tier in Tier:
-            self._collections[tier] = self._client.get_or_create_collection(
-                name=f"duckbot_{tier.value}",
-                metadata={"hnsw:space": "cosine", "tier": tier.value},
-            )
+        # Fallback: enumerate ids in each tier collection and delete them.
+        for tier_name in self._backend.supported_tiers:
+            try:
+                coll = self._backend.collection_for(tier_name)
+                resp = coll.get(include=[])
+                ids = (resp or {}).get("ids") or []
+                if ids:
+                    self._backend.delete(ids, tier_name)
+            except Exception:
+                continue
+        return None
+
+
+__all__ = [
+    "DEFAULT_PERSIST_DIR",
+    "StoreStats",
+    "MemoryStore",
+]
