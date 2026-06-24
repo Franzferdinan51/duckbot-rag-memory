@@ -135,16 +135,46 @@ if ($Foreground) {
 
 # Background: launch detached.
 Write-Host "Starting watcher in background..."
-$WatchPaths = @(
-    (Join-Path $RepoRoot "memory"),
+
+# Build watch list. Start with OpenClaw paths from .env (if present), then
+# fall back to repo-relative defaults. This makes the script work for
+# any host — local Duckets setup, a CI runner, a friend's box — without
+# hardcoded paths.
+$WatchPaths = @()
+
+# 1. Load .env from the repo root if it exists (no external deps).
+$EnvFile = Join-Path $RepoRoot ".env"
+if (Test-Path $EnvFile) {
+    Get-Content $EnvFile | ForEach-Object {
+        if ($_ -match '^\s*#' -or $_ -match '^\s*$') { return }
+        if ($_ -match '^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$') {
+            $name = $matches[1]; $value = $matches[2]
+            # strip optional surrounding quotes
+            if ($value -match '^"(.*)"$') { $value = $matches[1] }
+            elseif ($value -match "^'(.*)'$") { $value = $matches[1] }
+            Set-Item -Path "Env:$name" -Value $value
+        }
+    }
+}
+
+# 2. OpenClaw integration (if .env defines them).
+foreach ($var in @("OPENCLAW_MEMORY", "OPENCLAW_WORKSPACE")) {
+    $val = (Get-Item -Path "Env:$var" -ErrorAction SilentlyContinue).Value
+    if ($val -and (Test-Path $val)) { $WatchPaths += $val }
+}
+
+# 3. Repo-local docs (these ship in the repo and are always relative).
+$WatchPaths += @(
     (Join-Path $RepoRoot "AGENTS.md"),
     (Join-Path $RepoRoot "SOUL.md"),
     (Join-Path $RepoRoot "USER.md"),
     (Join-Path $RepoRoot "IDENTITY.md"),
-    (Join-Path $RepoRoot "TOOLS.md")
+    (Join-Path $RepoRoot "TOOLS.md"),
+    (Join-Path $RepoRoot "README.md"),
+    (Join-Path $RepoRoot "CHANGELOG.md")
 )
-# Only include paths that exist
-$WatchPaths = $WatchPaths | Where-Object { Test-Path $_ }
+# Only include paths that exist (Test-Path works for files and dirs alike).
+$WatchPaths = $WatchPaths | Where-Object { Test-Path $_ } | Select-Object -Unique
 
 $Args = @("-m", "src.watcher", "run")
 foreach ($p in $WatchPaths) { $Args += @($p) }

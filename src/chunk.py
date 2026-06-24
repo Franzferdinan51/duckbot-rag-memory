@@ -264,8 +264,10 @@ def iter_markdown_files(paths: Iterable[str]) -> Iterable[tuple[str, str]]:
     for p in paths:
         path = Path(p).expanduser()
         if path.is_file() and path.suffix.lower() in {".md", ".markdown"}:
-            yield (str(path), path.read_text(encoding="utf-8"))
+            # errors='replace' so non-UTF-8 bytes in legacy/cp1252-saved files
+            # don't crash the whole watcher sync on one bad byte.
+            yield (str(path), path.read_text(encoding="utf-8", errors="replace"))
         elif path.is_dir():
             for child in path.rglob("*"):
                 if child.is_file() and child.suffix.lower() in {".md", ".markdown"}:
-                    yield (str(child), child.read_text(encoding="utf-8"))
+                    yield (str(child), child.read_text(encoding="utf-8", errors="replace"))
