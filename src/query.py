@@ -85,6 +85,8 @@ async def hybrid_query(
     n_results: int = 5,
     tier: Tier | None = None,
     over_fetch: int = 3,
+    rerank: bool | None = None,
+    decay: bool | None = None,
 ) -> tuple[list[QueryResult], QueryStats]:
     """Run hybrid vector + BM25 query, fuse with RRF.
 
@@ -156,6 +158,36 @@ async def hybrid_query(
     # Phase 5: sort by RRF desc, return top n
     results = sorted(by_id.values(), key=lambda r: r.rrf_score, reverse=True)[:n_results]
     stats.fused_results = len(results)
+
+    # Phase 6 (optional): cross-encoder rerank. Off by default — opt in
+    # via the `rerank=True` kwarg or `DUCKBOT_RERANK=1` env var. See
+    # `src/rerank.py` for the backend choice (sentence-transformers,
+    # LM Studio, or noop).
+    if rerank is not False:  # only skip if caller explicitly said False
+        try:
+            from .rerank import maybe_rerank
+            before_top = results[0].chunk_id if results else None
+            results = maybe_rerank(query_text, results, enabled=rerank, top_k=n_results)
+            if results and results[0].chunk_id != before_top:
+                stats.tiers_queried = sorted({r.tier for r in results})
+        except Exception as e:
+            # rerank is best-effort; never fail the query because of it.
+            import logging
+            logging.getLogger(__name__).debug("rerank skipped: %s", e)
+
+    # Phase 7 (optional): Ebbinghaus decay weighting. Off by default — opt
+    # in via the `decay=True` kwarg or `DUCKBOT_DECAY=1` env var. See
+    # `src/decay.py` for the retention math (public-domain, 1885).
+    # Layers with rerank: rerank → decay → top-k. Decay after rerank so the
+    # cross-encoder's relevance signal isn't diluted by retention noise.
+    if decay is not False:  # only skip if caller explicitly said False
+        try:
+            from .decay import maybe_decay
+            results = maybe_decay(results, enabled=decay)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug("decay skipped: %s", e)
+
     stats.duration_seconds = time.time() - started
     store.mark_queried()
     return results, stats

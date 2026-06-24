@@ -51,7 +51,7 @@ TOOLS = [
     },
     {
         "name": "recall",
-        "description": "Search memory. Hybrid vector + BM25 retrieval. Returns top-k results with tier, importance, source_path.",
+        "description": "Search memory. Hybrid vector + BM25 retrieval, with optional cross-encoder rerank (Layer 7). Returns top-k results with tier, importance, source_path.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -59,6 +59,8 @@ TOOLS = [
                 "k": {"type": "integer", "default": 5, "description": "number of results"},
                 "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "filter by tier"},
                 "min_importance": {"type": "number", "description": "filter by importance threshold (0..1)"},
+                "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank with BAAI/bge-reranker-base (MIT, local). No paid API. Off by default; pass true to opt in."},
+                "decay": {"type": "boolean", "default": False, "description": "Layer 8: apply Ebbinghaus retention weighting. Public-domain math (1885), no LLM call. Off by default; pass true to opt in."},
             },
             "required": ["query"],
         },
@@ -111,6 +113,33 @@ TOOLS = [
 
 
 # -----------------------------------------------------------------------------
+# Connector tools (Layers 1-4 + dashboard) — backed by the framework-agnostic
+# Brain facade. OpenClaw picks them up automatically because they're in TOOLS.
+# -----------------------------------------------------------------------------
+
+def _import_connector_tools() -> tuple[list[dict], dict]:
+    """Import the OpenClaw connector's TOOL_DEFINITIONS and dispatchers.
+    Returns (extra_tools, extra_handlers)."""
+    from src.connectors.openclaw import TOOL_DEFINITIONS, handle as _handle
+    extra_tools = list(TOOL_DEFINITIONS)
+    extra_handlers = {t["name"]: (lambda args, h=_handle: h(t["name"], args)) for t in TOOL_DEFINITIONS}
+    return extra_tools, extra_handlers
+
+
+# Tool definitions and handlers are loaded lazily so a missing layer doesn't
+# break the whole server. We populate them right after HANDLERS is defined below.
+def _register_connector_tools() -> None:
+    try:
+        from src.connectors.openclaw import TOOL_DEFINITIONS, handle as _handle
+        TOOLS.extend(TOOL_DEFINITIONS)
+        for t in TOOL_DEFINITIONS:
+            HANDLERS[t["name"]] = (lambda args, h=_handle, n=t["name"]: h(n, args))
+    except Exception as _e:
+        import sys as _s
+        print(f"[mcp_server] connector tools not loaded: {_e}", file=_s.stderr)
+
+
+# -----------------------------------------------------------------------------
 # Tool implementations
 # -----------------------------------------------------------------------------
 
@@ -144,6 +173,8 @@ async def handle_recall(args: dict) -> dict:
         k=args.get("k", 5),
         tier=args.get("tier"),
         min_importance=args.get("min_importance"),
+        rerank=args.get("rerank"),
+        decay=args.get("decay"),
     )
     return {
         "results": [r.to_dict() for r in results],
@@ -234,6 +265,10 @@ HANDLERS = {
     "watch": handle_watch,
     "doctor": handle_doctor,
 }
+
+# Register the 18 connector tools (graph + blocks + quarantine + scan).
+# Called after HANDLERS is defined so the dispatch table is ready.
+_register_connector_tools()
 
 
 # -----------------------------------------------------------------------------

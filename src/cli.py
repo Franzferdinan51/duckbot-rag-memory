@@ -257,6 +257,29 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if all_ok else 1
 
 
+
+
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    """Print a human-readable dashboard of the brain's current state."""
+    from .dashboard import build_report, format_report
+    watcher_log = Path(__file__).resolve().parent.parent / "data" / "watcher.log"
+    r = build_report(watcher_log=watcher_log)
+    if getattr(args, "json", False):
+        import json
+        print(json.dumps(r.to_dict(), indent=2, default=str))
+    else:
+        print(format_report(r))
+    return 0
+
+
+
+
+def cmd_hermes(args: argparse.Namespace) -> int:
+    """Hermes CLI shim: 'python -m src.cli hermes <verb> [args...]' delegates to the connectors.hermes module."""
+    from .connectors import hermes
+    return hermes.main(args.verb + [args.remainder] if hasattr(args, "remainder") and args.remainder else args.verb)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="duckbot-rag-memory",
@@ -293,6 +316,14 @@ def main() -> int:
 
     p_doc = sub.add_parser("doctor", help="check env + deps")
     p_doc.set_defaults(func=cmd_doctor)
+
+    p_hermes = sub.add_parser("hermes", help="Hermes agent CLI shim: hermes <verb> [args...]")
+    p_hermes.add_argument("verb", nargs="+", help="verb (remember, recall, stats, etc.) + args")
+    p_hermes.set_defaults(func=cmd_hermes)
+
+    p_dash = sub.add_parser("dashboard", help="brain observability dashboard")
+    p_dash.add_argument("--json", action="store_true", help="output as JSON")
+    p_dash.set_defaults(func=cmd_dashboard)
 
     args = parser.parse_args()
     if not hasattr(args, "func"):

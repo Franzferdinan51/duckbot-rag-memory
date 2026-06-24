@@ -1,0 +1,82 @@
+{
+  "id": "duckbot-brain",
+  "activation": {
+    "onStartup": true
+  },
+  "name": "DuckBot Brain",
+  "description": "Local hybrid RAG with cross-encoder rerank (Layer 7), Ebbinghaus decay (Layer 8), and verbatim-first storage (Layer 13). Connects the DuckBot brain project (`~/Desktop/duckbot-rag-memory`) to OpenClaw as a memory provider. MIT, zero paid APIs, runs entirely on the local machine.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean", "default": true },
+      "pythonPath": {
+        "type": "string",
+        "description": "Path to the python interpreter that can import duckbot-rag-memory. Defaults to the venv at <repo>/.venv/bin/python."
+      },
+      "repoPath": {
+        "type": "string",
+        "description": "Absolute path to the duckbot-rag-memory checkout. Defaults to ~/Desktop/duckbot-rag-memory."
+      },
+      "defaultK": { "type": "integer", "default": 5 },
+      "enableRerank": { "type": "boolean", "default": false },
+      "enableDecay": { "type": "boolean", "default": false },
+      "enableVerbatim": { "type": "boolean", "default": true },
+      "timeoutMs": { "type": "integer", "default": 15000 }
+    }
+  },
+  "entry": "python",
+  "entryArgs": ["-m", "src.extensions.duckbot_brain.adapter"],
+  "protocol": "stdio-jsonrpc",
+  "tools": [
+    {
+      "name": "brain_recall",
+      "description": "Hybrid retrieval (vector + BM25 + RRF). Optionally rerank=true for cross-encoder boost, decay=true for Ebbinghaus retention weighting.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "k": { "type": "integer", "default": 5 },
+          "tier": { "type": "string", "enum": ["working", "episodic", "semantic", "procedural"] },
+          "min_importance": { "type": "number" },
+          "rerank": { "type": "boolean", "default": false },
+          "decay": { "type": "boolean", "default": false }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "brain_recall_verbatim",
+      "description": "Returns the original (pre-overlap, pre-prefix) source text. Use for 'what exactly did I say?' queries.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "k": { "type": "integer", "default": 5 },
+          "tier": { "type": "string", "enum": ["working", "episodic", "semantic", "procedural"] },
+          "rerank": { "type": "boolean", "default": false },
+          "decay": { "type": "boolean", "default": false }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "brain_remember",
+      "description": "Persist text to the brain (async, non-blocking). The watcher will pick it up later if not.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string" },
+          "source": { "type": "string" },
+          "tier": { "type": "string", "enum": ["working", "episodic", "semantic", "procedural"] }
+        },
+        "required": ["text"]
+      }
+    },
+    {
+      "name": "brain_stats",
+      "description": "Return brain stats: chunk counts per tier, last query time, etc.",
+      "parameters": { "type": "object", "properties": {} }
+    }
+  ]
+}

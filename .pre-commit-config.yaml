@@ -1,0 +1,23 @@
+# .pre-commit-config.yaml — DuckBot brain repo
+#
+# Pattern source: MemPalace's `.pre-commit-config.yaml` (MIT).
+# https://github.com/MemPalace/mempalace/blob/develop/.pre-commit-config.yaml
+#
+# Install (optional, framework users):
+#   pip install pre-commit
+#   pre-commit install
+#
+# We ship a fallback `.git/hooks/pre-commit` symlink to `scripts/secret-scan.sh`
+# for users who don't have pre-commit installed, so the secret-scan guard
+# works either way.
+
+repos:
+  - repo: local
+    hooks:
+      - id: duckbot-secret-scan
+        name: DuckBot secret + path scan
+        entry: scripts/secret-scan.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
