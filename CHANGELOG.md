@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.10.1 — 2026-06-23 — Cross-platform MCP stdio fix + README paths
+
+A small follow-up to v0.10.0, prompted by Windows + Hermes-Agent
+integrations. No API changes. No breaking changes. Indexing, schema,
+and tool definitions are unchanged from v0.10.0.
+
+### Fixes
+
+- **MCP stdio server now self-configures line-buffered I/O at startup.**
+  `src/mcp_server.py` calls `sys.stdin.reconfigure(line_buffering=True)` /
+  `sys.stdout.reconfigure(line_buffering=True)` (and stderr) before reading
+  the first request. Without this, **Windows** block-buffers the subprocess
+  stdout in 4-8 KiB chunks and short `initialize` responses (~167 bytes)
+  sit in the kernel pipe buffer until the MCP client times out with
+  "Connection closed." On macOS and Linux this is a harmless no-op (those
+  platforms already flush per-write for line-buffered TTYs). No need for
+  `-u` or `PYTHONUNBUFFERED=1` in the launcher anymore — though both still
+  work if you have them in your config.
+
+- **README cross-platform guidance.** Added a "Wire it into Hermes Agent"
+  block with the exact `hermes mcp add` invocation for macOS/Linux/Windows
+  (PowerShell + git-bash variants), and a "Cross-platform paths" table
+  mapping the POSIX paths that pepper the rest of the README to their
+  Windows equivalents. Includes the `hermes mcp add --args nargs=REMAINDER`
+  gotcha — put `--env` flags BEFORE `--args` or they'll get swept into
+  the arg list.
+
+### Not changed
+
+- No tool added/removed (still 35).
+- No schema migration.
+- No `.env` keys added/removed.
+- No breaking config changes.
+
 ## 0.10.0 — 2026-06-23 — Useful MCP tools extension
 
 Duckets asked: "Also add more MCP tools that are useful." This release
