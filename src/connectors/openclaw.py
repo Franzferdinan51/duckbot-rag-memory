@@ -1,14 +1,14 @@
 """
-connectors/openclaw.py — OpenClaw integration for the DuckBot brain.
+connectors/openclaw.py - OpenClaw integration for the DuckBot brain.
 
 Two pieces:
 
-  1. TOOL_DEFINITIONS — the MCP tool schema (name, description, inputSchema)
+  1. TOOL_DEFINITIONS - the MCP tool schema (name, description, inputSchema)
      that OpenClaw's MCP client will surface to the model. Covers all 5 layers:
      vector (remember/recall/reflect/forget/stats), graph (3 tools), blocks
      (5 tools), quarantine (3 tools), and dashboard (1 tool).
 
-  2. handle() — dispatcher that runs a tool call against the Brain facade and
+  2. handle() - dispatcher that runs a tool call against the Brain facade and
      returns a JSON-serializable result. Stays pure-Python / stdlib so it can
      be hosted in `python -m src.mcp_server` without any framework dependency.
 
@@ -23,7 +23,7 @@ OpenClaw wires this up by adding to `~/.openclaw/openclaw.json`:
           "cwd": "<repo>",
           "env": {
             "DUCKBOT_EMBEDDING": "minimax",
-            "MINIMAX_API_KEY": "<redacted — read from openclaw.json secret store>"
+            "MINIMAX_API_KEY": "<redacted - read from openclaw.json secret store>"
           }
         }
       }
@@ -58,7 +58,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_remember",
-        "description": "Save a memory. Auto-chunks, classifies tier, extracts entities, embeds, stores. Pre-scanned for injection — suspicious text is quarantined, not stored.",
+        "description": "Save a memory. Auto-chunks, classifies tier, extracts entities, embeds, stores. Pre-scanned for injection - suspicious text is quarantined, not stored.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -228,7 +228,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_seed_blocks",
-        "description": "Seed the 5 default blocks (persona, user, active_project, today_focus, open_questions). Idempotent — skips blocks that already exist.",
+        "description": "Seed the 5 default blocks (persona, user, active_project, today_focus, open_questions). Idempotent - skips blocks that already exist.",
         "inputSchema": {"type": "object", "properties": {}},
     },
 
@@ -265,7 +265,56 @@ TOOL_DEFINITIONS: list[dict] = [
             "required": ["scan_id", "decision"],
         },
     },
-]
+
+    # ----- v0.10.0 — useful MCP tools extension -----
+    {
+        "name": "brain_fsrs_review",
+        "description": "Layer 9: list chunks due for FSRS-6 spaced-repetition review (R(t,S) < 0.9). Public-domain math, no LLM call. Returns retrievability, stability, difficulty, urgency per chunk, sorted by urgency descending.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+                "k": {"type": "integer", "default": 10},
+            },
+        },
+    },
+    {
+        "name": "brain_decay_status",
+        "description": "Layer 8: Ebbinghaus decay status (R = e^(-t/S)) for recent chunks, grouped by tier. Public-domain math (1885), no LLM call. Useful for hygiene review ('which knowledge is fading?').",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+                "k": {"type": "integer", "default": 50},
+            },
+        },
+    },
+    {
+        "name": "brain_forget_by_query",
+        "description": "Delete the top-k chunks matching a query. Use when you want to forget a topic, not just one chunk. Returns deleted_ids and what was matched before deletion.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "k": {"type": "integer", "default": 5},
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "brain_search_verbatim",
+        "description": "Layer 13: exact substring match against the verbatim (pre-overlap) source text. Useful when you remember a phrase verbatim and want the chunk that contains it. Different from brain_recall (which is semantic+BM25).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "needle": {"type": "string"},
+                "k": {"type": "integer", "default": 5},
+            },
+            "required": ["needle"],
+        },
+    },
+]  
 
 
 # -----------------------------------------------------------------------------
@@ -387,6 +436,26 @@ def handle(tool_name: str, args: dict) -> dict:
                 decision=args["decision"],
                 reviewer=args.get("reviewer", "operator"),
             )
+
+        # v0.10.0 — useful MCP tools extension
+        if tool_name == "brain_fsrs_review":
+            return {"queue": brain.fsrs_review_queue(
+                tier=args.get("tier"),
+                k=args.get("k", 10),
+            )}
+        if tool_name == "brain_decay_status":
+            return brain.decay_status(tier=args.get("tier"), k=args.get("k", 50))
+        if tool_name == "brain_forget_by_query":
+            return brain.forget_by_query(
+                query=args["query"],
+                k=args.get("k", 5),
+                tier=args.get("tier"),
+            )
+        if tool_name == "brain_search_verbatim":
+            return {"matches": brain.search_verbatim(
+                needle=args["needle"],
+                k=args.get("k", 5),
+            )}
 
         return {"error": f"unknown tool: {tool_name}"}
     except Exception as e:

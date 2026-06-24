@@ -1,5 +1,5 @@
 """
-mcp_server.py — Model Context Protocol server for DuckBot memory.
+mcp_server.py - Model Context Protocol server for DuckBot memory.
 
 Exposes the Memory facade as MCP tools so any MCP-aware client (OpenClaw
 agents, Claude Code, Cursor, Codex, etc.) can remember/recall directly.
@@ -109,11 +109,75 @@ TOOLS = [
         "description": "Sanity check: env, deps, store, provider reachability.",
         "inputSchema": {"type": "object", "properties": {}},
     },
-]
+
+    # ---- v0.10.0 — useful MCP tools extension ----
+    {
+        "name": "recall_verbatim",
+        "description": "Layer 13 verbatim-first retrieval: returns the original (pre-overlap) source text. Useful when you want to quote the user verbatim.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "k": {"type": "integer", "default": 5},
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+                "rerank": {"type": "boolean", "default": False},
+                "decay": {"type": "boolean", "default": False},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "fsrs_review",
+        "description": "Layer 9: chunks due for FSRS-6 spaced-repetition review. Public-domain math, no LLM.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+                "k": {"type": "integer", "default": 10},
+            },
+        },
+    },
+    {
+        "name": "decay_status",
+        "description": "Layer 8: Ebbinghaus decay status for recent chunks. Public-domain math (1885), no LLM.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+                "k": {"type": "integer", "default": 50},
+            },
+        },
+    },
+    {
+        "name": "forget_by_query",
+        "description": "Delete the top-k chunks matching a query.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "k": {"type": "integer", "default": 5},
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "search_verbatim",
+        "description": "Layer 13: exact substring match against verbatim text.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "needle": {"type": "string"},
+                "k": {"type": "integer", "default": 5},
+            },
+            "required": ["needle"],
+        },
+    },
+]  
 
 
 # -----------------------------------------------------------------------------
-# Connector tools (Layers 1-4 + dashboard) — backed by the framework-agnostic
+# Connector tools (Layers 1-4 + dashboard) - backed by the framework-agnostic
 # Brain facade. OpenClaw picks them up automatically because they're in TOOLS.
 # -----------------------------------------------------------------------------
 
@@ -198,6 +262,52 @@ async def handle_forget(args: dict) -> dict:
     return {"deleted": ok}
 
 
+# ---- v0.10.0 — useful MCP tools extension ----
+
+async def handle_recall_verbatim(args: dict) -> dict:
+    from src.connectors.base import Brain
+    brain = Brain()
+    return {"results": brain.recall_verbatim(
+        query=args["query"],
+        k=args.get("k", 5),
+        tier=args.get("tier"),
+        rerank=args.get("rerank"),
+        decay=args.get("decay"),
+    )}
+
+
+async def handle_fsrs_review(args: dict) -> dict:
+    from src.connectors.base import Brain
+    brain = Brain()
+    return {"queue": brain.fsrs_review_queue(
+        tier=args.get("tier"), k=args.get("k", 10)
+    )}
+
+
+async def handle_decay_status(args: dict) -> dict:
+    from src.connectors.base import Brain
+    brain = Brain()
+    return brain.decay_status(tier=args.get("tier"), k=args.get("k", 50))
+
+
+async def handle_forget_by_query(args: dict) -> dict:
+    from src.connectors.base import Brain
+    brain = Brain()
+    return brain.forget_by_query(
+        query=args["query"],
+        k=args.get("k", 5),
+        tier=args.get("tier"),
+    )
+
+
+async def handle_search_verbatim(args: dict) -> dict:
+    from src.connectors.base import Brain
+    brain = Brain()
+    return {"matches": brain.search_verbatim(
+        needle=args["needle"], k=args.get("k", 5),
+    )}
+
+
 async def handle_stats(args: dict) -> dict:
     mem = Memory()
     snap = await mem.stats()
@@ -264,6 +374,12 @@ HANDLERS = {
     "stats": handle_stats,
     "watch": handle_watch,
     "doctor": handle_doctor,
+    # v0.10.0 — useful MCP tools extension
+    "recall_verbatim": handle_recall_verbatim,
+    "fsrs_review": handle_fsrs_review,
+    "decay_status": handle_decay_status,
+    "forget_by_query": handle_forget_by_query,
+    "search_verbatim": handle_search_verbatim,
 }
 
 # Register the 18 connector tools (graph + blocks + quarantine + scan).

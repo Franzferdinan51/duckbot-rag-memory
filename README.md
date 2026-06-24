@@ -2,7 +2,7 @@
 
 > Persistent, searchable, and self-curing memory for OpenClaw + Hermes Agent. Auto-updates in real time.
 
-[![Status](https://img.shields.io/badge/status-v0.9.1-yellow)]() [![License](https://img.shields.io/badge/license-MIT-blue)]() [![Open Source](https://img.shields.io/badge/open--source-everything-green)]()
+[![Status](https://img.shields.io/badge/status-v0.10.0-yellow)]() [![License](https://img.shields.io/badge/license-MIT-blue)]() [![Open Source](https://img.shields.io/badge/open--source-everything-green)]()
 
 ## What this is
 
@@ -172,9 +172,40 @@ Exposes the memory API to MCP clients. Run as stdio server:
 ./.venv/bin/python -m src.mcp_server
 ```
 
-Tools: `remember`, `recall`, `reflect`, `forget`, `stats`, `watch`, `doctor`.
+**35 tools total** (v0.10.0):
 
-Wire it into OpenClaw, Claude Code, Cursor, Codex via their respective MCP configs. The server returns JSON-RPC 2.0 responses on stdout.
+| Tool | Layer | Purpose |
+|---|---|---|
+| `remember`, `recall`, `reflect`, `forget`, `stats`, `watch`, `doctor` | core | the seven base tools |
+| `recall_verbatim` | L13 | verbatim-first retrieval (no overlap, no contextual prefixes) |
+| `fsrs_review` | L9 | chunks due for FSRS-6 review (R(t,S) < 0.9), sorted by urgency |
+| `decay_status` | L8 | Ebbinghaus decay status (R = e^(-t/S)) by tier |
+| `forget_by_query` | — | delete the top-k chunks matching a query |
+| `search_verbatim` | L13 | exact substring match against verbatim source text |
+| `brain_*` (25 more) | — | the OpenClaw connector tools, also exposed via stdio MCP for any MCP client |
+
+The 25 `brain_*` tools cover the knowledge graph (L1: `brain_graph_entity`,
+`brain_graph_relate`, `brain_graph_query`, `brain_graph_relationships`,
+`brain_graph_history`), memory blocks (L3: `brain_block_read`,
+`brain_block_write`, `brain_block_append`, `brain_block_delete`,
+`brain_block_list`, `brain_seed_blocks`), injection quarantine (L4:
+`brain_injection_scan`, `brain_quarantine_list`, `brain_quarantine_review`),
+plus the 4 new v0.10.0 tools renamed with the `brain_` prefix for
+OpenClaw (`brain_recall`, `brain_recall_verbatim`, `brain_remember`,
+`brain_stats`, `brain_reflect`, `brain_fsrs_review`,
+`brain_decay_status`, `brain_forget_by_query`, `brain_search_verbatim`).
+
+Wire any of these into OpenClaw, Claude Code, Cursor, Codex via their
+respective MCP configs. The server returns JSON-RPC 2.0 responses on
+stdout.
+
+### Example: search verbatim through the MCP server
+
+```bash
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_verbatim","arguments":{"needle":"Stop using local models entirely"}}}' \
+  | ./.venv/bin/python -m src.mcp_server
+# Returns the chunk containing the exact phrase, with highlight context.
+```
 
 ## Files
 

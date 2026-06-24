@@ -1,5 +1,81 @@
 # Changelog
 
+## 0.10.0 — 2026-06-23 — Useful MCP tools extension
+
+Duckets asked: "Also add more MCP tools that are useful." This release
+adds 4 new tools that wrap the L8/L9/L13 brain layers and a 5th that
+adds forget-by-query semantics. Also fixes 2 latent bugs the new tests
+caught.
+
+### New MCP tools (exposed in 3 places)
+
+| Tool | Layer | What it does |
+|---|---|---|
+| `brain_fsrs_review` / `fsrs_review` | L9 | List chunks due for FSRS-6 spaced-repetition review (R(t,S) < 0.9). Sorted by urgency. Public-domain math. |
+| `brain_decay_status` / `decay_status` | L8 | Ebbinghaus decay status (R = e^(-t/S)) for recent chunks, grouped by tier. Shows what's fading. Public-domain math. |
+| `brain_forget_by_query` / `forget_by_query` | L14 | Delete the top-k chunks matching a query. Different from `brain_forget(chunk_id=...)` which deletes one chunk. |
+| `brain_search_verbatim` / `search_verbatim` | L13 | Exact substring match against verbatim (pre-overlap) source text. Useful when you remember a phrase verbatim. |
+| `brain_recall_verbatim` / `recall_verbatim` | L13 | (Already existed in `connectors/openclaw.py`; now also exposed in `mcp_server.py` so standalone MCP clients get it.) |
+
+**Total MCP tool count:** 35 (was 30; +5).
+**Total `Brain` method count:** 28 (was 24; +4).
+
+### Bugs caught by the new tests
+
+1. **`brain_stats` in OpenClaw extension referenced nonexistent fields.**
+   `adapter.py:_call_tool("brain_stats")` was reading
+   `s.chunks_per_tier` and `s.last_query_at` — neither field exists on
+   `BrainStats`. The tool would have raised `AttributeError` on first
+   call. Fixed to read the real fields (`vector_chunks`,
+   `vector_by_tier`, `graph_entities`, `blocks`, `quarantine_*`,
+   `generated_at`).
+
+2. **`Brain.search_verbatim` accessed `r.source_path` instead of
+   metadata.** `QueryResult` doesn't have a `.source_path` attribute;
+   that data lives in `r.metadata["source_path"]`. The new test
+   `test_search_verbatim_finds_known_string` caught this on first run.
+
+3. **`asyncio.run()` called from inside a running event loop.**
+   `Brain.fsrs_review_queue`, `Brain.decay_status`,
+   `Brain.forget_by_query`, `Brain.search_verbatim`, plus the
+   pre-existing `Brain.recall`, `Brain.remember`, `Brain.recall_verbatim`,
+   all called `asyncio.run(coro)` unconditionally. That works from
+   sync code (CLI) but raises
+   `RuntimeError: asyncio.run() cannot be called from a running event loop`
+   when invoked from inside an MCP server (which already runs an event
+   loop). **Fixed with a new `_run_async(coro)` helper** that detects
+   whether we're in a running loop and, if so, runs the coroutine in
+   a worker thread. Now both sync callers (CLI) and async callers
+   (MCP server) work without changes to their code.
+
+### Verification
+
+- **459/459 tests pass** (was 446; +13 from new MCP tools extension tests).
+- End-to-end smoke test against the live MCP server:
+  - `decay_status` returns 10 chunks sampled, avg retention 0.981, breakdown by tier.
+  - `search_verbatim("Stop using local models entirely")` finds the exact
+    phrase in `AGENTS.md` with highlight context.
+  - `fsrs_review` returns empty queue (no chunks have FSRS state yet —
+    L9 is opt-in, never enabled by default).
+  - `stats` still works (regression test for the brain_stats fix).
+
+### Files changed
+
+- `src/connectors/base.py` — 4 new methods on `Brain` (`fsrs_review_queue`,
+  `decay_status`, `forget_by_query`, `search_verbatim`); new
+  `_run_async(coro)` helper; 6 existing methods switched to use it.
+- `src/connectors/openclaw.py` — 4 new tools in `TOOL_DEFINITIONS` +
+  dispatchers in `handle()`.
+- `src/extensions/duckbot_brain/adapter.py` — 4 new tools in
+  `_tool_schemas()` + dispatchers; `brain_stats` tool reads the real
+  `BrainStats` fields now.
+- `src/mcp_server.py` — 5 new tools in `TOOLS` (incl. `recall_verbatim`)
+  + handlers in `HANDLERS`.
+- `tests/test_mcp_tools_extension.py` — 13 new tests covering all of
+  the above.
+- `tests/test_openclaw_extension.py` — updated the `test_call_tool_brain_stats_delegates`
+  test to assert the real `BrainStats` fields.
+
 ## 0.9.1 — 2026-06-23 — Bug fixes from cross-platform audit
 
 After the v0.9.0 push, Duckets asked: "Make sure fix any bugs and push

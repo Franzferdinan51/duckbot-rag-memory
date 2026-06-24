@@ -157,6 +157,53 @@ def _tool_schemas() -> Dict[str, Any]:
                 "description": "Return brain stats.",
                 "inputSchema": {"type": "object", "properties": {}},
             },
+            {
+                "name": "brain_fsrs_review",
+                "description": "Return chunks due for FSRS-6 spaced-repetition review (R(t,S) < 0.9). Public-domain math, no LLM.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+                        "k": {"type": "integer", "default": 10},
+                    },
+                },
+            },
+            {
+                "name": "brain_decay_status",
+                "description": "Return Ebbinghaus decay status (R = e^(-t/S)) for recent chunks, grouped by tier. Public-domain math, no LLM.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+                        "k": {"type": "integer", "default": 50},
+                    },
+                },
+            },
+            {
+                "name": "brain_forget_by_query",
+                "description": "Delete the top-k chunks matching a query. Use when you want to forget a topic, not just one chunk.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "k": {"type": "integer", "default": 5},
+                        "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "brain_search_verbatim",
+                "description": "Exact substring match against the verbatim (pre-overlap) text. Useful when you remember a phrase verbatim.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "needle": {"type": "string"},
+                        "k": {"type": "integer", "default": 5},
+                    },
+                    "required": ["needle"],
+                },
+            },
         ]
     }
 
@@ -204,9 +251,39 @@ def _call_tool(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     if name == "brain_stats":
         s = brain.stats()
         return _content({
-            "chunks_per_tier": s.chunks_per_tier if hasattr(s, "chunks_per_tier") else {},
-            "last_query_at": s.last_query_at if hasattr(s, "last_query_at") else None,
+            "vector_chunks": s.vector_chunks,
+            "vector_by_tier": s.vector_by_tier,
+            "graph_entities": s.graph_entities,
+            "graph_relationships": s.graph_relationships,
+            "graph_active_relationships": s.graph_active_relationships,
+            "blocks": s.blocks,
+            "quarantine_total": s.quarantine_total,
+            "quarantine_pending": s.quarantine_pending,
+            "quarantine_approved": s.quarantine_approved,
+            "quarantine_rejected": s.quarantine_rejected,
+            "generated_at": s.generated_at,
         })
+    if name == "brain_fsrs_review":
+        return _content(brain.fsrs_review_queue(
+            tier=args.get("tier"),
+            k=args.get("k", 10),
+        ))
+    if name == "brain_decay_status":
+        return _content(brain.decay_status(
+            tier=args.get("tier"),
+            k=args.get("k", 50),
+        ))
+    if name == "brain_forget_by_query":
+        return _content(brain.forget_by_query(
+            query=args["query"],
+            k=args.get("k", 5),
+            tier=args.get("tier"),
+        ))
+    if name == "brain_search_verbatim":
+        return _content(brain.search_verbatim(
+            needle=args["needle"],
+            k=args.get("k", 5),
+        ))
     return _content({"error": f"unknown tool: {name}"})
 
 

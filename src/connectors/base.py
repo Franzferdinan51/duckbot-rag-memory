@@ -28,6 +28,37 @@ from ..injection_scan import InjectionScanner, QuarantineStore, DEFAULT_QUARANTI
 
 
 # -----------------------------------------------------------------------------
+# Async/sync bridging
+# -----------------------------------------------------------------------------
+
+
+def _run_async(coro):
+    """Run an async coroutine from sync code without conflicting with a parent loop.
+
+    - If there's no running event loop (CLI / tests / sync entry points):
+      use `asyncio.run`, which is the standard idiom.
+    - If we ARE inside a running event loop (the MCP server's `mcp_stdio`
+      handler, FastMCP, Jupyter, asyncio pytest): nest a new loop in a
+      worker thread. This avoids `RuntimeError: asyncio.run() cannot be
+      called from a running event loop` and keeps the Brain methods
+      callable from both sync and async contexts.
+
+    For higher-throughput async callers (MCP), it's better to expose the
+    coroutine and `await` it directly. That's a future refactor; for now,
+    every connector goes through the sync Brain facade.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop — safe to use asyncio.run.
+        return asyncio.run(coro)
+    # We're in a loop. Run the coroutine in a worker thread.
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(asyncio.run, coro).result()
+
+
+# -----------------------------------------------------------------------------
 # Result types — JSON-serializable for transport
 # -----------------------------------------------------------------------------
 
@@ -168,7 +199,7 @@ class Brain:
                 duration_ms=r.duration_ms,
             )
 
-        return asyncio.run(_remember())
+        return _run_async(_remember())
 
     # ------------------------------------------------------------------- recall
     def recall(
@@ -242,7 +273,7 @@ class Brain:
                 ))
             return out
 
-        return asyncio.run(_recall())
+        return _run_async(_recall())
 
     # ----------------------------------------------------------------- recall verbatim
     def recall_verbatim(
@@ -516,6 +547,252 @@ class Brain:
         with QuarantineStore(path=self.quarantine_path) as q:
             ok = q.review(scan_id, decision, reviewer=reviewer)
             return {"scan_id": scan_id, "decision": decision, "ok": ok}
+
+    # -------------------------------------------------------------------- stats
+    # New tool surface (v0.10.0 — useful MCP tools extension).
+    # Each method is sync + JSON-serializable so it maps 1:1 to an MCP tool
+    # exposed by `src.mcp_server.py` AND the OpenClaw extension at
+    # `src/extensions/duckbot_brain/adapter.py`.
+
+    # -- FSRS-6 spaced repetition (L9) -----------------------------------
+    def fsrs_review_queue(
+        self,
+        tier: Optional[str] = None,
+        k: int = 10,
+        now: Optional[float] = None,
+    ) -> list[dict]:
+        """Return chunks that are due for FSRS-6 review.
+
+        A chunk is "due" when its retrievability R(t, S) drops below
+        `REVIEW_THRESHOLD` (default 0.9). Lower R = more urgent review.
+
+        Public-domain math from FSRS-6 algorithm spec. No LLM call.
+
+        Args:
+            tier: filter by tier (working/episodic/semantic/procedural)
+            k: max number of chunks to inspect (default 10)
+            now: current time (default time.time()). Exposed for tests.
+
+        Returns: list of dicts {chunk_id, tier, retrievability, stability_days,
+                                difficulty, last_review_ts, urgency}.
+        """
+        from src.memory import Memory
+        from src.tier import Tier
+        from src.fsrs import fsrs_retrievability
+
+        async def _queue() -> list[dict]:
+            mem = Memory()
+            tier_enum = Tier(tier) if tier else None
+            t = now if now is not None else time.time()
+            # Get a wide net of recent chunks; the FSRS filter is cheap.
+            # 100 is enough for the "due for review" view.
+            results, _ = await mem.recall(
+                "review recent memory",  # dummy query
+                k=k * 4,  # oversample to filter
+                tier=tier_enum,
+            )
+            queue = []
+            for r in results:
+                md = r.metadata or {}
+                # FSRS state lives in metadata under these keys (set by L9 path)
+                stability = float(md.get("fsrs_stability_days") or md.get("stability_days") or 0.0)
+                difficulty = float(md.get("fsrs_difficulty") or md.get("difficulty") or 5.0)
+                last_review = float(md.get("fsrs_last_review_ts") or md.get("last_review_ts") or 0.0)
+                if last_review <= 0 or stability <= 0:
+                    # Chunk has no FSRS state — it's "fresh", not in the queue
+                    continue
+                elapsed_days = max(0.0, (t - last_review) / 86400.0)
+                R = fsrs_retrievability(elapsed_days, stability)
+                if R < 0.9:  # REVIEW_THRESHOLD
+                    queue.append({
+                        "chunk_id": r.chunk_id,
+                        "tier": r.tier if isinstance(r.tier, str) else (r.tier.value if r.tier else ""),
+                        "retrievability": round(R, 4),
+                        "stability_days": round(stability, 2),
+                        "difficulty": round(difficulty, 2),
+                        "last_review_ts": last_review,
+                        "elapsed_days": round(elapsed_days, 2),
+                        "urgency": round(1.0 - R, 4),
+                        "source_path": r.source_path if hasattr(r, "source_path") else (md.get("source_path") or ""),
+                        "preview": (r.text[:120] + "…") if len(r.text) > 120 else r.text,
+                    })
+            queue.sort(key=lambda x: x["urgency"], reverse=True)
+            return queue[:k]
+
+        return _run_async(_queue())
+
+    # -- Ebbinghaus decay status (L8) ------------------------------------
+    def decay_status(
+        self,
+        tier: Optional[str] = None,
+        k: int = 50,
+        now: Optional[float] = None,
+    ) -> dict:
+        """Return decay status for a sample of recent chunks.
+
+        For each chunk, computes Ebbinghaus retention R = e^(-t/S) where:
+          t = days since the chunk was last "touched" (last review / last remember)
+          S = stability days (heuristic: importance * 30)
+
+        Public-domain math (1885). No LLM call.
+
+        Returns: dict with totals + per-tier breakdown + sample chunks.
+        """
+        from src.memory import Memory
+        from src.tier import Tier
+        from src.decay import ebbinghaus_retention
+
+        async def _status() -> dict:
+            mem = Memory()
+            tier_enum = Tier(tier) if tier else None
+            t = now if now is not None else time.time()
+            results, _ = await mem.recall(
+                "recent memory decay status",
+                k=k * 2,
+                tier=tier_enum,
+            )
+            by_tier: dict[str, dict] = {}
+            sample: list[dict] = []
+            total_R = 0.0
+            counted = 0
+            for r in results:
+                md = r.metadata or {}
+                importance = float(md.get("importance", 0.5) or 0.5)
+                last_touch = float(md.get("last_review_ts") or md.get("created_ts") or md.get("created_at") or 0.0)
+                if last_touch <= 0:
+                    continue
+                tier_str = r.tier if isinstance(r.tier, str) else (r.tier.value if r.tier else "unknown")
+                elapsed_days = max(0.0, (t - last_touch) / 86400.0)
+                stability_days = max(1.0, importance * 30.0)
+                R = ebbinghaus_retention(elapsed_days, stability_days)
+                counted += 1
+                total_R += R
+                bucket = by_tier.setdefault(tier_str, {"count": 0, "avg_retention": 0.0, "decayed_count": 0})
+                bucket["count"] += 1
+                bucket["avg_retention"] += R
+                if R < 0.5:
+                    bucket["decayed_count"] += 1
+                if len(sample) < 10 and R < 0.7:
+                    sample.append({
+                        "chunk_id": r.chunk_id,
+                        "tier": tier_str,
+                        "importance": round(importance, 3),
+                        "elapsed_days": round(elapsed_days, 1),
+                        "stability_days": round(stability_days, 1),
+                        "retention": round(R, 4),
+                        "preview": (r.text[:80] + "…") if len(r.text) > 80 else r.text,
+                    })
+            for b in by_tier.values():
+                if b["count"] > 0:
+                    b["avg_retention"] = round(b["avg_retention"] / b["count"], 4)
+            return {
+                "as_of": t,
+                "sampled_chunks": counted,
+                "avg_retention": round(total_R / counted, 4) if counted else None,
+                "by_tier": by_tier,
+                "most_decayed_sample": sample,
+            }
+
+        return _run_async(_status())
+
+    # -- Forget by query --------------------------------------------------
+    def forget_by_query(
+        self,
+        query: str,
+        k: int = 5,
+        tier: Optional[str] = None,
+    ) -> dict:
+        """Forget the top-k chunks matching a query.
+
+        Use case: "I don't want to remember anything about X anymore."
+        Different from `brain_forget(chunk_id=...)` which deletes one chunk.
+
+        Returns: {deleted: int, deleted_ids: list[str], results: list}.
+        """
+        from src.memory import Memory
+        from src.tier import Tier
+
+        async def _forget() -> dict:
+            mem = Memory()
+            tier_enum = Tier(tier) if tier else None
+            results, _ = await mem.recall(query, k=k, tier=tier_enum)
+            deleted = []
+            for r in results:
+                ok = await mem.forget(r.chunk_id)
+                if ok:
+                    deleted.append(r.chunk_id)
+            return {
+                "deleted": len(deleted),
+                "deleted_ids": deleted,
+                "matched": [
+                    {
+                        "chunk_id": r.chunk_id,
+                        "score": float(r.rrf_score or 0.0),
+                        "tier": r.tier if isinstance(r.tier, str) else (r.tier.value if r.tier else ""),
+                        "source_path": r.source_path,
+                        "preview": (r.text[:120] + "…") if len(r.text) > 120 else r.text,
+                    }
+                    for r in results
+                ],
+            }
+
+        return _run_async(_forget())
+
+    # -- Verbatim substring search ---------------------------------------
+    def search_verbatim(self, needle: str, k: int = 5) -> list[dict]:
+        """Exact substring match against the verbatim (pre-overlap) text.
+
+        Different from `recall()` which uses vector + BM25. This is a literal
+        string match — useful when you remember a phrase verbatim and want
+        the chunk that contains it.
+
+        Returns: list of {chunk_id, verbatim_text, source_path, tier, metadata}.
+        """
+        from src.memory import Memory
+
+        async def _search() -> list[dict]:
+            mem = Memory()
+            # Wide net — verbatim search is just substring on each chunk's
+            # verbatim_text field (stored in metadata per L13).
+            results, _ = await mem.recall(
+                needle,  # use as the query so we get semantically-related chunks
+                k=k * 5,
+            )
+            out = []
+            needle_l = needle.lower()
+            seen = set()
+            for r in results:
+                md = r.metadata or {}
+                verbatim = md.get("verbatim_text") or r.text
+                if needle_l not in verbatim.lower():
+                    continue
+                if r.chunk_id in seen:
+                    continue
+                seen.add(r.chunk_id)
+                # Highlight the matches (first 3)
+                idx = verbatim.lower().find(needle_l)
+                highlights = []
+                while idx != -1 and len(highlights) < 3:
+                    highlights.append({
+                        "start": idx,
+                        "end": idx + len(needle),
+                        "context": verbatim[max(0, idx - 40): idx + len(needle) + 40],
+                    })
+                    idx = verbatim.lower().find(needle_l, idx + len(needle))
+                out.append({
+                    "chunk_id": r.chunk_id,
+                    "verbatim_text": verbatim,
+                    "source_path": md.get("source_path") or md.get("source") or "",
+                    "tier": r.tier if isinstance(r.tier, str) else (r.tier.value if r.tier else ""),
+                    "importance": float(md.get("importance", 0.0) or 0.0),
+                    "match_count": verbatim.lower().count(needle_l),
+                    "highlights": highlights,
+                })
+                if len(out) >= k:
+                    break
+            return out
+
+        return _run_async(_search())
 
     # -------------------------------------------------------------------- stats
     def stats(self, include_vector_store: bool = True) -> BrainStats:

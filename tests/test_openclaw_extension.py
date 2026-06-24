@@ -147,13 +147,26 @@ def test_call_tool_brain_remember_returns_queued():
 def test_call_tool_brain_stats_delegates():
     fake_brain = MagicMock()
     fake_brain.stats.return_value = MagicMock(
-        chunks_per_tier={"semantic": 100, "episodic": 50},
-        last_query_at=1234567890.0,
+        vector_chunks=150,
+        vector_by_tier={"semantic": 100, "episodic": 50},
+        graph_entities=0,
+        graph_relationships=0,
+        graph_active_relationships=0,
+        blocks=0,
+        quarantine_total=0,
+        quarantine_pending=0,
+        quarantine_approved=0,
+        quarantine_rejected=0,
+        generated_at=1234567890.0,
     )
     adapter._BRAIN = fake_brain
     result = adapter._call_tool("brain_stats", {})
     payload = json.loads(result["content"][0]["text"])
-    assert payload["chunks_per_tier"]["semantic"] == 100
+    # v0.10.0 fix: brain_stats now returns the real BrainStats fields.
+    assert payload["vector_chunks"] == 150
+    assert payload["vector_by_tier"]["semantic"] == 100
+    assert payload["vector_by_tier"]["episodic"] == 50
+    assert payload["generated_at"] == 1234567890.0
 
 
 def test_call_tool_unknown_tool_returns_error():
