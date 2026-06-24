@@ -158,8 +158,11 @@ async def hybrid_query(
         if by_id[cid].bm25_hits is None or hit.get("bm25_hits", 0) > by_id[cid].bm25_hits:
             by_id[cid].bm25_hits = hit.get("bm25_hits")
 
-    # Phase 5: sort by RRF desc, return top n
-    results = sorted(by_id.values(), key=lambda r: r.rrf_score, reverse=True)[:n_results]
+    # Phase 5: sort by RRF desc over the OVER-FETCHED set. Truncation to
+    # n_results happens AFTER the optional phases below so decay / rerank /
+    # tier_priors / fsrs can promote a candidate that ranked outside the
+    # original top-k window. (v0.11.6 fix — used to truncate at this line.)
+    results = sorted(by_id.values(), key=lambda r: r.rrf_score, reverse=True)
     stats.fused_results = len(results)
 
     # Phase 6 (optional): cross-encoder rerank. Off by default — opt in
@@ -170,7 +173,7 @@ async def hybrid_query(
         try:
             from .rerank import maybe_rerank
             before_top = results[0].chunk_id if results else None
-            results = maybe_rerank(query_text, results, enabled=rerank, top_k=n_results)
+            results = maybe_rerank(query_text, results, enabled=rerank, top_k=len(results))
             if results and results[0].chunk_id != before_top:
                 stats.tiers_queried = sorted({r.tier for r in results})
         except Exception as e:
@@ -181,9 +184,10 @@ async def hybrid_query(
     # Phase 7 (optional): Ebbinghaus decay weighting. Off by default — opt
     # in via the `decay=True` kwarg or `DUCKBOT_DECAY=1` env var. See
     # `src/decay.py` for the retention math (public-domain, 1885).
-    # Layers with rerank: rerank → decay → top-k. Decay after rerank so the
-    # cross-encoder's relevance signal isn't diluted by retention noise.
-    if decay is not False:  # only skip if caller explicitly said False
+    # Note: if FSRS (phase 9) is also enabled, decay is skipped — both apply
+    # a time-based retention factor to the RRF score, and layering them would
+    # double-count. FSRS is the more sophisticated model; let it win.
+    if decay is not False and fsrs is not True:
         try:
             from .decay import maybe_decay
             results = maybe_decay(results, enabled=decay)
@@ -212,6 +216,7 @@ async def hybrid_query(
     # `fsrs=True` kwarg or `DUCKBOT_FSRS=1`. Multiplies each result's
     # RRF by retrievability R(t, S) from the FSRS-6 power-law forgetting
     # curve. Uses per-chunk `stability_days` + `difficulty` from metadata.
+    # When fsrs=True, phase 7 (decay) is skipped above to avoid double-counting.
     if fsrs is not False:  # only skip if caller explicitly said False
         try:
             from .fsrs import maybe_fsrs
@@ -219,6 +224,10 @@ async def hybrid_query(
         except Exception as e:
             import logging
             logging.getLogger(__name__).debug("fsrs skipped: %s", e)
+
+    # Final truncation: now that all optional phases have run and potentially
+    # promoted/reordered candidates, slice to the requested n_results.
+    results = results[:n_results]
 
     stats.duration_seconds = time.time() - started
     store.mark_queried()

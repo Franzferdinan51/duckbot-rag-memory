@@ -508,13 +508,16 @@ async def handle_brain_inflate(args: dict) -> dict:
         min_importance=min_imp,
     )
 
-    # Filter to top-k and group by tier
+    # Filter to top-k and group by tier. The previous version broke the
+    # inner loop as soon as every tier had k/4+1 items — but the `all()`
+    # predicate only fires AFTER all four tiers crossed the threshold, so
+    # any tier that never crossed it (e.g. an empty tier) would silently
+    # leave the loop with the other tiers under-filled. The fix iterates
+    # the full over-fetched candidate set so each tier gets a fair shot.
     by_tier: dict[str, list] = {t.value: [] for t in [Tier.WORKING, Tier.EPISODIC, Tier.SEMANTIC, Tier.PROCEDURAL]}
-    for r in results[:k * 3]:
+    for r in results[:k * 4]:  # over-fetch so each tier can fill k/4
         if r.importance >= min_imp and (tier_filter is None or r.tier.value == tier_filter):
             by_tier[r.tier.value].append(r)
-            if all(len(v) >= k // 4 + 1 for v in by_tier.values()):
-                break
 
     # Format as markdown
     lines = [
@@ -597,8 +600,13 @@ async def handle_brain_sync(args: dict) -> dict:
 
     all_tiers = [Tier.WORKING, Tier.EPISODIC, Tier.SEMANTIC, Tier.PROCEDURAL]
     tier_summaries: dict[str, list] = {t.value: [] for t in all_tiers}
+    # The previous version called recall("", ...) — an empty query produced
+    # essentially-random results. The semantic fallback "important memory"
+    # gives the embedder + BM25 actual signal to rank by.
     for tier in all_tiers:
-        results, _ = await mem.recall("", k=memory_k // 4 + 1, tier=tier.value, min_importance=0.2)
+        results, _ = await mem.recall(
+            "important memory", k=memory_k // 4 + 1, tier=tier.value, min_importance=0.2,
+        )
         tier_summaries[tier.value] = results
 
     user_results, _ = await mem.recall(
@@ -797,8 +805,9 @@ HANDLERS = {
     "brain_sync": handle_brain_sync,
 }
 
-# Register the 18 connector tools (graph + blocks + quarantine + scan).
-# Called after HANDLERS is defined so the dispatch table is ready.
+# Register the 28 connector tools (graph + blocks + quarantine + scan +
+# brain_* aliases). Called after HANDLERS is defined so the dispatch table
+# is ready.
 _register_connector_tools()
 
 
@@ -835,58 +844,73 @@ def mcp_stdio():
         # Never let a stdio-reconfigure edge case abort startup; the
         # server should still answer (just possibly slower).
         pass
-    while True:
-        try:
-            line = _s.stdin.readline()
-            if not line:
-                break
-            msg = json.loads(line)
-            method = msg.get("method")
-            mid = msg.get("id")
-            if method == "initialize":
-                resp = {
-                    "jsonrpc": "2.0", "id": mid,
-                    "result": {
-                        "protocolVersion": "2024-11-05",
-                        "serverInfo": {"name": "duckbot-memory", "version": "0.11.2"},
-                        "capabilities": {"tools": {}},
-                    },
-                }
-            elif method == "notifications/initialized":
-                continue
-            elif method == "tools/list":
-                resp = {"jsonrpc": "2.0", "id": mid, "result": {"tools": TOOLS}}
-            elif method == "tools/call":
-                params = msg.get("params", {})
-                name = params.get("name")
-                args = params.get("arguments", {})
-                handler = HANDLERS.get(name)
-                if not handler:
-                    resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"unknown tool: {name}"}}
-                else:
-                    try:
-                        result = asyncio.run(handler(args))
-                        resp = {
-                            "jsonrpc": "2.0", "id": mid,
-                            "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]},
-                        }
-                    except Exception as exc:
-                        resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(exc)}}
-            else:
-                resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"unknown method: {method}"}}
-            _s.stdout.write(json.dumps(resp) + "\n")
-            _s.stdout.flush()
-        except json.JSONDecodeError:
-            continue
-        except KeyboardInterrupt:
-            break
-        except Exception as exc:
-            err = {"jsonrpc": "2.0", "error": {"code": -32603, "message": str(exc)}}
+    # v0.11.7: keep one event loop alive for the whole server lifetime.
+    # The previous version called `asyncio.run(handler(args))` per tool
+    # call, which creates + tears down an event loop on every request.
+    # That's expensive (shared httpx clients get orphaned and re-created,
+    # any loop-bound resources break) and unnecessary — mcp_stdio() is
+    # itself synchronous and we can drive handlers from a single loop.
+    _server_loop = asyncio.new_event_loop()
+    try:
+        while True:
             try:
-                _s.stdout.write(json.dumps(err) + "\n")
+                line = _s.stdin.readline()
+                if not line:
+                    break
+                msg = json.loads(line)
+                method = msg.get("method")
+                mid = msg.get("id")
+                if method == "initialize":
+                    resp = {
+                        "jsonrpc": "2.0", "id": mid,
+                        "result": {
+                            "protocolVersion": "2024-11-05",
+                            "serverInfo": {"name": "duckbot-memory", "version": "0.11.7"},
+                            "capabilities": {"tools": {}},
+                        },
+                    }
+                elif method == "notifications/initialized":
+                    continue
+                elif method == "tools/list":
+                    resp = {"jsonrpc": "2.0", "id": mid, "result": {"tools": TOOLS}}
+                elif method == "tools/call":
+                    params = msg.get("params", {})
+                    name = params.get("name")
+                    args = params.get("arguments", {})
+                    handler = HANDLERS.get(name)
+                    if not handler:
+                        resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"unknown tool: {name}"}}
+                    else:
+                        try:
+                            result = _server_loop.run_until_complete(handler(args))
+                            resp = {
+                                "jsonrpc": "2.0", "id": mid,
+                                "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]},
+                            }
+                        except Exception as exc:
+                            resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(exc)}}
+                else:
+                    resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"unknown method: {method}"}}
+                _s.stdout.write(json.dumps(resp) + "\n")
                 _s.stdout.flush()
-            except Exception:
-                pass
+            except json.JSONDecodeError:
+                continue
+            except KeyboardInterrupt:
+                break
+            except Exception as exc:
+                err = {"jsonrpc": "2.0", "error": {"code": -32603, "message": str(exc)}}
+                try:
+                    _s.stdout.write(json.dumps(err) + "\n")
+                    _s.stdout.flush()
+                except Exception:
+                    pass
+    finally:
+        # Close the long-lived event loop on server exit. Cancels any
+        # pending tasks and releases the loop-bound shared httpx client.
+        try:
+            _server_loop.close()
+        except Exception:
+            pass
 
 
 def main():

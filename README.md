@@ -15,7 +15,7 @@ A **RAG pipeline + memory layer + auto-updater** built specifically for personal
 - **Sleep-time consolidation** — `reflect()` pass that promotes episodic → semantic
 - **Importance scoring** — recall bumps importance; old + unused decays naturally (L8 Ebbinghaus + L9 FSRS-6 spaced repetition)
 - **Pluggable embeddings** — LM Studio (primary), MiniMax (fallback), OpenAI, sentence-transformers
-- **MCP server** — 43 tools (`remember` / `recall` / `reflect` / `forget` / `stats` / `brain_decay_status` / `brain_fsrs_review` / `brain_dreaming_read` / ...) for any MCP client
+- **MCP server** — 45 tools (`remember` / `recall` / `reflect` / `forget` / `stats` / `brain_decay_status` / `brain_fsrs_review` / `brain_dreaming_read` / ...) for any MCP client
 - **Shell-friendly CLI** — `scripts/duckbot-ask` and `scripts/brain-recall` for cron + scripts
 
 Inspired by (and pulling from):
@@ -192,7 +192,7 @@ Exposes the memory API to MCP clients. Run as stdio server:
 ./.venv/bin/python -m src.mcp_server
 ```
 
-**35 tools total** (v0.10.0):
+**45 tools total** (v0.11.7):
 
 | Tool | Layer | Purpose |
 |---|---|---|

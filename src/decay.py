@@ -203,7 +203,17 @@ def decay_adjust(
         if age == float("inf"):
             # No timestamp at all — treat as fully fresh (operator-imported).
             age = 0.0
-        stability = float(meta.get("stability_days") or 0.0) or DEFAULT_STABILITY_DAYS
+        # Use an explicit `is None` check (not an `or` chain) so an
+        # explicit stability_days=0 is respected as "unmemorized" rather
+        # than silently upgraded to DEFAULT_STABILITY_DAYS via truthiness.
+        _stab_raw = meta.get("stability_days")
+        if _stab_raw is None:
+            stability = DEFAULT_STABILITY_DAYS
+        else:
+            try:
+                stability = float(_stab_raw)
+            except (TypeError, ValueError):
+                stability = DEFAULT_STABILITY_DAYS
         retention = ebbinghaus_retention(age, stability)
         if retention < decay_floor:
             retention *= floor_penalty

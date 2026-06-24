@@ -57,7 +57,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the deep dive.
 - Hybrid retrieval: vector + BM25-style keyword search + Reciprocal Rank Fusion
 - Eval harness: recall@K, MRR, p50/p95 latency
 - File-watcher daemon polls every 5 min (content-hash dedup — no spam)
-- MCP stdio server with 43 tools (recall/remember/forget/reflect/stats/...)
+- MCP stdio server with 45 tools (recall/remember/forget/reflect/stats/...)
 - Shell wrappers: `scripts/duckbot-ask` + `scripts/brain-recall` for any cron/script
 
 ## File layout
@@ -78,7 +78,7 @@ duckbot-rag-memory/
 |   |-- consolidate.py    # episodic -> semantic distillation
 |   |-- eval.py           # benchmark runner
 |   |-- memory.py         # the unified Memory facade (remember/recall/reflect/forget/stats)
-|   |-- mcp_server.py     # MCP stdio JSON-RPC server (43 tools)
+|   |-- mcp_server.py     # MCP stdio JSON-RPC server (45 tools)
 |   |-- watcher.py        # polling daemon (5-min interval, content-hash dedup)
 |   |-- cli.py            # python -m src.cli
 |   |-- decay.py fsrs.py rerank.py tier_priors.py  # brain layers (L8/L9/L7/L11)
@@ -144,7 +144,7 @@ for the full step-by-step.
 
 **Hermes Agent (MCP server):**
 - `hermes mcp add duckbot-memory --command "$(pwd)/scripts/duckbot-memory-mcp.sh"`
-  (or `.bat` on Windows). 43 tools become available:
+  (or `.bat` on Windows). 45 tools become available:
   `brain_recall`, `brain_remember`, `brain_forget`, `brain_decay_status`,
   `brain_fsrs_review`, `brain_dreaming_read`, `brain_dreaming_cycle`,
   `brain_learn`, `brain_active_memory`, `recall_verbatim`,

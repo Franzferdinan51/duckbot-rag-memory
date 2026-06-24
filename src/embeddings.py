@@ -17,7 +17,7 @@ Three providers, switchable via DUCKBOT_EMBEDDING env var:
              uses text-embedding-01 model, 1536d
 
 LM Studio is preferred for self-hosted / privacy-first operation.
-The fallback chain is: DUCKBOT_EMBEDDING env > auto-detect LM Studio > OpenAI.
+The fallback chain is: DUCKBOT_EMBEDDING env > auto-detect LM Studio > MiniMax > OpenAI.
 """
 
 from __future__ import annotations

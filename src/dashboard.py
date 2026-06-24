@@ -133,10 +133,13 @@ def build_report(
     # ---- Recent sync activity ----
     if watcher_log and Path(watcher_log).exists():
         try:
-            lines = Path(watcher_log).read_text(errors="ignore").strip().split("\n")
-            r.recent_sync = _parse_watcher_log(lines[-200:])[-last_n_sync:]
+            # Read tail-only (last ~200 lines) so a multi-GB watcher.log
+            # doesn't load into memory. The previous read_text() + split()
+            # loaded the entire file before slicing — OOM risk on long runs.
+            all_lines = _tail_lines(Path(watcher_log), max_lines=200 + last_n_sync)
+            r.recent_sync = _parse_watcher_log(all_lines[-200:])[-last_n_sync:]
             r.last_24h_stats = _summarize_last_24h(
-                _parse_watcher_log(lines), now=now
+                _parse_watcher_log(all_lines), now=now
             )
         except Exception as e:
             r.recent_sync = [{"error": str(e)}]
@@ -144,6 +147,42 @@ def build_report(
         r.recent_sync = []
 
     return r
+
+
+def _tail_lines(path: Path, max_lines: int) -> list[str]:
+    """Return the last `max_lines` lines of `path` without loading it whole.
+
+    Reads in 64 KiB chunks from the end and splits on newlines, dropping a
+    partial trailing line. Good enough for watcher.log at any size.
+    """
+    CHUNK = 64 * 1024
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return []
+    if size == 0:
+        return []
+    lines: list[bytes] = []
+    buf = b""
+    with path.open("rb") as f:
+        pos = size
+        while pos > 0 and len(lines) <= max_lines:
+            read = min(CHUNK, pos)
+            pos -= read
+            f.seek(pos)
+            buf = f.read(read) + buf
+            parts = buf.split(b"\n")
+            buf = parts[0]
+            lines = parts[1:] + lines
+    # If we read the start of the file, `buf` holds the head (the part before
+    # the first newline) — prepend it. If we didn't reach pos 0, `buf` is a
+    # partial first line that we must drop.
+    if pos == 0 and buf:
+        lines = [buf] + lines
+    # Drop a trailing empty line from a file ending in '\n'.
+    if lines and lines[-1] == b"":
+        lines = lines[:-1]
+    return [ln.decode("utf-8", errors="replace") for ln in lines[-max_lines:]]
 
 
 def _parse_watcher_log(lines: list[str]) -> list[dict]:
