@@ -37,7 +37,7 @@ from src.memory import Memory
 TOOLS = [
     {
         "name": "remember",
-        "description": "Save a memory. Auto-chunks long text, classifies tier, extracts entities, embeds, and stores. Returns chunk_id, tier, importance.",
+        "description": "Save a memory. Auto-chunks, classifies tier, extracts entities, embeds, stores. Returns chunk_id, tier, importance.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -51,7 +51,7 @@ TOOLS = [
     },
     {
         "name": "recall",
-        "description": "Search memory. Hybrid vector + BM25 retrieval, with optional cross-encoder rerank (Layer 7). Returns top-k results with tier, importance, source_path.",
+        "description": "Hybrid retrieval over all chunks. Returns top-k with tier, source, importance, score.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -67,7 +67,7 @@ TOOLS = [
     },
     {
         "name": "reflect",
-        "description": "Sleep-time consolidation: pull recent episodic chunks, extract facts, dedupe, promote to semantic tier. The 'dream' pass.",
+        "description": "Consolidate episodic chunks into semantic memory. Returns summary of what was merged.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -78,7 +78,7 @@ TOOLS = [
     },
     {
         "name": "forget",
-        "description": "Delete a specific memory by chunk_id.",
+        "description": "Delete a memory by chunk_id.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -90,12 +90,12 @@ TOOLS = [
     },
     {
         "name": "stats",
-        "description": "Snapshot of memory store: chunk counts by tier, provider, last timestamps, LM Studio reachability.",
+        "description": "One-glance snapshot of brain state: chunks by tier, last activity, LM Studio reachability.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "watch",
-        "description": "Start the auto-update daemon. Watches the given paths (or defaults) and ingests new/changed markdown files in real time.",
+        "description": "Start or stop the file-watcher daemon that auto-ingests new files into the brain.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -106,14 +106,14 @@ TOOLS = [
     },
     {
         "name": "doctor",
-        "description": "Sanity check: env, deps, store, provider reachability.",
+        "description": "Run health checks: Python version, critical deps, embedder status, vector store health.",
         "inputSchema": {"type": "object", "properties": {}},
     },
 
     # ---- v0.10.0 — useful MCP tools extension ----
     {
         "name": "recall_verbatim",
-        "description": "Layer 13 verbatim-first retrieval: returns the original (pre-overlap) source text. Useful when you want to quote the user verbatim.",
+        "description": "Verbatim-first recall. Returns chunks whose exact text was used, with surrounding context.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -128,7 +128,7 @@ TOOLS = [
     },
     {
         "name": "fsrs_review",
-        "description": "Layer 9: chunks due for FSRS-6 spaced-repetition review. Public-domain math, no LLM.",
+        "description": "Get the FSRS-6 spaced-repetition review queue. Items due for review first.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -139,7 +139,7 @@ TOOLS = [
     },
     {
         "name": "decay_status",
-        "description": "Layer 8: Ebbinghaus decay status for recent chunks. Public-domain math (1885), no LLM.",
+        "description": "Show retention/decay status for the most recent chunks. Highlights items close to forgetting.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -150,7 +150,7 @@ TOOLS = [
     },
     {
         "name": "forget_by_query",
-        "description": "Delete the top-k chunks matching a query.",
+        "description": "Delete the top-k chunks matching a query. Use carefully — destructive.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -163,7 +163,7 @@ TOOLS = [
     },
     {
         "name": "search_verbatim",
-        "description": "Layer 13: exact substring match against verbatim text.",
+        "description": "Exact substring match against stored verbatim text. Fast and precise.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -176,20 +176,12 @@ TOOLS = [
     # ---- v0.11.0 — OpenClaw dreaming bridge + Hermes /learn + Active Memory ----
     {
         "name": "dreaming_read",
-        "description": (
-            "v0.11.0: Pull DREAMS.md + memory/dreaming/*.md into the brain as "
-            "`semantic` tier. Idempotent — uses content-hash state to skip "
-            "already-ingested entries. Returns new_entries, skipped, by_kind, sources."
-        ),
+        "description": "Pull dream entries from OpenClaw dreaming surface into the brain. Idempotent.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "dreaming_cycle",
-        "description": (
-            "v0.11.0: Distill high-importance episodic chunks into a new dream "
-            "entry at memory/dreaming/deep/<date>.md. OpenClaw's dreamer picks it "
-            "up on its next pass. Returns distilled_chunks, by_tier, output_files."
-        ),
+        "description": "Distill high-importance chunks into a new dream entry.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -200,12 +192,7 @@ TOOLS = [
     },
     {
         "name": "learn",
-        "description": (
-            "v0.11.0: Hermes /learn shim. Ingest `text` into the brain as "
-            "`procedural` tier + write to memory/learning/<date>.md + (if `hermes` "
-            "is on PATH) shell out to `hermes learn`. Returns chunk_id, "
-            "written_to, hermes_invoked, hermes_output."
-        ),
+        "description": "Ingest a reusable rule into the brain and (optionally) invoke Hermes /learn.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -220,11 +207,7 @@ TOOLS = [
     },
     {
         "name": "active_memory",
-        "description": (
-            "v0.11.0: OpenClaw Active Memory tool alias. Dispatches `memory_query`, "
-            "`memory_store`, `memory_recent`, `memory_forget` to the brain. "
-            "Returns {ok, tool, data, error}."
-        ),
+        "description": "Dispatch an Active Memory tool call (memory_query, memory_store, memory_recent, memory_forget).",
         "inputSchema": {
             "type": "object",
             "properties": {

@@ -53,12 +53,12 @@ TOOL_DEFINITIONS: list[dict] = [
     # ----- Vector store (mirror of mcp_server.py; included here for completeness) -----
     {
         "name": "brain_stats",
-        "description": "One-glance snapshot of all 5 brain layers: vector store, knowledge graph, memory blocks, quarantine.",
+        "description": "One-glance snapshot of all 5 brain layers: vector, graph, blocks, quarantine.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "brain_remember",
-        "description": "Save a memory. Auto-chunks, classifies tier, extracts entities, embeds, stores. Pre-scanned for injection - suspicious text is quarantined, not stored.",
+        "description": "Save a memory. Pre-scanned for injection — suspicious text is quarantined, not stored.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -72,7 +72,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_recall_verbatim",
-        "description": "Layer 13 verbatim-first retrieval: returns the original (pre-overlap, pre-prefix) source text instead of the contextualized chunk. Use when the user asks 'what exactly did I say about X?' so we never paraphrase or summarize.",
+        "description": "Verbatim-first recall. Returns chunks with their exact text preserved.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -88,7 +88,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_recall",
-        "description": "Hybrid retrieval (vector + BM25 + RRF, plus optional cross-encoder rerank, Ebbinghaus decay, tier priors, and FSRS-6 spaced repetition) over all chunks. Returns top-k with tier, source, importance, score.",
+        "description": "Hybrid retrieval over all chunks. Returns top-k with tier, source, importance, score.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -107,7 +107,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_reflect",
-        "description": "Sleep-time consolidation: episodic → semantic distillation.",
+        "description": "Consolidate episodic chunks into semantic memory.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -120,7 +120,7 @@ TOOL_DEFINITIONS: list[dict] = [
     # ----- Knowledge graph (Layer 1) -----
     {
         "name": "brain_graph_entity",
-        "description": "Add or update an entity in the temporal knowledge graph.",
+        "description": "Create or update a knowledge-graph entity by name and kind.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -133,7 +133,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_graph_relate",
-        "description": "Add a relationship between two named entities. Creates the entities if they don't exist. Time-stamped; can be ended/superseded later.",
+        "description": "Add a relationship between two graph entities with a label.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -147,7 +147,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_graph_query",
-        "description": "Query entities by name (substring, case-insensitive) and kind. Returns list with id, name, kind, aliases, notes.",
+        "description": "Query the knowledge graph for entities by name or kind.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -158,7 +158,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_graph_relationships",
-        "description": "Get all active relationships touching an entity at time `at` (default: now). Returns id, source_id, target_id, label, valid_from, valid_until, is_active.",
+        "description": "List all relationships for an entity, optionally at a specific time.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -170,7 +170,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_graph_history",
-        "description": "Full history (active + ended) of relationships for an entity, newest first.",
+        "description": "Show the history of changes for an entity over time.",
         "inputSchema": {
             "type": "object",
             "properties": {"entity": {"type": "string"}},
@@ -181,7 +181,7 @@ TOOL_DEFINITIONS: list[dict] = [
     # ----- Memory blocks (Layer 3) -----
     {
         "name": "brain_block_read",
-        "description": "Read a memory block by name (persona, user, active_project, today_focus, open_questions, or your own).",
+        "description": "Read a memory block (a self-editing persona/rule container) by name.",
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string"}},
@@ -190,7 +190,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_block_write",
-        "description": "Replace a block's content (creates it if missing).",
+        "description": "Create or overwrite a memory block with the given text.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -202,7 +202,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_block_append",
-        "description": "Append text to an existing block (preserves history).",
+        "description": "Append text to an existing memory block.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -223,19 +223,19 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_block_list",
-        "description": "List all memory blocks with name, char_count, updated_at.",
+        "description": "List all memory blocks with their character counts and last-modified times.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "brain_seed_blocks",
-        "description": "Seed the 5 default blocks (persona, user, active_project, today_focus, open_questions). Idempotent - skips blocks that already exist.",
+        "description": "Seed the default memory blocks (persona, user, today_focus) if missing.",
         "inputSchema": {"type": "object", "properties": {}},
     },
 
     # ----- Injection scan (Layer 4) -----
     {
         "name": "brain_injection_scan",
-        "description": "Run a one-shot injection scan on text. Returns is_clean, max_severity, pattern_hits, heuristic_hits, scan_id. Does NOT quarantine.",
+        "description": "Scan text for prompt-injection patterns. Returns verdict and reasons.",
         "inputSchema": {
             "type": "object",
             "properties": {"text": {"type": "string"}},
@@ -244,7 +244,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_quarantine_list",
-        "description": "List quarantined chunks. status: 'pending' (default), 'approved', 'rejected', or 'all'.",
+        "description": "List quarantined items by status (pending, approved, rejected).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -254,7 +254,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_quarantine_review",
-        "description": "Approve (false positive) or reject (true positive) a quarantined chunk by scan_id.",
+        "description": "Review a quarantined item: approve (re-store) or discard.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -269,7 +269,7 @@ TOOL_DEFINITIONS: list[dict] = [
     # ----- v0.10.0 — useful MCP tools extension -----
     {
         "name": "brain_fsrs_review",
-        "description": "Layer 9: list chunks due for FSRS-6 spaced-repetition review (R(t,S) < 0.9). Public-domain math, no LLM call. Returns retrievability, stability, difficulty, urgency per chunk, sorted by urgency descending.",
+        "description": "Get the FSRS-6 spaced-repetition review queue.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -280,7 +280,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_decay_status",
-        "description": "Layer 8: Ebbinghaus decay status (R = e^(-t/S)) for recent chunks, grouped by tier. Public-domain math (1885), no LLM call. Useful for hygiene review ('which knowledge is fading?').",
+        "description": "Show retention/decay status for recent chunks.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -291,7 +291,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_forget_by_query",
-        "description": "Delete the top-k chunks matching a query. Use when you want to forget a topic, not just one chunk. Returns deleted_ids and what was matched before deletion.",
+        "description": "Delete the top-k chunks matching a query. Destructive.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -304,7 +304,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_search_verbatim",
-        "description": "Layer 13: exact substring match against the verbatim (pre-overlap) source text. Useful when you remember a phrase verbatim and want the chunk that contains it. Different from brain_recall (which is semantic+BM25).",
+        "description": "Exact substring match against stored verbatim text.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -317,18 +317,12 @@ TOOL_DEFINITIONS: list[dict] = [
     # ----- v0.11.0 — OpenClaw dreaming bridge + Hermes /learn + Active Memory -----
     {
         "name": "brain_dreaming_read",
-        "description": (
-            "v0.11.0: Pull DREAMS.md + memory/dreaming/*.md into the brain as "
-            "`semantic` tier. Idempotent. Returns new_entries, skipped, by_kind, sources."
-        ),
+        "description": "Pull dream entries from OpenClaw dreaming surface into the brain.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "brain_dreaming_cycle",
-        "description": (
-            "v0.11.0: Distill high-importance episodic chunks into a new dream "
-            "entry. Returns distilled_chunks, by_tier, output_files."
-        ),
+        "description": "Distill high-importance chunks into a new dream entry.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -339,11 +333,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_learn",
-        "description": (
-            "v0.11.0: Hermes /learn shim. Ingest + write to memory/learning/ + "
-            "optionally invoke `hermes learn`. Returns chunk_id, written_to, "
-            "hermes_invoked, hermes_output."
-        ),
+        "description": "Ingest a reusable rule into the brain and (optionally) invoke Hermes /learn.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -358,11 +348,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_active_memory",
-        "description": (
-            "v0.11.0: OpenClaw Active Memory tool alias. Dispatches "
-            "memory_query / memory_store / memory_recent / memory_forget. "
-            "Returns {ok, tool, data, error}."
-        ),
+        "description": "Dispatch an Active Memory tool call.",
         "inputSchema": {
             "type": "object",
             "properties": {
