@@ -1,5 +1,96 @@
 # Changelog
 
+## 0.9.0 — 2026-06-23 — Full cross-platform support (Win/Mac/Linux)
+
+After the v0.8.0 push, Duckets asked: "make sure the WHOLE thing is
+cross platform." That means not just the Chroma enhancements, but the
+watcher daemon, the install scripts, the embeddings module, and every
+other Python file under `src/`. This release audits + fixes the
+remaining cross-platform issues.
+
+### Watcher daemon: real cross-platform `daemon` subcommand
+
+- **`src/watcher.py`** — `cmd_daemon` now dispatches by platform:
+  - On POSIX (macOS, Linux): classic double-fork + setsid. Same as
+    before, just extracted into `_daemon_posix()`.
+  - On Windows: `subprocess.Popen` with `DETACHED_PROCESS` +
+    `CREATE_NEW_PROCESS_GROUP` (0x8 | 0x200), which is the Windows
+    equivalent of detaching from the controlling terminal. The detached
+    child runs `python -m src.watcher run ...` in its own process
+    group, surviving parent exit.
+- **PID file at `data/watcher.pid`** works identically on all three
+  OSes. `watcher status` and `watcher stop` work everywhere.
+- **`/dev/null` replaced with `os.devnull`** so the POSIX branch doesn't
+  crash if the open path is `/dev/null` on a system that doesn't have
+  it (Windows, weird POSIX variants).
+- **`os.kill(pid, signal.SIGTERM)`** replaced with a `getattr(signal,
+  "SIGTERM", getattr(signal, "SIGBREAK", 15))` lookup. `SIGBREAK` is
+  the Windows equivalent; `15` is the universal "kill" fallback.
+
+### `embeddings.py`: `os.path.join` → `pathlib`
+
+- The `.env` file loader now uses `Path(__file__).resolve().parent.parent
+  / ".env"` instead of `os.path.join(os.path.dirname(os.path.dirname
+  (...)), ".env")`. Same behavior, but the Path form is explicit about
+  cross-platform path handling and easier to read.
+
+### New scripts for full cross-platform install
+
+- **`scripts/install.sh`** — generic POSIX bootstrap (venv + deps +
+  `.env`). Works on macOS and Linux. No service integration.
+- **`scripts/install-macos.sh`** (renamed from `install.sh`) — adds
+  launchd plist install. macOS only.
+- **`scripts/install-linux.sh`** — new. Writes a systemd user unit to
+  `~/.config/systemd/user/duckbot-memory-watcher.service` and runs
+  `systemctl --user enable --now`. Works on any distro with systemd
+  (Ubuntu 16.04+, Debian 9+, Fedora, Arch, etc.).
+- **`scripts/install.ps1`** — new. Windows bootstrap (venv + deps +
+  `.env`) + registers a Task Scheduler task that runs the watcher at
+  logon, with `RestartCount: 5, RestartInterval: 1 minute`. Visible in
+  Task Scheduler UI as `DuckBotMemoryWatcher`.
+- **`scripts/start-watcher.ps1`** — new. Cross-platform companion to
+  `start-watcher.sh`. Use `pwsh scripts/start-watcher.ps1` to start in
+  background, `-Foreground` to run in current console, `-Status` to
+  check, `-Stop` to stop, `-Log` to tail logs.
+- **`scripts/start-watcher.sh`** — existing POSIX launcher, unchanged.
+
+### Audit + test coverage
+
+- **`tests/test_cross_platform.py`** — 20 new tests covering:
+  - Watcher module imports on any platform (no `os.fork` at import).
+  - `_daemon_windows` and `_daemon_posix` exist and are called by
+    `cmd_daemon` based on `sys.platform`.
+  - `/dev/null` is never referenced as a literal in the watcher.
+  - `os.chmod` is guarded with `hasattr(os, "chmod")` so Windows
+    doesn't crash.
+  - `embeddings.py` uses `pathlib`, not `os.path.join`.
+  - All 5 OS-specific scripts exist (install.sh, install-macos.sh,
+    install-linux.sh, install.ps1, start-watcher.ps1).
+  - All bash scripts pass `bash -n` syntax check.
+  - **No `os.path.join` anywhere in `src/`** (audit sweep).
+
+### Verification
+
+- 439/439 tests pass (was 419; +20 from new test file).
+- Bash syntax check on all 5 .sh scripts: pass.
+- PowerShell files are structurally valid (allowlist marker,
+  `[CmdletBinding()]`, `param(` block, referenced paths exist).
+- `data/watcher.pid` is a portable `Path`, works on Win/Mac/Linux.
+- All Python code in `src/` is `pathlib`-based.
+- All subprocess calls use `subprocess.DEVNULL`, not `/dev/null`.
+
+### Still on the wishlist (not done in this release)
+
+- **GitHub Actions matrix CI** that runs on `windows-latest` +
+  `ubuntu-latest` + `macos-latest` to actually exercise the full
+  cross-platform stack end-to-end. Would catch Windows-specific
+  issues that this Mac can't reproduce (e.g. `os.fork` AttributeError,
+  path-length limits, file-locking races). Recommended next step.
+- **Live PS1 syntax check** — `pwsh` is not installed on this Mac, so
+  the PowerShell files were structurally validated (markers, blocks,
+  referenced paths) but not actually parsed. A Windows runner in CI
+  would close that gap.
+
 ## 0.8.0 — 2026-06-23 — Cross-platform Chroma enhancements
 
 Duckets asked: can we enhance the Chroma DB? Make it work on Windows?

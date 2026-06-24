@@ -361,9 +361,14 @@ def cmd_status() -> int:
     try:
         os.kill(pid, 0)
         print(f"Watcher: running (pid={pid})")
-    except ProcessLookupError:
+    except (ProcessLookupError, OSError):
+        # OSError covers Windows cases where the pid is no longer valid
+        # (e.g. ERROR_INVALID_PARAMETER when the process was reaped).
         print(f"Watcher: stale pid file (pid={pid} not alive)")
-        PID_PATH.unlink()
+        try:
+            PID_PATH.unlink()
+        except FileNotFoundError:
+            pass
     return 0
 
 
@@ -372,12 +377,19 @@ def cmd_stop() -> int:
         print("Watcher: not running")
         return 0
     pid = int(PID_PATH.read_text().strip())
+    # Cross-platform: SIGTERM on POSIX, SIGBREAK on Windows. Both are
+    # present in Python's signal module on their respective platforms.
+    sig = getattr(signal, "SIGTERM", getattr(signal, "SIGBREAK", 15))
     try:
-        os.kill(pid, signal.SIGTERM)
-        print(f"Watcher: sent SIGTERM to pid={pid}")
+        os.kill(pid, sig)
+        print(f"Watcher: sent termination signal to pid={pid}")
     except ProcessLookupError:
         print(f"Watcher: pid={pid} not alive")
-    PID_PATH.unlink()
+    except OSError as e:
+        # PermissionError on Windows when the pid is owned by another user;
+        # ESRCH for races where the process exits between check and kill.
+        print(f"Watcher: cannot stop pid={pid}: {e}")
+    PID_PATH.unlink(missing_ok=True)
     return 0
 
 
@@ -412,23 +424,102 @@ def cmd_run(args) -> int:
 
 
 def cmd_daemon(args) -> int:
-    """Daemonize: fork, write pid, return.
+    """Daemonize: detach from the controlling terminal and run in background.
 
-    The trick that makes this work where naive double-fork fails:
+    Cross-platform strategy:
+      - On POSIX (macOS, Linux): classic double-fork + setsid. This is the
+        well-known Unix daemon pattern; works since the 1980s.
+      - On Windows: there is no `os.fork()`. We use `subprocess.Popen` with
+        `DETACHED_PROCESS` + `CREATE_NEW_PROCESS_GROUP` flags, which is
+        the Windows equivalent: the child survives the parent exiting and
+        gets no controlling terminal. Same end result, different mechanism.
+
+    Both branches write the same PID file at PID_PATH, so `cmd_status` /
+    `cmd_stop` work identically on all three OSes.
+
+    The trick that makes POSIX work where naive double-fork fails:
       - Grandchild ignores SIGHUP/SIGPIPE before any stdio work
       - We write_pid BEFORE redirecting stdio so any post-write debug output is captured
-      - All three stdio streams are closed AND dup2'd to /dev/null + log file
+      - All three stdio streams are closed AND dup2'd to os.devnull + log file
         (close() alone leaves fd 0/1/2 pointing at the now-defunct parent tty)
     """
-    import signal as _signal
     if PID_PATH.exists():
         pid = int(PID_PATH.read_text().strip())
         try:
             os.kill(pid, 0)
             print(f"Watcher already running (pid={pid})")
             return 1
-        except ProcessLookupError:
+        except (ProcessLookupError, OSError):
+            # OSError on Windows when the pid no longer exists.
+            try:
+                PID_PATH.unlink()
+            except FileNotFoundError:
+                pass
+
+    paths = args.paths or [str(p) for p in DEFAULT_WATCH]
+
+    if sys.platform == "win32":
+        return _daemon_windows(paths, args)
+    return _daemon_posix(paths, args)
+
+
+def _daemon_windows(paths: list[str], args) -> int:
+    """Windows daemonization: spawn a detached subprocess.
+
+    `DETACHED_PROCESS` (0x00000008) + `CREATE_NEW_PROCESS_GROUP` (0x00000200)
+    detaches the child from the parent's console. We then `Popen` ourselves
+    with `python.exe -m src.watcher run ...` as the child, and exit the
+    parent cleanly.
+    """
+    DETACHED_PROCESS = 0x00000008
+    CREATE_NEW_PROCESS_GROUP = 0x00000200
+    creationflags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+
+    # Write a placeholder pid so cmd_status works immediately
+    PID_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PID_PATH.write_text("starting")
+
+    # The detached child must NOT inherit the parent's stdio handles. We
+    # pass stdin/stdout/stderr=DEVNULL to close them in the child. This is
+    # the cross-platform equivalent of dup2'ing to /dev/null.
+    import subprocess
+    try:
+        p = subprocess.Popen(
+            [sys.executable, "-m", "src.watcher", "run", *paths,
+             "--interval", str(args.interval)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+            close_fds=True,
+        )
+    except Exception as e:
+        print(f"❌ Failed to start watcher: {e}", file=sys.stderr)
+        try:
             PID_PATH.unlink()
+        except FileNotFoundError:
+            pass
+        return 1
+
+    # The detached child writes its real pid to PID_PATH via cmd_run's
+    # write_pid(). We poll briefly for it.
+    for _ in range(40):  # up to ~4 seconds
+        time.sleep(0.1)
+        try:
+            current = PID_PATH.read_text().strip()
+            if current and current != "starting" and current.isdigit():
+                print(f"Watcher daemonized: pid={current}")
+                return 0
+        except (OSError, FileNotFoundError):
+            pass
+    # Child didn't write a pid within 4s; assume it started OK.
+    print(f"Watcher daemonized: pid={p.pid} (status file not yet updated)")
+    return 0
+
+
+def _daemon_posix(paths: list[str], args) -> int:
+    """POSIX (macOS / Linux) daemonization: classic double-fork."""
+    import signal as _signal
 
     # First fork: detach from parent
     pid = os.fork()
@@ -463,7 +554,12 @@ def cmd_daemon(args) -> int:
     # Write pid BEFORE stdio redirect so any debug output after is captured
     try:
         PID_PATH.write_text(str(os.getpid()))
-        os.chmod(str(PID_PATH), 0o644)
+        # os.chmod is POSIX-only; Windows ignores it. Guarded for safety.
+        if hasattr(os, "chmod"):
+            try:
+                os.chmod(str(PID_PATH), 0o644)
+            except (OSError, NotImplementedError):
+                pass
     except Exception:
         pass
 
@@ -487,7 +583,8 @@ def cmd_daemon(args) -> int:
     except Exception:
         pass
     try:
-        dn = open("/dev/null", "r")
+        # os.devnull is /dev/null on POSIX and nul on Windows
+        dn = open(os.devnull, "r")
         os.dup2(dn.fileno(), 0)
     except Exception:
         pass

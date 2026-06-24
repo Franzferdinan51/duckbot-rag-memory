@@ -23,6 +23,7 @@ The fallback chain is: DUCKBOT_EMBEDDING env > auto-detect LM Studio > OpenAI.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -34,14 +35,13 @@ import httpx
 # Idempotent, silent, and doesn't override already-set vars.
 # ---------------------------------------------------------------------------
 def _load_dotenv() -> None:
-    env_file = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"
-    )
-    if not os.path.exists(env_file):
+    # Use pathlib (cross-platform: handles Win/Mac/Linux separators).
+    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if not env_file.exists():
         return
     try:
         from dotenv import load_dotenv  # optional dep
-        load_dotenv(env_file, override=False)
+        load_dotenv(str(env_file), override=False)
         return
     except ImportError:
         pass

@@ -221,6 +221,33 @@ OS-specific:
 Both scripts have the same patterns, the same exit codes, and the same
 opt-out env var (`DUCKBOT_SKIP_SECRET_SCAN=1`).
 
+### Per-OS install + service integration
+
+| OS | Bootstrap | Background watcher | Auto-restart on boot/crash |
+|---|---|---|---|
+| macOS | `./scripts/install.sh` | `./.venv/bin/python -m src.watcher daemon` | `./scripts/install-macos.sh` (launchd plist) |
+| Linux | `./scripts/install.sh` | `./.venv/bin/python -m src.watcher daemon` | `./scripts/install-linux.sh` (systemd user unit) |
+| Windows | `pwsh scripts/install.ps1` | `pwsh scripts/start-watcher.ps1` | `pwsh scripts/install.ps1` (Task Scheduler) |
+
+The `daemon` subcommand is cross-platform: it uses classic double-fork
+on POSIX and `subprocess.Popen` with `DETACHED_PROCESS` on Windows. The
+PID file at `data/watcher.pid` works identically on all three OSes, so
+`watcher status` and `watcher stop` work everywhere.
+
+For service integration (auto-start on boot, auto-restart on crash):
+
+- **macOS** — launchd: copies a `.plist` to `~/Library/LaunchAgents/`
+  and runs `launchctl load -w`. The plist re-launches the watcher on
+  login and on crash.
+- **Linux** — systemd: writes a user unit to
+  `~/.config/systemd/user/duckbot-memory-watcher.service` and runs
+  `systemctl --user enable --now`. Optional
+  `loginctl enable-linger $USER` to keep the watcher running after
+  logout.
+- **Windows** — Task Scheduler: registers a task that runs at logon,
+  with `RestartCount: 5, RestartInterval: 1 minute`. Visible in Task
+  Scheduler UI as `DuckBotMemoryWatcher`.
+
 ### Windows quirks
 
 - **Chromadb** ships pre-built wheels for Windows (Python 3.9-3.13). No
