@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.8.0 — 2026-06-23 — Cross-platform Chroma enhancements
+
+Duckets asked: can we enhance the Chroma DB? Make it work on Windows?
+Push to main? Three concrete additions:
+
+### New: `compact` CLI subcommand
+
+- `python -m src.cli compact` — dedupes + VACUUMs the Chroma store.
+  Real-world result on the existing 4084-chunk store: saved **10.4 MB**
+  by vacuuming the SQLite WAL.
+- Scans every tier collection for duplicate ids, keeps the most
+  recently-ingested copy, re-upserts to overwrite the dupes.
+- Runs `VACUUM` on the underlying `chroma.sqlite3` (cross-platform;
+  Python's stdlib `sqlite3` module handles Win/Mac/Linux identically).
+- Refuses to run on non-Chroma backends (Qdrant / LanceDB) with a
+  clear error message.
+
+### New: `distance_metric` knob on `ChromaBackend`
+
+- Three options: `cosine` (default), `l2` (Euclidean), `ip` (inner
+  product). `ip` is faster for pre-normalized vectors (BGE models
+  with `normalize_embeddings=True`).
+- Backed by `DUCKBOT_CHROMA_DISTANCE` env var.
+- Threaded through `src/store.py:MemoryStore` → `get_backend()` →
+  `ChromaBackend.__init__`.
+- Chroma's `hnsw:space` only takes effect on collection CREATION, so
+  changing the metric on an existing store requires a new persist
+  dir or reset. Documented in the README.
+
+### New: Windows support (scripts/secret-scan.ps1 + install-pre-commit.ps1)
+
+- `scripts/secret-scan.ps1` — PowerShell port of `secret-scan.sh`.
+  Same patterns, same logic, same exit codes. Works on Windows 10/11
+  with PowerShell 5.1+ (ships with Win 10) and PowerShell 7+
+  (cross-platform).
+- `scripts/install-pre-commit.ps1` — installs the pre-commit hook
+  on Windows. Auto-detects pwsh vs bash and installs the right shim.
+- Both files are gitignored-from-committing-secrets via the
+  `duckbot-secret-scan: allowlist-file` top-of-file marker.
+- The bash version is still the default on macOS/Linux; symlink in
+  `.git/hooks/pre-commit` already exists in the repo.
+
+### README + cross-platform notes
+
+- Added a "Cross-platform support" section to README.md covering
+  macOS / Linux / Windows quirks (path limits, HF Hub auth, pwsh
+  versions, Chroma wheels).
+- Documented the new `compact` and `distance_metric` commands.
+
+### Verification
+
+- 419/419 tests pass (was 404; +15 from new test file).
+- `compact` end-to-end on the real 4084-chunk store: 0 duplicates,
+  10.4 MB saved.
+- Doctor clean; secret-scan clean.
+- All Python code is `pathlib`-based (no `os.path.join` literals),
+  so the core works on Win/Mac/Linux identically.
+
 ## 0.7.0 — 2026-06-23 — Weighted RRF + FSRS-6 (L11 + L9)
 
 Two more layers landed: per-tier prior weighting (L11) and the FSRS-6

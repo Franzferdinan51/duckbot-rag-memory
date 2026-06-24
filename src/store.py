@@ -126,6 +126,12 @@ class MemoryStore:
         }
         if self.backend_name == "chroma":
             backend_kwargs["persist_dir"] = self.persist_dir
+            # DUCKBOT_CHROMA_DISTANCE controls the HNSW distance metric.
+            # Default "cosine" works for any embedding; "ip" is faster
+            # for pre-normalized vectors; "l2" for raw euclidean.
+            backend_kwargs["distance_metric"] = os.environ.get(
+                "DUCKBOT_CHROMA_DISTANCE", "cosine"
+            )
 
         self._backend = get_backend(self.backend_name, **backend_kwargs)
 

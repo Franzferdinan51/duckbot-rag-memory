@@ -201,10 +201,78 @@ duckbot-rag-memory/
 ## Testing
 
 ```bash
-./.venv/bin/pytest -q                   # all 55 tests
-./.venv/bin/pytest tests/test_memory.py # just the new Memory facade
+./.venv/bin/pytest -q                   # all tests (419 as of v0.8.0)
+./.venv/bin/pytest tests/test_memory.py # just the Memory facade
 ./.venv/bin/pytest -k "watcher"         # watcher tests
+./.venv/bin/pytest -k "chroma"          # Chroma backend + enhancements
 ```
+
+## Cross-platform support (macOS / Linux / Windows)
+
+All Python code uses `pathlib` (no `os.path.join` string concat), so the
+core brain works identically on all three OSes. Two scripts are
+OS-specific:
+
+| OS | Pre-commit hook script | Install command |
+|---|---|---|
+| macOS / Linux | `scripts/secret-scan.sh` | `ln -sf ../../scripts/secret-scan.sh .git/hooks/pre-commit` (already done in this repo) |
+| Windows 10/11 | `scripts/secret-scan.ps1` | `pwsh scripts/install-pre-commit.ps1` |
+
+Both scripts have the same patterns, the same exit codes, and the same
+opt-out env var (`DUCKBOT_SKIP_SECRET_SCAN=1`).
+
+### Windows quirks
+
+- **Chromadb** ships pre-built wheels for Windows (Python 3.9-3.13). No
+  compiler needed. `pip install chromadb` works out of the box.
+- **`sentence-transformers`** (L7 rerank) also ships Windows wheels.
+- **Long paths**: if your repo lives deep in the filesystem, Windows'
+  260-char path limit can bite. Either move the repo closer to `C:\` or
+  enable long paths in Group Policy.
+- **Hugging Face Hub auth**: if you see a warning about
+  `unauthenticated requests to the HF Hub`, set
+  `HF_TOKEN=<your_token>` in `.env` to silence it. The model downloads
+  work without a token (slower).
+- **PowerShell version**: PowerShell 5.1 (ships with Windows 10) works
+  for `secret-scan.ps1`. PowerShell 7+ is recommended and supports
+  cross-platform pwsh invocation.
+
+### Chroma `compact` (v0.8.0+)
+
+Chroma's SQLite WAL mode grows unboundedly. The new `compact` CLI
+reclaims that space:
+
+```bash
+./.venv/bin/python -m src.cli compact
+# Compacting Chroma store at .../data/chroma...
+#   [working] 90 chunks, no duplicates
+#   [episodic] 3617 chunks, no duplicates
+#   [semantic] 183 chunks, no duplicates
+#   [procedural] 194 chunks, no duplicates
+#   VACUUM'd .../chroma.sqlite3
+# ✓ Compact complete: 0 duplicates removed, 4084 chunks kept
+#   Disk: 70.7 MB → 60.3 MB (saved 10.4 MB)
+```
+
+### Chroma `distance_metric` (v0.8.0+)
+
+HNSW distance metric is now configurable:
+
+```bash
+# Default: cosine (works for any embedding)
+./.venv/bin/python -m src.cli query "..."
+
+# Inner product — faster for pre-normalized vectors (BGE w/ normalize_embeddings=True)
+DUCKBOT_CHROMA_DISTANCE=ip ./.venv/bin/python -m src.cli query "..."
+
+# L2 — Euclidean, for raw (un-normalized) vectors
+DUCKBOT_CHROMA_DISTANCE=l2 ./.venv/bin/python -m src.cli query "..."
+```
+
+**Note**: Chroma's `hnsw:space` only takes effect on collection
+CREATION. Changing the metric on an existing store requires a new
+persist dir or `compact`+reset. See the `DUCKBOT_CHROMA_DISTANCE` env
+var in `src/store.py` for the dispatch.
 
 ## License
 

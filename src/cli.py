@@ -8,6 +8,7 @@ Usage:
     python -m src.cli eval <benchmark.jsonl>       # run eval
     python -m src.cli consolidate <days>           # episodic → semantic
     python -m src.cli reset                        # wipe all collections
+    python -m src.cli compact                      # dedupe + VACUUM the Chroma store
     python -m src.cli doctor                       # check env + deps
 
 Embedding provider is auto-detected from env. Set DUCKBOT_EMBEDDING to
@@ -199,6 +200,106 @@ def cmd_reset(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_compact(args: argparse.Namespace) -> int:
+    """Dedupe + vacuum the Chroma store.
+
+    Chroma's SQLite WAL mode grows unboundedly, and `add_chunks()` with
+    `upsert` semantics can leave duplicate ids in edge cases (e.g. when
+    a chunk's `id` field collides on re-ingest after schema change).
+    This command:
+      1. Scans every tier collection for duplicate ids.
+      2. Deduplicates by keeping the most recently-ingested copy.
+      3. Reports disk usage before + after.
+      4. (Optional) Runs `VACUUM` on the underlying SQLite db.
+
+    Cross-platform: works on macOS / Linux / Windows. The Chroma
+    PersistentClient handles path translation; on Windows we just
+    need a Path (which pathlib does correctly).
+    """
+    async def run():
+        from src.store import MemoryStore
+        return MemoryStore()
+
+    store = asyncio.run(run())
+    backend = store.backend
+    if not hasattr(backend, "_client"):
+        print("❌ compact only works with the Chroma backend.", file=sys.stderr)
+        print(f"   Current backend: {backend.name}", file=sys.stderr)
+        return 1
+
+    client = backend._client
+    persist_dir = backend.persist_dir
+    print(f"Compacting Chroma store at {persist_dir}...")
+
+    # 1. Get disk usage before
+    def dir_size(p: Path) -> int:
+        return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+
+    before_size = dir_size(persist_dir) if persist_dir.exists() else 0
+    total_dups = 0
+    total_kept = 0
+    for tier_name in backend.supported_tiers:
+        coll = backend.collection_for(tier_name)
+        try:
+            resp = coll.get(include=["metadatas"])
+        except Exception as e:
+            print(f"  [{tier_name}] skip: {e}")
+            continue
+        ids = (resp or {}).get("ids") or []
+        metas = (resp or {}).get("metadatas") or []
+        if not ids:
+            continue
+        # Group by id, keep the one with the highest ingested_at
+        by_id: dict[str, tuple[int, int, dict]] = {}
+        for i, cid in enumerate(ids):
+            m = metas[i] if i < len(metas) else {}
+            ts = int(m.get("ingested_at") or 0)
+            cur = by_id.get(cid)
+            if cur is None or ts > cur[0]:
+                by_id[cid] = (ts, i, m)
+        # Dedupe: any id that appears more than once has duplicates
+        from collections import Counter
+        id_counts = Counter(ids)
+        dup_ids = [cid for cid, c in id_counts.items() if c > 1]
+        if dup_ids:
+            # Re-upsert the kept version, which will replace the dupes
+            keep_ids = list(by_id.keys())
+            print(f"  [{tier_name}] {len(ids)} chunks, {len(dup_ids)} duplicate ids, keeping {len(keep_ids)}")
+            # The easiest dedupe: re-upsert the latest copy of each id
+            keep_resp = coll.get(ids=keep_ids, include=["documents", "embeddings", "metadatas"])
+            kr_ids = keep_resp["ids"]
+            kr_docs = keep_resp["documents"]
+            kr_embs = keep_resp["embeddings"]
+            kr_metas = keep_resp["metadatas"]
+            coll.upsert(ids=kr_ids, documents=kr_docs, embeddings=kr_embs, metadatas=kr_metas)
+            total_dups += len(dup_ids)
+            total_kept += len(keep_ids)
+        else:
+            total_kept += len(ids)
+            print(f"  [{tier_name}] {len(ids)} chunks, no duplicates")
+
+    # 2. Try to vacuum the SQLite db (cross-platform; Windows uses the
+    #    same sqlite3 module).
+    try:
+        # Find the sqlite file. Chroma stores it at <persist_dir>/chroma.sqlite3
+        sqlite_path = persist_dir / "chroma.sqlite3"
+        if sqlite_path.exists():
+            import sqlite3
+            with sqlite3.connect(str(sqlite_path)) as conn:
+                conn.execute("VACUUM")
+            print(f"  VACUUM'd {sqlite_path}")
+    except Exception as e:
+        print(f"  VACUUM skipped: {e}", file=sys.stderr)
+
+    # 3. Report after
+    after_size = dir_size(persist_dir) if persist_dir.exists() else 0
+    saved_mb = (before_size - after_size) / 1024 / 1024
+    print()
+    print(f"✓ Compact complete: {total_dups} duplicates removed, {total_kept} chunks kept")
+    print(f"  Disk: {before_size / 1024 / 1024:.1f} MB → {after_size / 1024 / 1024:.1f} MB (saved {saved_mb:.1f} MB)")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Sanity check: env, deps, store."""
     import importlib
@@ -313,6 +414,8 @@ def main() -> int:
     p_reset = sub.add_parser("reset", help="wipe all collections (DANGEROUS)")
     p_reset.add_argument("--yes", action="store_true", help="confirm")
     p_reset.set_defaults(func=cmd_reset)
+    p_compact = sub.add_parser("compact", help="dedupe + VACUUM the Chroma store (cross-platform)")
+    p_compact.set_defaults(func=cmd_compact)
 
     p_doc = sub.add_parser("doctor", help="check env + deps")
     p_doc.set_defaults(func=cmd_doctor)

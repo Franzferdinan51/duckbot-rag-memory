@@ -37,12 +37,21 @@ class ChromaBackend(VectorBackend):
 
     DEFAULT_PERSIST_DIR = Path("data") / "chroma"
 
+    # Supported distance metrics for HNSW.
+    #   "cosine" — default; works for any embedding, normalizes internally.
+    #   "l2"     — Euclidean; use when embeddings are not pre-normalized.
+    #   "ip"     — inner product; faster, equivalent to cosine ONLY for
+    #              pre-normalized vectors (e.g. BGE models with
+    #              normalize_embeddings=True at ingest).
+    SUPPORTED_DISTANCE_METRICS = ("cosine", "l2", "ip")
+
     def __init__(
         self,
         persist_dir: Optional[Path | str] = None,
         embedding_dim: int = 1536,
         embedding_provider_name: str = "lmstudio",
         tier_names: Optional[list[str]] = None,
+        distance_metric: str = "cosine",
     ) -> None:
         # Lazy import so the rest of the package works without chromadb.
         try:
@@ -53,6 +62,12 @@ class ChromaBackend(VectorBackend):
                 "ChromaBackend requires chromadb. pip install chromadb"
             ) from e
 
+        if distance_metric not in self.SUPPORTED_DISTANCE_METRICS:
+            raise ValueError(
+                f"distance_metric must be one of {self.SUPPORTED_DISTANCE_METRICS}, "
+                f"got {distance_metric!r}"
+            )
+
         self._persist_dir = (
             Path(persist_dir) if persist_dir else Path(
                 os.environ.get("DUCKBOT_CHROMA_DIR", str(self.DEFAULT_PERSIST_DIR))
@@ -61,6 +76,7 @@ class ChromaBackend(VectorBackend):
         self._persist_dir.mkdir(parents=True, exist_ok=True)
         self.embedding_dim = embedding_dim
         self.embedding_provider_name = embedding_provider_name
+        self.distance_metric = distance_metric
 
         self._tier_names: list[str] = list(tier_names or [
             "working", "episodic", "semantic", "procedural",
@@ -72,10 +88,14 @@ class ChromaBackend(VectorBackend):
         )
         self._collections: dict[str, Any] = {}
         for tier in self._tier_names:
+            # NOTE: Chroma's `metadata["hnsw:space"]` only takes effect on
+            # collection CREATION. If you change distance_metric on an
+            # existing store, you must delete the collection and let it
+            # be recreated (or use a new persist_dir).
             self._collections[tier] = self._client.get_or_create_collection(
                 name=f"duckbot_{tier}",
                 metadata={
-                    "hnsw:space": "cosine",
+                    "hnsw:space": distance_metric,
                     "tier": tier,
                     "embedding_dim": embedding_dim,
                     "embedding_provider": embedding_provider_name,
