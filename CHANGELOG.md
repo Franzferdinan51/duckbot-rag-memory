@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.5.0 — 2026-06-23 — Cross-runtime integration (L16)
+
+Duckets pointed us at OpenClaw (`openclaw/openclaw`, 380k stars) and Hermes
+(`NousResearch/hermes-agent`, 201k stars). Both have native memory plugin
+systems. We now ship a plugin for each.
+
+### L16 — Hermes MemoryProvider plugin
+
+- **`src/plugins/memory/duckbot_brain/`** — Hermes plugin implementing the
+  `MemoryProvider` ABC from `agent/memory_provider.py`.
+  - `register(ctx)` — standard plugin entry; pushes the provider into the
+    Hermes plugin context.
+  - `initialize(session_id, **kwargs)` — per ABC; honors `agent_context`
+    (skip writes for `cron`/`subagent`/`flush` contexts).
+  - `prefetch(query)` — fast recall (k=3, no rerank/decay) for prompt
+    injection before each turn. Returns formatted `[memory]` block.
+  - `sync_turn(user, assistant)` — non-blocking background write to the
+    brain via `ThreadPoolExecutor`. Skip-on-non-primary honored.
+  - `system_prompt_block()` — static text describing the brain tools.
+  - `get_tool_schemas()` — three OpenAI-function-call schemas: brain_recall,
+    brain_recall_verbatim, brain_reflect.
+  - `handle_tool_call(name, args)` — dispatches tool calls. brain_recall
+    and brain_recall_verbatim delegate to `Brain.recall()` /
+    `Brain.recall_verbatim()`. brain_reflect returns pre-LLM snippets for
+    the calling agent to compose.
+  - `on_session_end(messages)` — hook point (currently no-op; future
+    session-summary logic).
+  - `shutdown()` — best-effort executor drain.
+- **`plugin.yaml`** — manifest matches Hermes's plugin shape (name,
+  version, description, hooks).
+- **26 tests** in `tests/test_hermes_plugin.py` covering identity,
+  lifecycle, prefetch (empty/short/long/failure), sync_turn
+  (non-primary skip, empty skip, background executor), tool schemas,
+  handle_tool_call dispatch + failures, and discovery shape.
+
+### L16 — OpenClaw extension
+
+- **`src/extensions/duckbot_brain/`** — OpenClaw extension. Mirrors the
+  Hermes plugin's API but speaks stdio JSON-RPC instead of Python ABC.
+  - `openclaw.plugin.json` — full OpenClaw manifest: id, name, description,
+    activation, configSchema (with pythonPath / repoPath / defaultK /
+    enableRerank / enableDecay / enableVerbatim / timeoutMs), entry,
+    entryArgs, protocol (`stdio-jsonrpc`), and 4 tool schemas.
+  - `adapter.py` — Python stdio JSON-RPC server (`python -m
+    src.extensions.duckbot_brain.adapter`). Handles MCP-style
+    `Content-Length` framing AND newline-delimited JSON for maximum
+    compatibility.
+  - `README.md` — install instructions: add to `openclaw.json` under
+    `plugins.entries["duckbot-brain"]`. The plugin id uses a hyphen
+    (`duckbot-brain`) to match OpenClaw convention; the Python module
+    directory uses underscore (`duckbot_brain/`) for import compatibility.
+- **16 tests** in `tests/test_openclaw_extension.py` covering JSON-RPC
+  dispatch, tool call delegation, unknown-tool error path, manifest
+  discovery shape, and entry-point matching.
+- **End-to-end smoke test** — piped three JSON-RPC requests through the
+  adapter and got three valid responses: `initialize` (protocol info),
+  `tools/list` (4 tools), `brain_recall{query:"cloud-only model rule"}`
+  (returned the SOUL.md rule from MEMORY.md).
+
+### Verification
+
+- **306/306 tests pass** (was 264 in v0.4.0; +42 new across Hermes
+  plugin + OpenClaw extension).
+- Doctor clean.
+- Secret-scan clean.
+- Zero secrets in staged diff.
+
+### What we kept (per Duckets: "don't delete anything")
+
+- All Layers 0-13 code untouched. L7/L8/L13 still opt-in via env vars
+  or per-call booleans.
+- All 264 prior tests still pass.
+
+### Pattern sources (verified via GitHub REST API 2026-06-23)
+
+| Project | License | Stars | Used for |
+|---|---|---|---|
+| `openclaw/openclaw` | NOASSERTION (MIT in LICENSE) | 380,161 | `openclaw.plugin.json` shape, `active-memory` extension pattern |
+| `NousResearch/hermes-agent` | MIT | 201,026 | `MemoryProvider` ABC, plugin discovery in `plugins/memory/` |
+
+Both projects pushed today; both are actively maintained.
+
+### What's next
+
+- **L14** — Pluggable backend seam (Chroma as default; Qdrant/LanceDB
+  as future backends).
+- **L11** — Weighted RRF with per-tier priors.
+- **L9** — FSRS-6 spaced repetition (combines decay + recall).
+
 ## 0.4.0 — 2026-06-23 — Trust + Verbatim + Decay (L8 / L13 / L15)
 
 MemPalace survey (verified via GitHub API 2026-06-23, MIT-licensed)
