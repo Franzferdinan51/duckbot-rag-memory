@@ -86,6 +86,54 @@ so agents don't start each session from a blank slate.
 - Watcher state format: extended (new `content_hash` field) but the
   old format still loads — missing hash falls through to mtime dedup.
 
+## 0.11.4 — 2026-06-24 — Repo setup for community use
+
+Round of "make this a real project that other humans (and agents) can
+actually use" changes. No code changes. No new tools. No breaking API.
+
+### Added
+
+- **`.github/workflows/ci.yml`** — GitHub Actions CI on push + PR.
+  Matrix: Python 3.11 + 3.12 × ubuntu/macos/windows. Runs secret-scan
+  first (fast-fail on accidental key commits), then pytest. LM-Studio
+  integration tests are auto-skipped in CI.
+- **`.github/ISSUE_TEMPLATE/bug_report.yml`** — severity, OS, embedding
+  provider, what-happened, expected, repro, environment, workarounds.
+- **`.github/ISSUE_TEMPLATE/feature_request.yml`** — problem, proposal,
+  alternatives, cross-platform impact, backward-compat.
+- **`.github/ISSUE_TEMPLATE/config.yml`** — links to docs, discussions,
+  security disclosure; disables blank issues.
+- **`.github/PULL_REQUEST_TEMPLATE.md`** — checklist for: secret-scan,
+  no-deletions, cross-platform, tests, CHANGELOG, requirements update.
+- **`SECURITY.md`** — supported versions, private disclosure channels,
+  48h acknowledgment + 30d CVE SLA, hardening checklist for users,
+  high-value code paths to review.
+- **`CONTRIBUTING.md`** — project values, dev setup, coding conventions,
+  review process, what we won't merge, license (MIT).
+- **`tests/__init__.py`** — makes `tests/` a Python package so
+  `from tests._mock_embedder import MockEmbeddings` works (was failing
+  test collection before). **Fixes 3 pre-existing test collection
+  errors**, taking total collected tests from 480 → 512.
+
+### Changed
+
+- **`pytest.ini`** — added `pythonpath = . tests` so the package is
+  importable from the repo root without manual `sys.path` hacks.
+- **`AGENTS.md`** — quick-start now shows `duckbot-ask` /
+  `brain-recall` / `start-watcher` / `hermes mcp add`. File layout
+  diagram expanded to cover the new files. "Integration" section now
+  covers both OpenClaw (cron + ingest) AND Hermes Agent (MCP server
+  with 43 tools). Cross-platform paths throughout.
+- **`README.md`** — status badge updated to v0.11.3, CI badge added,
+  Quick Start shows the shell-wrapper usage path alongside the python
+  CLI, "Why polling" section updated to 5-min default (was 2s).
+
+### Not changed
+
+- No code changes. No new tools. No new dependencies.
+- Public API surface is identical.
+- `data/`, `.env`, `__pycache__/`, `.venv/` still gitignored.
+
 ## 0.11.3 — 2026-06-24 — duckbot-ask + 5-min watcher default
 
 Two small additions to round out the brain's reach into scripts and

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/Franzferdinan51/duckbot-rag-memory/blob/main/README.md
+    about: README, ARCHITECTURE.md, INTEGRATION.md, CHANGELOG.md
+  - name: Discussions
+    url: https://github.com/Franzferdinan51/duckbot-rag-memory/discussions
+    about: General questions + design discussion
+  - name: Security disclosure
+    url: https://github.com/Franzferdinan51/duckbot-rag-memory/blob/main/SECURITY.md
+    about: Report a vulnerability privately before opening a public issue

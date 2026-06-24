@@ -10,27 +10,36 @@ A persistent RAG (Retrieval-Augmented Generation) + memory system built for Duck
 # Install deps
 cd ~/Desktop/duckbot-rag-memory
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # or .venv\Scripts\activate on Windows
 pip install -r requirements.txt
 
 # Configure
 cp .env.example .env
-# Edit .env to set OPENAI_API_KEY
+# Edit .env to set LMSTUDIO_API_KEY (recommended) or OPENAI_API_KEY
 
-# Ingest current memory
+# Ingest current memory (one-shot backfill)
 python -m src.cli ingest ~/.openclaw/workspace/memory
 
-# Query
-python -m src.cli query "What did we decide about cloud-only models?"
+# Query from any shell (loads .env, cross-platform venv detection)
+./scripts/duckbot-ask "What did we decide about cloud-only models?"
+./scripts/duckbot-ask -f compact -n 3 "Duckets correction style"
+./scripts/brain-recall "BATMAN worker offline"   # alias for duckbot-ask
 
-# Stats
+# Real-time ingest via the watcher daemon (recommended over cron)
+./scripts/start-watcher.sh                       # polls every 5 min, content-hash dedup
+
+# Query from Python directly
+python -m src.cli query "What did we decide about cloud-only models?"
 python -m src.cli stats
+python -m src.cli doctor
+
+# Expose as MCP tools to Hermes Agent (or any MCP client)
+hermes mcp add duckbot-memory --command "$(pwd)/scripts/duckbot-memory-mcp.sh"
+# Or on Windows: --command "$(pwd)\scripts\duckbot-memory-mcp.bat"
+# Loads .env itself so LMSTUDIO_API_KEY never enters config.yaml.
 
 # Run benchmark eval
 python -m src.cli eval benchmarks/golden.jsonl
-
-# Doctor
-python -m src.cli doctor
 
 # Run tests
 pytest -v
@@ -43,46 +52,77 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the deep dive.
 **TL;DR:**
 - 4-tier memory model (working / episodic / semantic / procedural) from the CoALA paper
 - Recursive markdown-aware chunking (512 tok, 15% overlap)
-- OpenAI `text-embedding-3-small` for embeddings (1536d, $0.02/1M tok)
+- LM Studio (local) or OpenAI embeddings
 - ChromaDB embedded for vector storage
 - Hybrid retrieval: vector + BM25-style keyword search + Reciprocal Rank Fusion
 - Eval harness: recall@K, MRR, p50/p95 latency
-- Cron: every ~90 min from 22:00 to 10:00 EDT (see `scripts/cron.sh`)
+- File-watcher daemon polls every 5 min (content-hash dedup — no spam)
+- MCP stdio server with 43 tools (recall/remember/forget/reflect/stats/...)
+- Shell wrappers: `scripts/duckbot-ask` + `scripts/brain-recall` for any cron/script
 
 ## File layout
 
 ```
 duckbot-rag-memory/
+|-- .github/            # Issue/PR templates + GitHub Actions CI
+|   |-- workflows/ci.yml
+|   |-- ISSUE_TEMPLATE/{bug_report,feature_request}.yml
+|   `-- PULL_REQUEST_TEMPLATE.md
 |-- src/                # core code
-|   |-- chunk.py        # markdown chunker
-|   |-- tier.py         # CoALA tier classifier
-|   |-- embeddings.py   # pluggable embedding providers
-|   |-- store.py        # ChromaDB wrapper (one collection per tier)
-|   |-- ingest.py       # chunk -> tier -> embed -> upsert
-|   |-- query.py        # hybrid vector + BM25 + RRF
-|   |-- consolidate.py  # episodic -> semantic distillation
-|   |-- eval.py         # benchmark runner
-|   `-- cli.py          # python -m src.cli
-|-- tests/              # 41 unit tests (pytest)
+|   |-- chunk.py          # markdown chunker
+|   |-- tier.py           # CoALA tier classifier
+|   |-- embeddings.py     # pluggable embedding providers + shared http client + LRU cache + rate limit
+|   |-- store.py          # ChromaDB wrapper (one collection per tier)
+|   |-- ingest.py         # chunk -> tier -> embed -> upsert
+|   |-- query.py          # hybrid vector + BM25 + RRF
+|   |-- consolidate.py    # episodic -> semantic distillation
+|   |-- eval.py           # benchmark runner
+|   |-- memory.py         # the unified Memory facade (remember/recall/reflect/forget/stats)
+|   |-- mcp_server.py     # MCP stdio JSON-RPC server (43 tools)
+|   |-- watcher.py        # polling daemon (5-min interval, content-hash dedup)
+|   |-- cli.py            # python -m src.cli
+|   |-- decay.py fsrs.py rerank.py tier_priors.py  # brain layers (L8/L9/L7/L11)
+|   |-- blocks.py entities.py graph.py              # brain layers (L3/L2/L1)
+|   |-- injection_scan.py verbatim.py              # brain layers (L15/L13)
+|   |-- backends/         # chroma / lancedb / qdrant (pluggable)
+|   `-- connectors/       # openclaw / active_memory / dreaming / learn
+|-- tests/              # pytest suite (512 tests collected; CI skips LM Studio tests)
 |-- benchmarks/         # golden.jsonl for eval
-|-- scripts/            # cron.sh, eval.sh
-|-- docs/               # ARCHITECTURE.md, RESEARCH.md
-|-- data/               # gitignored: chroma db + history jsonl
+|-- scripts/            # install / start / cron / launchers / helpers
+|   |-- install.{ps1,sh,linux.sh,macos.sh}        # bootstrap (venv, deps, .env)
+|   |-- start-watcher.{ps1,sh,windows.bat}        # file-watcher daemon
+|   |-- duckbot-memory-mcp.{sh,bat}               # MCP stdio launcher (loads .env)
+|   |-- duckbot-ask, brain-recall.sh               # shell brain-query helpers
+|   |-- secret-scan.{ps1,sh}                      # pre-commit secret guard
+|   `-- _format_{snippet,compact}.py              # format helpers for duckbot-ask
+|-- skills/             # OpenClaw skill manifests + plugins
+|-- docs/               # ARCHITECTURE.md, INTEGRATION.md, RESEARCH.md
+|-- data/               # gitignored: chroma db + watcher state + logs
+|-- .gitignore          # excludes env, data, venv, memory/
+|-- .pre-commit-config.yaml  # local hook: scripts/secret-scan.sh
 |-- README.md           # one-pager
-|-- CHANGELOG.md        # version history
+|-- CHANGELOG.md        # version history (start here for context)
+|-- CONTRIBUTING.md     # how to contribute + project values
+|-- SECURITY.md         # vuln disclosure policy
 |-- LICENSE             # MIT
 `-- AGENTS.md           # this file
 ```
 
 ## Cron schedule
 
-The OpenClaw cron entry (added 2026-06-22):
+The OpenClaw cron entry (added 2026-06-22, replaced by watcher in v0.10):
 
-```
+```bash
 0 22-23,0-9 * * *  bash /Users/duckets/Desktop/duckbot-rag-memory/scripts/cron.sh
 ```
 
-That's 12 invocations: 22:00, 23:00, 00:00-09:00. The script handles:
+**Prefer the watcher daemon over cron** (since v0.10). The watcher polls
+every 5 minutes, dedups by content hash, and is much cheaper than the
+90-minute cron. Use `scripts/start-watcher.{ps1,sh}` (or the
+`scripts/install-*.sh` family for OS-level service integration).
+
+If you still want the cron: 12 invocations: 22:00, 23:00, 00:00-09:00.
+The script handles:
 1. Ingest from `~/.openclaw/workspace/memory` + project docs
 2. Consolidate episodic -> semantic (heuristic)
 3. Run eval against `benchmarks/golden.jsonl`
@@ -91,6 +131,32 @@ That's 12 invocations: 22:00, 23:00, 00:00-09:00. The script handles:
 
 Logs go to `data/logs/cron-YYYYMMDD-HHMMSS.log`.
 
+## Integration with OpenClaw + Hermes
+
+This project integrates with both. See [docs/INTEGRATION.md](docs/INTEGRATION.md)
+for the full step-by-step.
+
+**OpenClaw (cron + ingest source):**
+- The watcher daemon ingests from `~/.openclaw/workspace/memory/`,
+  `AGENTS.md`, `SOUL.md`, `USER.md`, `IDENTITY.md`, `TOOLS.md`.
+- The `/goal` skill can call `python -m src.cli query "..."` to surface
+  prior context.
+
+**Hermes Agent (MCP server):**
+- `hermes mcp add duckbot-memory --command "$(pwd)/scripts/duckbot-memory-mcp.sh"`
+  (or `.bat` on Windows). 43 tools become available:
+  `brain_recall`, `brain_remember`, `brain_forget`, `brain_decay_status`,
+  `brain_fsrs_review`, `brain_dreaming_read`, `brain_dreaming_cycle`,
+  `brain_learn`, `brain_active_memory`, `recall_verbatim`,
+  `search_verbatim`, `stats`, `watch`, `doctor`, etc.
+- The launcher (`duckbot-memory-mcp.sh` / `.bat`) loads `.env` itself
+  so `LMSTUDIO_API_KEY` never ends up in `hermes config.yaml`.
+
+**Any MCP client (Claude Code, Cursor, Codex):**
+- Same launchers work; just point the MCP config at the script.
+- See [docs/INTEGRATION.md § Manual install](docs/INTEGRATION.md) for
+  the JSON shape for `mcp.json`, `claude_desktop_config.json`, etc.
+
 ## Design constraints
 
 - **Idempotent ingest.** Re-running on the same file produces the same chunk IDs (content hash).
@@ -98,27 +164,25 @@ Logs go to `data/logs/cron-YYYYMMDD-HHMMSS.log`.
 - **Open-source first.** Every external dep + every design pattern traces back to a public project (see `docs/RESEARCH.md`).
 - **No agent runtime.** This is just memory, not a replacement for OpenClaw or Hermes.
 - **Honest limitations.** Documented in CHANGELOG.md and inline TODO comments.
-
-## Integration with OpenClaw
-
-- The cron is wired via OpenClaw `cron_create` (see `scripts/install.sh` in OpenClaw).
-- Ingest sources include `~/.openclaw/workspace/MEMORY.md`, `AGENTS.md`, `SOUL.md`, `memory/`.
-- The `/goal` skill could call `python -m src.cli query "..."` to surface relevant prior context.
+- **No deletions.** Additive changes only. Refactors that rename need a migration path.
+- **No secrets.** `.env` is gitignored. `scripts/secret-scan.{ps1,sh}` enforces it pre-commit.
 
 ## Adding a new feature
 
 1. Write code in `src/<module>.py` (or create a new module).
-2. Add unit tests in `tests/test_<module>.py`.
+2. Add unit tests in `tests/test_<module>.py` (run `pytest -v`).
 3. Update `docs/ARCHITECTURE.md` if design changed.
-4. Update `CHANGELOG.md` with the version + summary.
-5. Commit + push to `origin/main`.
+4. Update `CHANGELOG.md` with the version + summary under "Unreleased".
+5. Verify no secrets (`bash scripts/secret-scan.sh`).
+6. Commit + push to `origin/main` (or open a PR — see CONTRIBUTING.md).
 
 ## Testing
 
 ```bash
-pytest -v                  # all 41 tests
+pytest -v                  # all tests (512 collected)
 pytest tests/test_chunk.py # one module
 pytest -k "tier"           # filter by name
+pytest tests/test_duckbot_ask.py --timeout=60  # integration tests (need LM Studio)
 ```
 
 Coverage gaps (future work):

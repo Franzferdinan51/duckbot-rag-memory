@@ -1,0 +1,104 @@
+name: Bug Report
+description: Report a bug in duckbot-rag-memory
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please fill in the sections below — the more context, the faster we can reproduce + fix.
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: "Severity"
+      description: "How broken is it?"
+      options:
+        - "Critical (data loss, security issue, MCP server unreachable)"
+        - "High (main feature broken, no workaround)"
+        - "Medium (broken with a workaround, or affects many users)"
+        - "Low (cosmetic, typo, doc-only)"
+      validations:
+        required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: "OS / Platform"
+      options:
+        - "Windows (PowerShell)"
+        - "Windows (git-bash / MSYS)"
+        - "macOS"
+        - "Linux (systemd)"
+        - "Linux (other init)"
+      validations:
+        required: true
+
+  - type: dropdown
+    id: embedding
+    attributes:
+      label: "Embedding provider"
+      options:
+        - "LM Studio (local)"
+        - "OpenAI"
+        - "MiniMax (paid)"
+        - "sentence-transformers (local)"
+        - "Other / not sure"
+      validations:
+        required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: "What happened"
+      description: "The actual behavior — paste errors, screenshots, or unexpected output."
+      placeholder: |
+        ```
+        $ duckbot-ask "test query"
+        ❌ Query failed: ...
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: "What I expected"
+      description: "What you expected to happen instead."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: "Steps to reproduce"
+      description: "Minimal commands to reproduce. Include .env (redacted!) + OS version if relevant."
+      placeholder: |
+        1. `pip install -r requirements.txt`
+        2. `cp .env.example .env`
+        3. `python -m src.cli ingest ./test.md`
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: "Environment"
+      description: "Versions + setup. Paste the output of `pip freeze` if practical."
+      placeholder: |
+        - duckbot-rag-memory: v0.11.3
+        - Python: 3.11.14
+        - OS: Windows 11
+        - LM Studio: 0.3.5 (model: text-embedding-embeddinggemma-300m)
+        - LM Studio endpoint: http://127.0.0.1:1234/v1
+        - DuckBot MCP in Hermes: ✓ enabled, 43 tools
+
+  - type: textarea
+    id: workarounds
+    attributes:
+      label: "Workarounds tried"
+      description: "Anything you tried that didn't fix it."
+    validations:
+      required: false

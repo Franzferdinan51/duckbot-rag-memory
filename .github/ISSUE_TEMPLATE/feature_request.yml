@@ -1,0 +1,50 @@
+name: Feature Request
+description: Suggest a new feature or improvement for duckbot-rag-memory
+title: "[feat] "
+labels: ["enhancement"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Tell us what you'd like and why — we'll discuss + scope together.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem it solves"
+      description: "What problem does this address? What workflow is currently painful?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Proposed solution"
+      description: "How should it work? What does the API/CLI/MCP surface look like?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives considered"
+      description: "Other ways to solve it — why is this one better?"
+    validations:
+      required: false
+
+  - type: textarea
+    id: cross-platform
+    attributes:
+      label: "Cross-platform impact"
+      description: "Does this need to work the same on Windows / macOS / Linux? Any platform-specific code?"
+    validations:
+      required: false
+
+  - type: textarea
+    id: breaking
+    attributes:
+      label: "Backward compatibility"
+      description: "Does this break any existing config, MCP tool, CLI command, or API?"
+    validations:
+      required: true

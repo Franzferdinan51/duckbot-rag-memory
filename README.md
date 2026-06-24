@@ -2,7 +2,7 @@
 
 > Persistent, searchable, and self-curing memory for OpenClaw + Hermes Agent. Auto-updates in real time.
 
-[![Status](https://img.shields.io/badge/status-v0.11.2-yellow)]() [![License](https://img.shields.io/badge/license-MIT-blue)]() [![Open Source](https://img.shields.io/badge/open--source-everything-green)]()
+[![Status](https://img.shields.io/badge/status-v0.11.3-yellow)]() [![License](https://img.shields.io/badge/license-MIT-blue)]() [![Open Source](https://img.shields.io/badge/open--source-everything-green)]() [![CI](https://github.com/Franzferdinan51/duckbot-rag-memory/actions/workflows/ci.yml/badge.svg)]()
 
 ## What this is
 
@@ -11,11 +11,12 @@ A **RAG pipeline + memory layer + auto-updater** built specifically for personal
 - **RAG core** — markdown-aware chunking, vector + BM25 hybrid retrieval, Reciprocal Rank Fusion
 - **CoALA 4-tier** — working / episodic / semantic / procedural memory taxonomy
 - **Entity memory** — people, places, orgs, products with relationships (Cognee-inspired)
-- **Auto-updater** — file-watcher daemon syncs new/changed markdown in real time (mem0 hook pattern)
+- **Auto-updater** — file-watcher daemon syncs new/changed markdown in real time (mem0 hook pattern, 5-min polling with content-hash dedup)
 - **Sleep-time consolidation** — `reflect()` pass that promotes episodic → semantic
-- **Importance scoring** — recall bumps importance; old + unused decays naturally
+- **Importance scoring** — recall bumps importance; old + unused decays naturally (L8 Ebbinghaus + L9 FSRS-6 spaced repetition)
 - **Pluggable embeddings** — LM Studio (primary), MiniMax (fallback), OpenAI, sentence-transformers
-- **MCP server** — `remember` / `recall` / `reflect` / `forget` / `stats` tools for any MCP client
+- **MCP server** — 43 tools (`remember` / `recall` / `reflect` / `forget` / `stats` / `brain_decay_status` / `brain_fsrs_review` / `brain_dreaming_read` / ...) for any MCP client
+- **Shell-friendly CLI** — `scripts/duckbot-ask` and `scripts/brain-recall` for cron + scripts
 
 Inspired by (and pulling from):
 - **mem0** (mem0ai/mem0) — hook-based auto-capture, `add`/`update`/`search` API
@@ -33,6 +34,24 @@ cd ~/Desktop/duckbot-rag-memory
 ./.venv/bin/python -m src.watcher once         # one-shot full sync (~5 min for 150 files)
 ./.venv/bin/python -m src.watcher daemon       # run auto-updater in background
 ./.venv/bin/python -m src.cli query "What did we decide about cloud-only models?" -n 5
+```
+
+Or from any shell (loads `.env` automatically, cross-platform venv detection):
+
+```bash
+./scripts/duckbot-ask "What did we decide about cloud-only models?"
+./scripts/duckbot-ask -f compact -n 3 "Duckets correction style"
+./scripts/duckbot-ask -f snippet "BATMAN container restart recipe"
+./scripts/brain-recall "Duckets current mining status"     # alias for duckbot-ask
+```
+
+To expose the brain as MCP tools to Hermes Agent or any MCP client:
+
+```bash
+hermes mcp add duckbot-memory \
+  --command "$(pwd)/scripts/duckbot-memory-mcp.sh"
+# (On Windows use scripts/duckbot-memory-mcp.bat instead.)
+# See docs/INTEGRATION.md for the full install recipe + gotchas.
 ```
 
 Or programmatically:
@@ -120,8 +139,9 @@ Or edit `DEFAULT_WATCH` in `src/watcher.py` directly.
 
 On macOS, `watchdog` (FSEvents) combined with `chromadb` + `httpx` in the same
 process segfaults reliably. The polling handler (default since 2026-06-23) is
-rock-solid and trades a 2-second poll for that stability. To opt back into
-FSEvents: `DUCKBOT_WATCH_USE_FSEVENTS=1 ./.venv/bin/python -m src.watcher run`.
+rock-solid and trades a 5-minute poll (300s default, override with `--interval N`)
+for that stability. To opt back into FSEvents:
+`DUCKBOT_WATCH_USE_FSEVENTS=1 ./.venv/bin/python -m src.watcher run`.
 
 ### Why `run` not `daemon`
 

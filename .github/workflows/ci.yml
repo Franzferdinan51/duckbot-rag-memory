@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs when a new commit lands on the same branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest (Python ${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install CPU-only torch so sentence-transformers import works on
+          # CI runners that don't have a GPU. (Embeddings fall back to
+          # LM Studio in production; CI just needs the import to succeed.)
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-asyncio
+
+      - name: Run secret scan
+        # Catches accidental API keys, wallet addresses, etc. before
+        # they're committed. The script is part of the repo so no
+        # external deps needed.
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            powershell -ExecutionPolicy Bypass -File scripts/secret-scan.ps1
+          else
+            bash scripts/secret-scan.sh
+          fi
+
+      - name: Install package in editable mode
+        run: |
+          python -m pip install -e .
+
+      - name: Run pytest
+        run: |
+          # Skip tests that need a live LM Studio endpoint — CI has no
+          # embedder. The `_LMSTUDIO_REACHABLE` skip is built into the
+          # tests themselves.
+          pytest -v --timeout=60 --tb=short
+
+  lint-secret-scan:
+    name: Secret scan (always)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bash
+        run: sudo apt-get install -y bash
+      - name: Scan for secrets
+        run: bash scripts/secret-scan.sh
