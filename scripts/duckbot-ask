@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# duckbot-ask — thin bash wrapper over `python -m src.cli query` for cron use.
+#
+# Output formats (pick one with -f):
+#   -f compact   → one-line score + section header + first 200 chars of text
+#   -f json      → full structured JSON (the default from src.cli query)
+#   -f snippet   → just the first matching result's text, trimmed
+#
+# Usage:
+#   duckbot-ask "What did we decide about cloud-only models?"
+#   duckbot-ask -n 5 -f compact "Duckets preferences"
+#   duckbot-ask -f snippet "PRL pool wallet"
+#
+# Why a wrapper instead of calling `python -m src.cli query` directly?
+#   - Cross-platform venv path detection (mirrors duckbot-memory-mcp.sh)
+#   - Output shaping for cron output dirs (compact mode fits Telegram limits)
+#   - Single point to add --max-chars / --filter-tier / future options
+#   - Discoverable: `duckbot-ask --help` shows up in shell autocompletion
+#
+# This is the brain equivalent of `git log --oneline` for memory —
+# for "what do I know about X?" from any script or cron.
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+# Load .env if present (LMSTUDIO_KEY, OPENAI_API_KEY, etc.)
+if [ -f "$REPO_ROOT/.env" ]; then
+    # shellcheck disable=SC1091
+    set -a
+    . "$REPO_ROOT/.env"
+    set +a
+fi
+
+# Detect venv python
+if [ -x "$REPO_ROOT/.venv/Scripts/python.exe" ]; then
+    PYTHON_BIN="$REPO_ROOT/.venv/Scripts/python.exe"
+elif [ -x "$REPO_ROOT/.venv/Scripts/python" ]; then
+    PYTHON_BIN="$REPO_ROOT/.venv/Scripts/python"
+elif [ -x "$REPO_ROOT/.venv/bin/python" ]; then
+    PYTHON_BIN="$REPO_ROOT/.venv/bin/python"
+else
+    echo "❌ No venv python found at $REPO_ROOT/.venv/{bin,Scripts}/python" >&2
+    exit 1
+fi
+
+# Defaults
+N=3
+MAX_CHARS=500
+FORMAT="json"
+QUERY=""
+
+# Parse flags
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -n) N="$2"; shift 2 ;;
+        --max-chars) MAX_CHARS="$2"; shift 2 ;;
+        -f) FORMAT="$2"; shift 2 ;;
+        -h|--help)
+            cat <<EOF
+duckbot-ask — query the brain from any shell.
+
+Usage:
+  duckbot-ask [options] "your question here"
+
+Options:
+  -n N               number of results to return (default 3)
+  --max-chars N      preview chars per result (default 200)
+  -f FORMAT          output format: json (default), compact, snippet
+  -h, --help         show this help
+
+Formats:
+  json      Full structured JSON with scores, tiers, sources. Use this for
+            scripts that need to parse results programmatically.
+  compact   One block per result: "[N] (tier=X, rrf=Y) section — preview".
+            Designed for Telegram-friendly cron output.
+  snippet   Just the first result's text, trimmed to --max-chars. Use this
+            when you want a single answer and don't care about ranking.
+
+Examples:
+  duckbot-ask "PRL pool wallet"
+  duckbot-ask -n 5 -f compact "Duckets correction patterns"
+  duckbot-ask -f snippet "BATMAN container restart recipe"
+EOF
+            exit 0 ;;
+        --) shift; QUERY="$*"; break ;;  # everything after -- is the query
+        -*)
+            echo "❌ Unknown flag: $1 (try -h)" >&2
+            exit 1 ;;
+        *)
+            # First non-flag arg is the query; ignore trailing args.
+            QUERY="$1"
+            shift
+            # If more args follow (e.g. unquoted words), concatenate them.
+            while [[ $# -gt 0 ]]; do QUERY="$QUERY $1"; shift; done
+            break ;;
+    esac
+done
+
+if [ -z "$QUERY" ]; then
+    echo "❌ No query given. Try: duckbot-ask -h" >&2
+    exit 1
+fi
+
+# Run the query. src.cli query already returns JSON, so we shape it.
+RAW_JSON=$("$PYTHON_BIN" -m src.cli query "$QUERY" -n "$N" --max-chars "$MAX_CHARS" 2>&1) || {
+    echo "❌ Query failed: $RAW_JSON" >&2
+    exit 1
+}
+
+case "$FORMAT" in
+    json)
+        echo "$RAW_JSON"
+        ;;
+    compact)
+        echo "$RAW_JSON" | "$PYTHON_BIN" "$REPO_ROOT/scripts/_format_compact.py" "$QUERY" "$N" "$MAX_CHARS"
+        ;;
+    snippet)
+        echo "$RAW_JSON" | "$PYTHON_BIN" "$REPO_ROOT/scripts/_format_snippet.py" "$QUERY" "$MAX_CHARS"
+        ;;
+    *)
+        echo "❌ Unknown format: $FORMAT (use json, compact, or snippet)" >&2
+        exit 1
+        ;;
+esac

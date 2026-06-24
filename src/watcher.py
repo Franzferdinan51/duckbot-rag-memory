@@ -222,7 +222,7 @@ class PollingHandler:
 
     Every poll_interval seconds, runs a sync pass.
     """
-    def __init__(self, paths: list[str], interval: float = 2.0):
+    def __init__(self, paths: list[str], interval: float = 300.0):
         self.paths = paths
         self.interval = interval
         self.state = load_state()
@@ -244,7 +244,7 @@ class PollingHandler:
         log("Polling watcher stopped")
 
 
-def start_watchdog_handler(paths: list[str], interval: float = 2.0, initial_sync: bool = True):
+def start_watchdog_handler(paths: list[str], interval: float = 300.0, initial_sync: bool = True):
     """Block on a watchdog Observer until killed. Optionally does an initial sync first.
 
     Args:
@@ -651,7 +651,7 @@ def main():
 
     p_run = sub.add_parser("run", help="run in foreground")
     p_run.add_argument("paths", nargs="*", help="paths to watch (files or directories)")
-    p_run.add_argument("--interval", type=float, default=2.0, help="poll interval seconds")
+    p_run.add_argument("--interval", type=float, default=300.0, help="poll interval seconds (default 300 = 5 min)")
     p_run.add_argument("--no-initial-sync", dest="initial_sync", action="store_false",
                        help="skip the startup backfill (use `watcher once` separately)")
     p_run.set_defaults(func=cmd_run)

@@ -72,6 +72,47 @@ so agents don't start each session from a blank slate.
 - Watcher state format: extended (new `content_hash` field) but the
   old format still loads — missing hash falls through to mtime dedup.
 
+## 0.11.3 — 2026-06-24 — duckbot-ask + 5-min watcher default
+
+Two small additions to round out the brain's reach into scripts and
+cron jobs. No API changes, no breaking changes.
+
+### Added
+
+- **`scripts/duckbot-ask`** — thin bash wrapper around
+  `python -m src.cli query`. Gives cron jobs and one-shot shell
+  sessions a one-liner to query the brain:
+  ```bash
+  duckbot-ask "PRL pool wallet workers"
+  duckbot-ask -f compact -n 5 "Duckets correction style"
+  duckbot-ask -f snippet "BATMAN container restart recipe"
+  ```
+  Three output formats: `json` (default, full structured), `compact`
+  (one block per result, Telegram-friendly), `snippet` (just the
+  first result's text). Loads `.env` itself so `LMSTUDIO_API_KEY`
+  never leaks through `ps`. Cross-platform venv detection (mirrors
+  `duckbot-memory-mcp.sh`).
+
+- **`scripts/_format_snippet.py`** + **`scripts/_format_compact.py`** —
+  the python formatters behind `duckbot-ask`'s `-f snippet` /
+  `-f compact`. Same shape as the bash wrapper but standalone so
+  Python pipelines can pipe `python -m src.cli query` directly
+  through them.
+
+- **`tests/test_duckbot_ask.py`** — 12 tests covering formatter
+  unit behavior, bash wrapper structure, and live LM Studio
+  integration (5 of the 12 are real brain round-trips; skipped if
+  LM Studio is unreachable).
+
+### Changed
+
+- **Default watcher polling interval: 2s → 300s (5 min).** 5 paths
+  polled every 2 seconds was 150 polls/minute for no benefit —
+  markdown files don't change that often. New default keeps the
+  brain fresh within ~5 min without burning cycles. Override with
+  `--interval N` on `watcher run`/`watcher daemon`, or in
+  `start-watcher.ps1` / `start-watcher.sh`.
+
 ## 0.10.1 — 2026-06-23 — Cross-platform MCP stdio fix + README paths
 
 A small follow-up to v0.10.0, prompted by Windows + Hermes-Agent
