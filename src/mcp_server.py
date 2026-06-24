@@ -520,7 +520,7 @@ def mcp_stdio():
                     "jsonrpc": "2.0", "id": mid,
                     "result": {
                         "protocolVersion": "2024-11-05",
-                        "serverInfo": {"name": "duckbot-memory", "version": "0.2.0"},
+                        "serverInfo": {"name": "duckbot-memory", "version": "0.11.1"},
                         "capabilities": {"tools": {}},
                     },
                 }
