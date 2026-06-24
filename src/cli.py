@@ -297,8 +297,13 @@ def cmd_compact(args: argparse.Namespace) -> int:
         sqlite_path = persist_dir / "chroma.sqlite3"
         if sqlite_path.exists():
             import sqlite3
-            with sqlite3.connect(str(sqlite_path)) as conn:
+            # VACUUM cannot run inside an active transaction; sqlite3's
+            # context manager opens an implicit txn. Use autocommit mode.
+            conn = sqlite3.connect(str(sqlite_path), isolation_level=None)
+            try:
                 conn.execute("VACUUM")
+            finally:
+                conn.close()
             print(f"  VACUUM'd {sqlite_path}")
     except Exception as e:
         print(f"  VACUUM skipped: {e}", file=sys.stderr)

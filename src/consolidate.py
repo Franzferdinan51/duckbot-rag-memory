@@ -23,7 +23,7 @@ from typing import Iterable
 # Patterns that signal a "durable fact" worth promoting to semantic memory.
 # Inspired by the kind of entries that show up in MEMORY.md as "Added YYYY-MM-DD".
 FACT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"(?:Duckets|user|he/she)\s+(?:said|told|stated|decided)\s+(?:that\s+)?(.+?)(?:\.|$)", re.IGNORECASE), "user-said"),
+    (re.compile(r"(?:Duckets|user|he|she)\s+(?:said|told|stated|decided)\s+(?:that\s+)?(.+?)(?:\.|$)", re.IGNORECASE), "user-said"),
     (re.compile(r"(?:we|let's|let us|going to)\s+(?:now\s+)?(.+?)(?:\.|$)", re.IGNORECASE), "decision"),
     (re.compile(r"(?:rule|always|never|must|should not|do not)\s+(.+?)(?:\.|$)", re.IGNORECASE), "rule"),
     (re.compile(r"(?:installed|set up|configured)\s+(.+?)(?:\.|$)", re.IGNORECASE), "setup"),

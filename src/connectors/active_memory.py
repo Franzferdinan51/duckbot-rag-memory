@@ -69,7 +69,7 @@ class ActiveMemoryAdapter:
                         "score": getattr(x, "score", 0.0),
                         "source_path": (x.metadata or {}).get("source_path", ""),
                     }
-                    for x in r.results
+                    for x in r
                 ],
             },
         ).to_dict()
@@ -82,16 +82,24 @@ class ActiveMemoryAdapter:
         metadata: Optional[dict] = None,
     ) -> dict:
         # Use remember() with force_tier as a string. The v0.10.1 string
-        # coercion fix handles that.
-        chunk_id = self.brain.remember(
+        # coercion fix handles that. remember() returns a RememberResult;
+        # we surface its chunk_id (plus tier/importance for diagnostics).
+        r = self.brain.remember(
             text=text,
             source_path=source,
             force_tier=tier,
             metadata=metadata or {},
         )
+        chunk_id = r.chunk_id if hasattr(r, "chunk_id") else r
         return ActiveMemoryResult(
             tool="memory_store",
-            data={"chunk_id": chunk_id, "tier": tier, "source": source},
+            data={
+                "chunk_id": chunk_id,
+                "tier": r.tier if hasattr(r, "tier") and r.tier else tier,
+                "source": source,
+                "stored": getattr(r, "stored", True),
+                "quarantined": getattr(r, "quarantined", False),
+            },
         ).to_dict()
 
     def memory_recent(self, k: int = 10, tier: Optional[str] = None) -> dict:
@@ -112,7 +120,7 @@ class ActiveMemoryAdapter:
                         "tier": x.tier.value if hasattr(x.tier, "value") else str(x.tier),
                         "source_path": (x.metadata or {}).get("source_path", ""),
                     }
-                    for x in r.results
+                    for x in r
                 ],
             },
         ).to_dict()

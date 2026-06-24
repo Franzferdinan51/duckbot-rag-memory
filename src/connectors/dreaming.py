@@ -227,8 +227,8 @@ class DreamingBridge:
         seen: set = set()
         chunks: list = []
         try:
-            r = await self.memory.recall(query="", k=k, tier="episodic")
-            for hit in r.results:
+            r, _ = await self.memory.recall(query="", k=k, tier="episodic")
+            for hit in r:
                 cid = getattr(hit, "chunk_id", None) or id(hit)
                 if cid not in seen:
                     seen.add(cid)
@@ -237,15 +237,19 @@ class DreamingBridge:
             result.error = f"recall(episodic) failed: {e}"
             return result
         try:
-            r = await self.memory.recall(query="", k=k, tier="procedural")
-            for hit in r.results:
+            r, _ = await self.memory.recall(query="", k=k, tier="procedural")
+            for hit in r:
                 cid = getattr(hit, "chunk_id", None) or id(hit)
                 if cid not in seen:
                     seen.add(cid)
                     chunks.append(hit)
         except Exception as e:
-            # Non-fatal — just continue with what we have.
-            pass
+            # Non-fatal — log and continue with what we have.
+            try:
+                import sys
+                print(f"[dreaming] recall(procedural) skipped: {e}", file=sys.stderr)
+            except Exception:
+                pass
 
         # Filter by importance. Read from .importance (RecallResult field)
         # with fallback to metadata["importance"].

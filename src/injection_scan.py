@@ -85,9 +85,17 @@ PATTERNS: list[InjectionPattern] = [
     # Tool abuse
     InjectionPattern("run_command", 2, "Tells the agent to run a shell command",
                      re.compile(r"\b(?:run|execute|eval)\s+(?:this\s+)?(?:command|script|code)\s*[:=]?\s*[`'\"]?(?:rm\s+-rf|sudo|curl.*\|\s*(?:bash|sh)|nc\s+)", re.IGNORECASE)),
-    # Hidden instructions (zero-width or unicode tricks)
+    # Hidden instructions (zero-width or unicode tricks).
+    # Ranges kept: true zero-width chars (\u200B-\u200F), directional
+    # embedding/override used for text spoofing (\u202A-\u202E), directional
+    # isolates + deprecated formatting controls (\u2066-\u206F), and the
+    # zero-width no-break space / BOM (\uFEFF).
+    # Dropped: \u2028/\u2029 line/para separators, \u202F narrow nbsp,
+    # \u205F medium math space, \u2060 word joiner, \u2061-\u2064 invisible
+    # math operators — these are legitimate formatting/whitespace and were
+    # producing false positives on well-formed prose.
     InjectionPattern("zero_width_chars", 2, "Contains zero-width unicode characters",
-                     re.compile(r"[\u200b-\u200f\u2028-\u202f\u205f-\u206f\ufeff]")),
+                     re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u206f\ufeff]")),
 ]
 
 

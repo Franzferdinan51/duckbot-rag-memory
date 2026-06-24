@@ -1,5 +1,70 @@
 # Changelog
 
+## 0.11.5 — 2026-06-24 — Audit-driven bug fixes
+
+Correctness bugs surfaced by a focused audit of the connectors, watcher, CLI,
+and backends. Each fix has a regression test in
+`tests/test_bugfixes_v0_11_3.py`.
+
+### Fixed
+
+- **`connectors/active_memory.py`** — `memory_query`, `memory_recent`, and
+  `memory_store` assumed `Brain.recall()` / `Brain.remember()` returned objects
+  with a `.results` / `.chunk_id` shape. In reality `recall()` returns a plain
+  `list[RecallResult]` and `remember()` returns a `RememberResult` dataclass.
+  Every active-memory call was raising `AttributeError`. Now iterates the list
+  directly and unwraps `RememberResult.chunk_id`.
+- **`connectors/dreaming.py`** — `Memory.recall()` returns a
+  `tuple[list[QueryResult], QueryStats]`; the dreaming bridge called `r.results`
+  and crashed on both episodic and procedural recall. Now unpacks the tuple.
+  The previously-swallowed procedural-recall exception is also logged.
+- **`connectors/hermes.py`, `connectors/openclaw.py`** — `reflect()` used
+  raw `asyncio.run()` from a sync helper. When called from inside a running
+  loop (the MCP server, FastMCP, asyncio pytest) it raised `RuntimeError`.
+  Now routes through the shared `_run_async` bridge from `connectors/base.py`.
+- **`watcher.py`** — the watchdog-not-installed fallback returned
+  `PollingHandler(...).run()`, an un-awaited coroutine — the fallback silently
+  did nothing. Now wrapped in `asyncio.run(...)` to match the polling branch
+  above it.
+- **`cli.py`** (`cmd_compact`) — `VACUUM` was executed inside an implicit
+  SQLite transaction (`with sqlite3.connect(...)`), which raises
+  `OperationalError: cannot VACUUM from within a transaction` and was masked
+  by the surrounding `except`. Now sets `isolation_level = None` (autocommit)
+  before `VACUUM`.
+- **`memory.py` (`forget`)** — returned `True` even when nothing was deleted,
+  because Chroma's `delete()` is a no-op for unknown ids. Now checks the
+  collection for the id first and returns `False` when it wasn't present.
+- **`eval.py` (`_is_hit`)** — tier-only eval entries read
+  `result_meta.get("tier")`, but `tier` is a top-level `QueryResult`
+  attribute and was never written to metadata — so every tier-only eval
+  entry silently scored 0. `_is_hit` now takes an explicit `result_tier`
+  parameter (with a metadata fallback), and the eval loop threads `r.tier`
+  through.
+- **`backends/chroma.py`** — query-across-all-tiers used
+  `n_results // len(tiers)`, which floors and under-fetches (5 requested
+  across 4 tiers returned 4 candidates). Now uses `math.ceil` so the union
+  always covers at least `n_results`.
+- **`consolidate.py`** — the `user-said` FACT_PATTERN used the regex
+  `(?:he/she)`, which matches the literal string "he/she" (slash and all),
+  not "he or she". Now `(?:he|she)`.
+- **`injection_scan.py`** — the `zero_width_chars` pattern range was too
+  broad and flagged legitimate formatting: line/paragraph separators
+  (`\u2028`/`\u2029`), narrow no-break space (`\u202F`), medium math space
+  (`\u205F`), word joiner (`\u2060`), and invisible math operators
+  (`\u2061`-`\u2064`). Tightened to the actual injection/spoofing vectors:
+  zero-width chars (`\u200B`-`\u200F`), directional embedding/override
+  (`\u202A`-`\u202E`), directional isolates + deprecated formatting
+  (`\u2066`-`\u206F`), and BOM (`\uFEFF`). Reduces false positives without
+  weakening detection of real RTL-override / directional-isolate spoofs.
+
+### Tests
+
+- Added `tests/test_bugfixes_v0_11_3.py` (12 regression tests).
+- Updated `tests/test_v0_11_integration.py` `FakeBrain` / `FakeMemory`
+  stubs to match the real `recall()` / `remember()` return contracts — the
+  old stubs simulated the *buggy* shape and were passing against the bug.
+- Full suite: **529 passing** (was 517).
+
 ## 0.11.4 — 2026-06-24 — Reliability pass
 
 ### Fixed

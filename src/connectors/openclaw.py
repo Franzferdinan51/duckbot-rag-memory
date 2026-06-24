@@ -42,7 +42,7 @@ import json
 import time
 from typing import Any
 
-from .base import Brain
+from .base import Brain, _run_async
 
 
 # -----------------------------------------------------------------------------
@@ -425,8 +425,9 @@ def handle(tool_name: str, args: dict) -> dict:
             return {"results": _serialize(results)}
         if tool_name == "brain_reflect":
             from src.memory import Memory
-            import asyncio
-            return asyncio.run(Memory().reflect(
+            # Use _run_async so this is safe from inside the MCP server's
+            # running event loop (raw asyncio.run would raise RuntimeError).
+            return _run_async(Memory().reflect(
                 lookback_days=args.get("lookback_days", 7),
                 max_chunks=args.get("max_chunks", 200),
             ))

@@ -13,6 +13,7 @@ MIT (chromadb is Apache-2.0; this wrapper is DuckBot brain, MIT).
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 from pathlib import Path
@@ -178,7 +179,10 @@ class ChromaBackend(VectorBackend):
         if tier is not None and tier not in self._tier_names:
             raise ValueError(f"unknown tier: {tier!r}")
         tiers = [tier] if tier else list(self._tier_names)
-        per_tier = max(1, n_results // len(tiers)) if len(tiers) > 1 else n_results
+        # Use ceil so the union of per-tier hits always has at least
+        # n_results candidates after merging. Floor division here caused
+        # silent under-fetching (e.g. 5 requested, 4 returned across 4 tiers).
+        per_tier = max(1, math.ceil(n_results / len(tiers))) if len(tiers) > 1 else n_results
         out: list[VectorHit] = []
         for t in tiers:
             coll = self._collections[t]

@@ -283,9 +283,14 @@ class _FakeRecallResult:
         self.metadata = {"importance": importance, "tier": tier}
 
 
-class _FakeRecallResults:
-    def __init__(self, results):
-        self.results = results
+class _FakeStats:
+    """Minimal stand-in for QueryStats."""
+    duration_seconds = 0.001
+
+
+def _fake_recall(results):
+    """Return the (results, stats) tuple shape that Memory.recall() uses."""
+    return (results, _FakeStats())
 
 
 def test_dreaming_bridge_cycle_writes_output_file(tmp_dreaming):
@@ -298,7 +303,7 @@ def test_dreaming_bridge_cycle_writes_output_file(tmp_dreaming):
             # Return 3 high-importance chunks for the requested tier. If
             # called twice (episodic + procedural), return same data; the
             # cycle deduplicates by chunk_id, so we'll still get 3.
-            return _FakeRecallResults([
+            return _fake_recall([
                 _FakeRecallResult(
                     text=f"high-importance chunk {i}: a durable fact about the system",
                     importance=0.8,
@@ -333,7 +338,7 @@ def test_dreaming_bridge_cycle_skips_low_importance(tmp_dreaming):
 
     class FakeMemory:
         async def recall(self, query, k, tier=None, **kwargs):
-            return _FakeRecallResults([
+            return _fake_recall([
                 _FakeRecallResult(
                     text="low importance chunk with enough text to pass the 40-char filter",
                     importance=0.1,
@@ -435,13 +440,12 @@ def test_active_memory_memory_query_dispatches_to_brain():
         score = 0.9
         metadata = {"source_path": "/test.md"}
 
-    class FakeRecallResults:
-        results = [FakeResult()]
-
+    # Brain.recall() returns a plain list[RecallResult], not an object
+    # with a .results attribute.
     class FakeBrain:
         def recall(self, **kwargs):
             assert kwargs["query"] == "hello"
-            return FakeRecallResults()
+            return [FakeResult()]
 
     adapter = ActiveMemoryAdapter.__new__(ActiveMemoryAdapter)
     adapter.brain = FakeBrain()
@@ -482,9 +486,8 @@ def test_active_memory_call_dispatches_by_name():
         def recall(self, **kwargs):
             captured["recall"] = kwargs
             from src.connectors.base import Brain
-            class R: pass
-            r = R(); r.results = []
-            return r
+            # Brain.recall() returns list[RecallResult] (a plain list).
+            return []
         def forget_by_query(self, **kwargs):
             captured["forget"] = kwargs
             return 0

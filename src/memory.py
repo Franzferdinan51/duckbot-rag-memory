@@ -472,6 +472,11 @@ class Memory:
         for t in tiers:
             coll = store.collection_for(t)
             try:
+                # Chroma's delete is a no-op for unknown ids, so check
+                # presence first to report an accurate True/False.
+                existing = coll.get(ids=[chunk_id], include=[])
+                if not existing or not existing.get("ids"):
+                    continue
                 coll.delete(ids=[chunk_id])
                 return True
             except Exception:

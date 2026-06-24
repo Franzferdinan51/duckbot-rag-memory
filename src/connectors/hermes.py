@@ -34,7 +34,7 @@ import os
 import sys
 from typing import Any, Optional
 
-from .base import Brain
+from .base import Brain, _run_async
 
 
 # -----------------------------------------------------------------------------
@@ -73,10 +73,14 @@ def recall(query: str, k: int = 5, **kwargs) -> list[dict]:
 
 
 def reflect(**kwargs) -> dict:
-    """Sleep-time consolidation. Returns dict with consolidation stats."""
+    """Sleep-time consolidation. Returns dict with consolidation stats.
+
+    Uses _run_async so this is safe to call from inside a running event
+    loop (e.g. the MCP server / FastMCP). Raw asyncio.run() would raise
+    RuntimeError in that context.
+    """
     from src.memory import Memory
-    import asyncio
-    return asyncio.run(Memory().reflect(**kwargs))
+    return _run_async(Memory().reflect(**kwargs))
 
 
 def stats() -> dict:

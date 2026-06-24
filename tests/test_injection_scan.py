@@ -143,6 +143,39 @@ def test_catches_zero_width_chars(scanner):
     assert any(p.id == "zero_width_chars" for p, _ in r.pattern_hits)
 
 
+def test_zero_width_chars_keeps_directional_override(scanner):
+    # \u202E (RIGHT-TO-LEFT OVERRIDE) is a spoofing vector — must stay flagged.
+    r = scanner.scan("file\u202etxt.exe")
+    assert any(p.id == "zero_width_chars" for p, _ in r.pattern_hits)
+
+
+def test_zero_width_chars_keeps_directional_isolates(scanner):
+    # \u2068 (FIRST STRONG ISOLATE) — must stay flagged.
+    r = scanner.scan("text\u2068hidden\u2069")
+    assert any(p.id == "zero_width_chars" for p, _ in r.pattern_hits)
+
+
+def test_zero_width_chars_drops_line_separator_false_positive(scanner):
+    # \u2028 (LINE SEPARATOR) is legitimate whitespace — should NOT be flagged.
+    r = scanner.scan("Hello world\u2028foo bar")
+    zero_width_hits = [p for p, _ in r.pattern_hits if p.id == "zero_width_chars"]
+    assert zero_width_hits == []
+
+
+def test_zero_width_chars_drops_word_joiner_false_positive(scanner):
+    # \u2060 (WORD JOINER) is legitimate formatting — should NOT be flagged.
+    r = scanner.scan("supercalifragilistic\u2060expialidocious")
+    zero_width_hits = [p for p, _ in r.pattern_hits if p.id == "zero_width_chars"]
+    assert zero_width_hits == []
+
+
+def test_zero_width_chars_drops_math_space_false_positive(scanner):
+    # \u205F (MEDIUM MATHEMATICAL SPACE) is legitimate — should NOT be flagged.
+    r = scanner.scan("a + b\u205f= c")
+    zero_width_hits = [p for p, _ in r.pattern_hits if p.id == "zero_width_chars"]
+    assert zero_width_hits == []
+
+
 # --- Heuristics -------------------------------------------------------------
 
 def test_heuristic_dense_imperatives(scanner):

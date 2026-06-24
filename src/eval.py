@@ -94,14 +94,17 @@ def load_benchmark(path: Path | str) -> list[EvalEntry]:
     return entries
 
 
-def _is_hit(result_text: str, result_meta: dict, entry: EvalEntry) -> bool:
+def _is_hit(result_text: str, result_meta: dict, entry: EvalEntry, result_tier: str | None = None) -> bool:
     """Decide if a single search result counts as a hit for this eval entry."""
     text_lower = result_text.lower()
     # Keyword match (any-of)
     if entry.expected_keywords:
         return any(k.lower() in text_lower for k in entry.expected_keywords)
-    # Tier match
-    if entry.expected_tier and result_meta.get("tier") != entry.expected_tier:
+    # Tier match. `tier` is a top-level QueryResult attribute, not stored
+    # in metadata, so it's passed in explicitly via result_tier (with a
+    # metadata fallback for callers that put it there).
+    actual_tier = result_tier if result_tier is not None else result_meta.get("tier")
+    if entry.expected_tier and actual_tier != entry.expected_tier:
         return False
     # Source path match
     if entry.expected_source_path:
@@ -149,7 +152,7 @@ async def run_eval(
         # Determine first hit rank
         first_hit_rank = None
         for i, r in enumerate(results, 1):
-            if _is_hit(r.text, r.metadata, entry):
+            if _is_hit(r.text, r.metadata, entry, result_tier=getattr(r, "tier", None)):
                 first_hit_rank = i
                 break
         recall5 = 1.0 if first_hit_rank is not None and first_hit_rank <= 5 else 0.0

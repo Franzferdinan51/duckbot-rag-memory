@@ -269,7 +269,7 @@ def start_watchdog_handler(paths: list[str], interval: float = 300.0, initial_sy
         from watchdog.events import FileSystemEventHandler
     except ImportError:
         log("watchdog not installed, using polling")
-        return PollingHandler(paths, interval=interval).run()
+        return asyncio.run(PollingHandler(paths, interval=interval).run())
 
     state = load_state()
     # threading.Event is loop-agnostic, avoids the "attached to a different loop"
