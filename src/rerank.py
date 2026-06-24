@@ -191,14 +191,23 @@ class LMStudioBackend:
 
     def score(self, query: str, docs: list[str]) -> list[float]:
         # sync wrapper for the Protocol interface
+        import concurrent.futures
         try:
             loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # We're inside an event loop already; run in a fresh one.
-                return asyncio.run(self._score_async(query, docs))
-            return loop.run_until_complete(self._score_async(query, docs))
         except RuntimeError:
-            return asyncio.run(self._score_async(query, docs))
+            loop = None
+        if loop is not None and loop.is_running():
+            # We're inside an event loop already. asyncio.run() would raise
+            # RuntimeError ("cannot be called from a running event loop") and
+            # loop.run_until_complete() would too. Run the coroutine on a
+            # worker thread with its own loop instead.
+            def _runner():
+                return asyncio.run(self._score_async(query, docs))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                return ex.submit(_runner).result()
+        if loop is not None:
+            return loop.run_until_complete(self._score_async(query, docs))
+        return asyncio.run(self._score_async(query, docs))
 
 
 # -----------------------------------------------------------------------------

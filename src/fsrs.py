@@ -128,7 +128,11 @@ def fsrs_retrievability(
     if elapsed_days < 0:
         elapsed_days = 0.0
     if w20 <= 0:
-        return 0.0
+        # w20 is the decay exponent. w20=0 means R = base**0 = 1 (no
+        # forgetting), and is the "disable decay" setting — NOT "no
+        # recall". Negative is meaningless but should also mean "never
+        # forget" rather than misreport the math.
+        return R_MAX
     try:
         base = 1.0 + elapsed_days / (9.0 * stability)
         if base <= 0:

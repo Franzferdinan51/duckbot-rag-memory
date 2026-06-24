@@ -65,7 +65,7 @@ OPENCLAW_PATH_PATTERN = re.compile(
 
 # Personal facts (birthday, address, etc.)
 BIRTHDAY_PATTERN = re.compile(
-    r"\b(?:birthday|born on|DOB|dob)\b[:\s]+([\w/]+)", re.IGNORECASE
+    r"\b(?:birthday|born on|DOB|dob)\b[:\s]+([\w/,\s]+?)(?=[.,\n)]|$)", re.IGNORECASE
 )
 
 # Relationship patterns: "X works on Y", "X created Y", "X uses Y", etc.
@@ -178,7 +178,9 @@ class EntityExtractor:
 
         # ---- Personal facts ----
         for m in BIRTHDAY_PATTERN.finditer(text):
-            when = m.group(1)
+            when = m.group(1).strip().rstrip(",").strip()
+            if not when:
+                continue
             entities.setdefault("Duckets birthday", ExtractedEntity(
                 name="Duckets birthday", kind="fact",
                 aliases=[f"birthday:{when}"]
@@ -197,8 +199,10 @@ class EntityExtractor:
                     continue
                 if tgt_n.lower() in SUBJECT_BLACKLIST or tgt_n.lower() in ("it", "this", "that"):
                     continue
-                # If target is a known project, ensure it's in entities
-                if tgt_n in PROJECT_NAMES:
+                # If target is a known project, ensure it's in entities.
+                # PROJECT_NAMES is mixed-case ("OpenClaw", "DuckBot"); compare
+                # case-insensitively so lowercase variants in prose still match.
+                if tgt_n.lower() in {p.lower() for p in PROJECT_NAMES}:
                     entities.setdefault(tgt_n, ExtractedEntity(name=tgt_n, kind="project"))
                 triples.append(ExtractedTriple(
                     source=src_n, target=tgt_n, label=label,

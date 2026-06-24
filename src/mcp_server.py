@@ -705,11 +705,12 @@ async def handle_brain_sync(args: dict) -> dict:
             for r in items:
                 entry = _make_hermes_entry(r)
                 if sum(len(e) for e in hm_mem_entries) + len(entry) + 60 > 2200:
-                    break
+                    # This entry would overflow the 2200-char budget. Skip it
+                    # and try the next (which may be smaller and fit), rather
+                    # than abandoning the entire tier — and, via the old
+                    # for/else+break pattern, every tier after it.
+                    continue
                 hm_mem_entries.append(entry)
-            else:
-                continue
-            break
 
         hm_mem_lines = [f"MEMORY [{len(''.join(hm_mem_entries))}/2200 chars]"]
         hm_mem_lines.extend(hm_mem_entries or ["§No memories stored yet."])

@@ -273,3 +273,83 @@ def test_consolidate_matches_she_said():
         if pat.search("she decided to roll back"):
             kinds.add(kind)
     assert "user-said" in kinds
+
+
+# -----------------------------------------------------------------------------
+# v0.11.6 — second-pass fixes
+# -----------------------------------------------------------------------------
+
+def test_fsrs_zero_w20_means_no_forgetting():
+    """w20 is the FSRS-6 decay exponent. w20=0 means R = base**0 = 1 (no
+    forgetting); the old code returned 0.0 (no recall), which is the
+    opposite of the math."""
+    from src.fsrs import fsrs_retrievability, R_MAX
+    assert fsrs_retrievability(elapsed_days=10, stability=7, w20=0) == R_MAX
+    assert fsrs_retrievability(elapsed_days=100, stability=7, w20=-1.0) == R_MAX
+
+
+def test_rerank_score_works_inside_running_loop():
+    """LMStudioBackend.score used asyncio.run() from inside a running loop,
+    which raises RuntimeError. The fix runs the coroutine on a worker thread."""
+    import asyncio
+    import inspect
+    from src.rerank import LMStudioBackend
+    # We can't hit LM Studio in a test, but we can confirm the sync wrapper's
+    # logic by exercising it with a stubbed _score_async and a running loop.
+    backend = LMStudioBackend.__new__(LMStudioBackend)
+
+    async def fake_score(query, docs):
+        await asyncio.sleep(0)
+        return [0.9] * len(docs)
+
+    backend._score_async = fake_score
+
+    # From inside a running loop — previously raised RuntimeError.
+    async def outer():
+        return backend.score("q", ["a", "b"])
+    out = asyncio.run(outer())
+    assert out == [0.9, 0.9]
+
+    # From outside a loop — still works.
+    assert backend.score("q", ["a"]) == [0.9]
+
+
+def test_brain_sync_does_not_abort_on_single_oversize_entry(monkeypatch):
+    """brain_sync's Hermes MEMORY.md loop used for/else+break, so a single
+    over-budget entry terminated iteration across ALL remaining tiers. The
+    fix continues to the next entry instead of breaking."""
+    # We verify the behavior indirectly: the loop should keep adding entries
+    # from later tiers even after an earlier entry would overflow. We can't
+    # easily exercise the full brain_sync without a store, so this test pins
+    # the source-level fix by checking the loop body no longer contains the
+    # for/else+break pattern.
+    src = open("src/mcp_server.py").read()
+    # The old buggy pattern: a `break` inside the inner loop followed by
+    # `else: continue` + `break` on the outer loop. After the fix, the inner
+    # loop uses `continue` and there is no outer else/break.
+    assert "else:\n                continue\n            break" not in src, (
+        "brain_sync still has the for/else+break pattern that aborts all tiers"
+    )
+
+
+def test_entities_project_match_is_case_insensitive():
+    """PROJECT_NAMES is mixed-case ('OpenClaw'); the old code did a direct
+    `tgt_n in PROJECT_NAMES` check that missed lowercase 'openclaw' in prose.
+    The fix does a case-insensitive set membership check."""
+    from src.entities import EntityExtractor
+    ext = EntityExtractor()
+    # "openclaw" in lowercase text should still create a project entity.
+    # The old code would miss it because it compared directly to {"OpenClaw",...}.
+    ents, triples = ext.extract("Duckets uses openclaw.")
+    project_names = {e.name for e in ents if e.kind == "project"}
+    assert "openclaw" in project_names
+
+
+def test_entities_birthday_captures_month_and_day():
+    """BIRTHDAY_PATTERN used [\\w/]+ which stopped at the space, capturing
+    only 'April' from 'April 20th'. The fix allows spaces."""
+    from src.entities import BIRTHDAY_PATTERN
+    m = BIRTHDAY_PATTERN.search("birthday: April 20th")
+    assert m is not None
+    captured = m.group(1).strip().rstrip(",").strip()
+    assert "April" in captured and "20" in captured

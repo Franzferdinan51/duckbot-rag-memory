@@ -118,10 +118,13 @@ def test_retrievability_custom_w20_changes_curve():
     assert r_default != r_higher
 
 
-def test_retrievability_invalid_w20_returns_zero():
-    """w20 <= 0 is invalid (would invert the curve)."""
-    assert fsrs_retrievability(elapsed_days=10, stability=7, w20=0) == 0.0
-    assert fsrs_retrievability(elapsed_days=10, stability=7, w20=-1.0) == 0.0
+def test_retrievability_zero_w20_means_no_forgetting():
+    """w20=0 is the decay exponent, so R = base**0 = 1 (no forgetting).
+    This is the 'disable decay' setting, not 'no recall'. Negative w20 is
+    meaningless but should also mean 'never forget' rather than misreport
+    the math. See fsrs.py:130 for the prior bug history."""
+    assert fsrs_retrievability(elapsed_days=10, stability=7, w20=0) == 1.0
+    assert fsrs_retrievability(elapsed_days=10, stability=7, w20=-1.0) == 1.0
 
 
 # -----------------------------------------------------------------------------
