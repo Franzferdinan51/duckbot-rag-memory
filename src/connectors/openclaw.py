@@ -88,7 +88,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_recall",
-        "description": "Hybrid retrieval (vector + BM25 + RRF, plus optional cross-encoder rerank and optional Ebbinghaus decay weighting) over all chunks. Returns top-k with tier, source, importance, score.",
+        "description": "Hybrid retrieval (vector + BM25 + RRF, plus optional cross-encoder rerank, Ebbinghaus decay, tier priors, and FSRS-6 spaced repetition) over all chunks. Returns top-k with tier, source, importance, score.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -98,6 +98,9 @@ TOOL_DEFINITIONS: list[dict] = [
                 "min_importance": {"type": "number"},
                 "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank (BGE bge-reranker-base). Default off; pass true to opt in. No paid API."},
                 "decay": {"type": "boolean", "default": False, "description": "Layer 8: apply Ebbinghaus retention weighting. Default off; pass true to opt in. Public-domain math (1885), no LLM call. Boosts recently-recalled chunks."},
+                "tier_priors": {"type": "boolean", "default": False, "description": "Layer 11: apply per-tier multiplicative priors (procedural=1.5, semantic=1.2, episodic=1.0, working=0.8). Default off; pass true to opt in. Boosts procedural rules and demotes working chatter."},
+                "tier_priors_overrides": {"type": "object", "description": "Optional per-tier prior overrides, e.g. {\"procedural\": 2.0}. Tier names not in the dict fall back to defaults."},
+                "fsrs": {"type": "boolean", "default": False, "description": "Layer 9: apply FSRS-6 power-law retrievability weighting. Default off; pass true to opt in. Uses per-chunk stability_days + difficulty from metadata. Public-domain algorithm spec."},
             },
             "required": ["query"],
         },
@@ -309,6 +312,9 @@ def handle(tool_name: str, args: dict) -> dict:
                 min_importance=args.get("min_importance"),
                 rerank=args.get("rerank"),
                 decay=args.get("decay"),
+                tier_priors=args.get("tier_priors"),
+                tier_priors_overrides=args.get("tier_priors_overrides"),
+                fsrs=args.get("fsrs"),
             )
             return {"results": results}
         if tool_name == "brain_recall":
@@ -319,6 +325,9 @@ def handle(tool_name: str, args: dict) -> dict:
                 min_importance=args.get("min_importance"),
                 rerank=args.get("rerank"),
                 decay=args.get("decay"),
+                tier_priors=args.get("tier_priors"),
+                tier_priors_overrides=args.get("tier_priors_overrides"),
+                fsrs=args.get("fsrs"),
             )
             return {"results": _serialize(results)}
         if tool_name == "brain_reflect":

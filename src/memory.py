@@ -286,9 +286,13 @@ class Memory:
         min_importance: float | None = None,
         rerank: bool | None = None,
         decay: bool | None = None,
+        tier_priors: bool | None = None,
+        tier_priors_overrides: dict[str, float] | None = None,
+        fsrs: bool | None = None,
     ) -> tuple[list[QueryResult], QueryStats]:
         """Hybrid retrieval with optional tier filter, importance threshold,
-        cross-encoder rerank (Layer 7), and Ebbinghaus decay (Layer 8).
+        cross-encoder rerank (Layer 7), Ebbinghaus decay (Layer 8), tier
+        priors (Layer 11), and FSRS-6 spaced repetition (Layer 9).
 
         Updates recall_count + last_recalled_at on returned chunks.
 
@@ -299,6 +303,13 @@ class Memory:
             min_importance: drop chunks below this importance score
             rerank: True/False forces on/off. None reads DUCKBOT_RERANK env.
             decay: True/False forces on/off. None reads DUCKBOT_DECAY env.
+            tier_priors: True/False forces on/off. None reads
+                DUCKBOT_TIER_PRIORS env. Per-tier multiplicative weights:
+                procedural=1.5, semantic=1.2, episodic=1.0, working=0.8.
+            tier_priors_overrides: optional dict mapping tier name -> prior.
+            fsrs: True/False forces on/off. None reads DUCKBOT_FSRS env.
+                Replaces Ebbinghaus retention with the FSRS-6 power-law
+                forgetting curve; per-chunk stability_days + difficulty.
         """
         store, embedder = await self._ensure_initialized()
         qe = make_query_embedder(embedder)
@@ -310,6 +321,9 @@ class Memory:
         results, stats = await hybrid_query(
             query, store, qe, n_results=k, tier=tier_filter,
             rerank=rerank, decay=decay,
+            tier_priors=tier_priors,
+            tier_priors_overrides=tier_priors_overrides,
+            fsrs=fsrs,
         )
 
         # Optional importance filter

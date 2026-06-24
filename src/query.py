@@ -87,6 +87,9 @@ async def hybrid_query(
     over_fetch: int = 3,
     rerank: bool | None = None,
     decay: bool | None = None,
+    tier_priors: bool | None = None,
+    tier_priors_overrides: dict[str, float] | None = None,
+    fsrs: bool | None = None,
 ) -> tuple[list[QueryResult], QueryStats]:
     """Run hybrid vector + BM25 query, fuse with RRF.
 
@@ -187,6 +190,35 @@ async def hybrid_query(
         except Exception as e:
             import logging
             logging.getLogger(__name__).debug("decay skipped: %s", e)
+
+    # Phase 8 (optional, L11): tier priors — multiplicative weight on
+    # each hit's RRF contribution based on its tier. Default OFF. Opt in
+    # via `tier_priors=True` kwarg or `DUCKBOT_TIER_PRIORS=1`. Runs after
+    # decay so the retention-adjusted score gets the prior too.
+    if tier_priors is not False:  # only skip if caller explicitly said False
+        try:
+            from .tier_priors import maybe_apply_tier_priors
+            results = maybe_apply_tier_priors(
+                results,
+                enabled=tier_priors,
+                overrides=tier_priors_overrides,
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug("tier_priors skipped: %s", e)
+
+    # Phase 9 (optional, L9): FSRS-6 spaced repetition math. Default OFF
+    # (L8's simpler Ebbinghaus is the default decay). Opt in via
+    # `fsrs=True` kwarg or `DUCKBOT_FSRS=1`. Multiplies each result's
+    # RRF by retrievability R(t, S) from the FSRS-6 power-law forgetting
+    # curve. Uses per-chunk `stability_days` + `difficulty` from metadata.
+    if fsrs is not False:  # only skip if caller explicitly said False
+        try:
+            from .fsrs import maybe_fsrs
+            results = maybe_fsrs(results, enabled=fsrs)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug("fsrs skipped: %s", e)
 
     stats.duration_seconds = time.time() - started
     store.mark_queried()

@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.7.0 — 2026-06-23 — Weighted RRF + FSRS-6 (L11 + L9)
+
+Two more layers landed: per-tier prior weighting (L11) and the FSRS-6
+spaced-repetition algorithm (L9). Both default OFF — L7 (cross-encoder
+rerank), L8 (Ebbinghaus decay), and L13 (verbatim) remain the defaults.
+
+### L11 — Weighted RRF with per-tier priors
+
+- **`src/tier_priors.py`** — `maybe_apply_tier_priors()` multiplies each
+  result's RRF by a per-tier weight. Defaults: procedural=1.5,
+  semantic=1.2, episodic=1.0, working=0.8. Pattern from Cognee's
+  tier-aware RRF (Apache-2.0) and MemPalace's per-section weight map
+  (MIT). Audit fields (`_tier_prior`, `_rrf_score_pre_prior`) attached
+  for downstream observability.
+- Opt-in via `tier_priors=True` kwarg or `DUCKBOT_TIER_PRIORS=1`.
+- Overridable per-call via `tier_priors_overrides={"procedural": 2.0}`.
+- Threaded through `query.py` → `memory.py` → `connectors/base.py` →
+  `connectors/openclaw.py` (gain `tier_priors` + `tier_priors_overrides`).
+- 21 tests in `tests/test_tier_priors.py` covering defaults, opt-in
+  dispatch, math correctness, real `QueryResult` round-trip.
+
+### L9 — FSRS-6 spaced repetition math
+
+- **`src/fsrs.py`** — reimplementation of the FSRS-6 algorithm spec
+  (public-domain math, NOT from any source code):
+  - `fsrs_retrievability(t, S) = (1 + t/(9S))^(-w20)` — AnKing form
+    with default w20=0.9 (steeper than the published 0.1542 because
+    our chunks are denser knowledge items).
+  - `fsrs_bump_stability(S, D, R)` — success: `S' = S * (e^w8 * (11-D) * S^-0.8 * (1-R) + 1)`.
+  - `fsrs_bump_difficulty(D, R)` — `D' = D - w6*(R-0.5)` on success,
+    `D' = D + w6*(1-R)` on failure.
+  - `maybe_fsrs()` — opt-in dispatch matching the L7/L8 pattern.
+    Reads per-chunk `stability_days` + `difficulty` from metadata.
+    Fallback to `last_recalled_at` → `created_at` → `ingested_at`
+    for elapsed time.
+- Opt-in via `fsrs=True` kwarg or `DUCKBOT_FSRS=1`.
+- 41 tests in `tests/test_fsrs.py` covering R(t, S) power-law,
+  stability growth under easy/hard difficulty, difficulty updates
+  on success/failure, audit fields, env var dispatch, and the
+  timestamp-fallback chain.
+
+### Verification
+
+- 404/404 tests pass (was 342 after L14; +21 L11 + +41 L9 = +62).
+- End-to-end via `Brain.recall(rerank=True, tier_priors=True, fsrs=True)`:
+  SOUL.md procedural rule wins with score 1.176 (boosted by both
+  rerank and tier prior × retrievability).
+- Secret-scan clean.
+
 ## 0.6.0 — 2026-06-23 — Pluggable backend seam (L14)
 
 The brain can now swap vector stores without touching callers. Existing

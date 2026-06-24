@@ -179,9 +179,13 @@ class Brain:
         min_importance: Optional[float] = None,
         rerank: Optional[bool] = None,
         decay: Optional[bool] = None,
+        tier_priors: Optional[bool] = None,
+        tier_priors_overrides: Optional[dict[str, float]] = None,
+        fsrs: Optional[bool] = None,
     ) -> list[RecallResult]:
         """Hybrid retrieval (vector + BM25 + RRF + optional cross-encoder rerank
-        + optional Ebbinghaus decay weighting).
+        + optional Ebbinghaus decay weighting + optional tier priors
+        + optional FSRS-6 spaced repetition).
 
         Args:
             query: search text
@@ -194,6 +198,17 @@ class Brain:
             decay: True/None forces/enables Ebbinghaus decay (Layer 8). None
                 reads DUCKBOT_DECAY env var (default off). Pass False to
                 disable. Pure public-domain math, no LLM call.
+            tier_priors: True/None forces/enables per-tier prior weighting
+                (Layer 11). None reads DUCKBOT_TIER_PRIORS env var (default
+                off). Pass False to disable. Defaults: procedural=1.5,
+                semantic=1.2, episodic=1.0, working=0.8.
+            tier_priors_overrides: Optional dict mapping tier name -> prior
+                weight. Tier names not in the dict fall back to defaults.
+            fsrs: True/None forces/enables FSRS-6 spaced repetition (Layer 9).
+                None reads DUCKBOT_FSRS env var (default off). Pass False to
+                disable. Uses per-chunk stability_days + difficulty from
+                metadata. Replaces L8 Ebbinghaus retention with FSRS-6
+                power-law. Public-domain algorithm spec.
         """
         from src.memory import Memory
         from src.tier import Tier
@@ -205,6 +220,9 @@ class Brain:
                 query, k=k, tier=tier_enum,
                 min_importance=min_importance,
                 rerank=rerank, decay=decay,
+                tier_priors=tier_priors,
+                tier_priors_overrides=tier_priors_overrides,
+                fsrs=fsrs,
             )
             out = []
             for r in results:
@@ -235,6 +253,8 @@ class Brain:
         min_importance: Optional[float] = None,
         rerank: Optional[bool] = None,
         decay: Optional[bool] = None,
+        tier_priors: Optional[bool] = None,
+        tier_priors_overrides: Optional[dict[str, float]] = None,
     ) -> list[dict]:
         """Like `recall()` but returns only the verbatim (pre-overlap) text.
 
@@ -252,6 +272,8 @@ class Brain:
             query=query, k=k, tier=tier,
             min_importance=min_importance,
             rerank=rerank, decay=decay,
+            tier_priors=tier_priors,
+            tier_priors_overrides=tier_priors_overrides,
         )
         out = []
         for r in raw:
