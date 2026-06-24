@@ -285,9 +285,10 @@ class Memory:
         tier: Tier | str | None = None,
         min_importance: float | None = None,
         rerank: bool | None = None,
+        decay: bool | None = None,
     ) -> tuple[list[QueryResult], QueryStats]:
         """Hybrid retrieval with optional tier filter, importance threshold,
-        and cross-encoder rerank (Layer 7).
+        cross-encoder rerank (Layer 7), and Ebbinghaus decay (Layer 8).
 
         Updates recall_count + last_recalled_at on returned chunks.
 
@@ -297,6 +298,7 @@ class Memory:
             tier: restrict to one tier (working/episodic/semantic/procedural)
             min_importance: drop chunks below this importance score
             rerank: True/False forces on/off. None reads DUCKBOT_RERANK env.
+            decay: True/False forces on/off. None reads DUCKBOT_DECAY env.
         """
         store, embedder = await self._ensure_initialized()
         qe = make_query_embedder(embedder)
@@ -305,7 +307,10 @@ class Memory:
             tier_filter = Tier(tier)
         elif isinstance(tier, Tier):
             tier_filter = tier
-        results, stats = await hybrid_query(query, store, qe, n_results=k, tier=tier_filter, rerank=rerank)
+        results, stats = await hybrid_query(
+            query, store, qe, n_results=k, tier=tier_filter,
+            rerank=rerank, decay=decay,
+        )
 
         # Optional importance filter
         if min_importance is not None:

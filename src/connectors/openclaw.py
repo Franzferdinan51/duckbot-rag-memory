@@ -71,8 +71,24 @@ TOOL_DEFINITIONS: list[dict] = [
         },
     },
     {
+        "name": "brain_recall_verbatim",
+        "description": "Layer 13 verbatim-first retrieval: returns the original (pre-overlap, pre-prefix) source text instead of the contextualized chunk. Use when the user asks 'what exactly did I say about X?' so we never paraphrase or summarize.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "k": {"type": "integer", "default": 5},
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+                "min_importance": {"type": "number"},
+                "rerank": {"type": "boolean", "default": False},
+                "decay": {"type": "boolean", "default": False},
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "brain_recall",
-        "description": "Hybrid retrieval (vector + BM25 + RRF, plus optional cross-encoder rerank) over all chunks. Returns top-k with tier, source, importance, score.",
+        "description": "Hybrid retrieval (vector + BM25 + RRF, plus optional cross-encoder rerank and optional Ebbinghaus decay weighting) over all chunks. Returns top-k with tier, source, importance, score.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -81,6 +97,7 @@ TOOL_DEFINITIONS: list[dict] = [
                 "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
                 "min_importance": {"type": "number"},
                 "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank (BGE bge-reranker-base). Default off; pass true to opt in. No paid API."},
+                "decay": {"type": "boolean", "default": False, "description": "Layer 8: apply Ebbinghaus retention weighting. Default off; pass true to opt in. Public-domain math (1885), no LLM call. Boosts recently-recalled chunks."},
             },
             "required": ["query"],
         },
@@ -284,6 +301,16 @@ def handle(tool_name: str, args: dict) -> dict:
                 skip_scan=args.get("skip_scan", False),
             )
             return _serialize(r)
+        if tool_name == "brain_recall_verbatim":
+            results = brain.recall_verbatim(
+                query=args["query"],
+                k=args.get("k", 5),
+                tier=args.get("tier"),
+                min_importance=args.get("min_importance"),
+                rerank=args.get("rerank"),
+                decay=args.get("decay"),
+            )
+            return {"results": results}
         if tool_name == "brain_recall":
             results = brain.recall(
                 query=args["query"],
@@ -291,6 +318,7 @@ def handle(tool_name: str, args: dict) -> dict:
                 tier=args.get("tier"),
                 min_importance=args.get("min_importance"),
                 rerank=args.get("rerank"),
+                decay=args.get("decay"),
             )
             return {"results": _serialize(results)}
         if tool_name == "brain_reflect":

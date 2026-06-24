@@ -60,6 +60,7 @@ TOOLS = [
                 "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "filter by tier"},
                 "min_importance": {"type": "number", "description": "filter by importance threshold (0..1)"},
                 "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank with BAAI/bge-reranker-base (MIT, local). No paid API. Off by default; pass true to opt in."},
+                "decay": {"type": "boolean", "default": False, "description": "Layer 8: apply Ebbinghaus retention weighting. Public-domain math (1885), no LLM call. Off by default; pass true to opt in."},
             },
             "required": ["query"],
         },
@@ -173,6 +174,7 @@ async def handle_recall(args: dict) -> dict:
         tier=args.get("tier"),
         min_importance=args.get("min_importance"),
         rerank=args.get("rerank"),
+        decay=args.get("decay"),
     )
     return {
         "results": [r.to_dict() for r in results],

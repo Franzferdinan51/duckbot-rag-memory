@@ -48,6 +48,11 @@ class Chunk:
     section_header: str | None = None  # nearest preceding ## or ###
     has_code: bool = False
     char_count: int = field(default=0)
+    # L13 verbatim-first storage: preserve the original (pre-overlap, pre-prefix)
+    # text so we can return the user's exact words on demand. Default = text.
+    # Set explicitly during overlap application so it's distinguishable from
+    # the chunk-as-displayed.
+    verbatim_text: str | None = None
 
     def __post_init__(self) -> None:
         if self.char_count == 0:
@@ -220,6 +225,15 @@ def chunk_markdown(
     for chunk in chunks:
         chunk.total_chunks = len(chunks)
 
+    # L13 verbatim-first: snapshot the original text BEFORE we apply overlap
+    # prefixes. `verbatim_text` is what we'd return for "show me exactly what
+    # Duckets said" — the source bytes, not the contextualized chunk-as-stored.
+    # Pattern source: MemPalace's verbatim-first design principle
+    # (https://github.com/MemPalace/mempalace/blob/develop/CLAUDE.md)
+    for chunk in chunks:
+        if chunk.verbatim_text is None:
+            chunk.verbatim_text = chunk.text
+
     # Apply overlap by prepending trailing sentences from the previous chunk.
     # This is "contextual retrieval" lite — preserves continuity without re-embedding.
     if overlap_chars > 0 and len(chunks) > 1:
@@ -228,6 +242,8 @@ def chunk_markdown(
             tail = prev.text[-overlap_chars:].strip()
             # Don't prepend if it'd duplicate most of the chunk
             if tail and not chunks[i].text.startswith(tail[-100:]):
+                # Note: we mutate `text` (the displayed chunk) but
+                # `verbatim_text` stays as the pre-overlap source text.
                 chunks[i].text = f"[...continued from previous section: {section_for_chunk(prev)}...]\n\n{tail}\n\n{chunks[i].text}"
 
     return chunks

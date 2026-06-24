@@ -1,5 +1,103 @@
 # Changelog
 
+## 0.4.0 — 2026-06-23 — Trust + Verbatim + Decay (L8 / L13 / L15)
+
+MemPalace survey (verified via GitHub API 2026-06-23, MIT-licensed)
+unlocked three high-value additions in one round.
+
+### L15 — Pre-commit secret-scan + path guard
+
+- **`scripts/secret-scan.sh`** — bash-based pre-commit hook that scans
+  staged content (via `git show :<path>`) for known secret patterns:
+  - OpenAI `sk-...`, Anthropic `sk-ant-...`, GitHub `ghp_...` and
+    `github_pat_...`, AWS `AKIA...`, MiniMax `MiniMax-...`, Bearer tokens.
+  - Private key headers (RSA, OpenSSH, PGP).
+  - High-entropy generic `(api_key|secret|token|password) = "..."`.
+- **Path guard**: blocks `data/chroma/`, `data/watcher_state.json`,
+  `.env`, `.env.*`, `.venv/`, `node_modules/`.
+- **Installed**: `.git/hooks/pre-commit` symlinked to the script.
+  Also shipped as `.pre-commit-config.yaml` for users with `pre-commit`
+  installed.
+- **Opt-out**: `DUCKBOT_SKIP_SECRET_SCAN=1 git commit --no-verify`
+  (logged to stderr).
+- **17 tests** in `tests/test_secret_scan.py` covering positive cases,
+  path blocks, negative cases (clean markdown, short placeholders, plain
+  English with "key" or "secret"), and the opt-out env var.
+
+### L13 — Verbatim-first storage contract
+
+Inspired by MemPalace's verbatim-first design principle (their CLAUDE.md):
+"never summarize, paraphrase, or lossy-compress user data."
+
+- **`src/chunk.py`** — `Chunk` dataclass gains `verbatim_text` field.
+  Set during `chunk_markdown()` BEFORE overlap prefixes are applied.
+- **`src/store.py`** — `add_chunks` writes `verbatim_text` to Chroma
+  metadata (truncated to 8 KB). Pre-L13 chunks fall back gracefully to
+  `chunk.text` since no overlap was applied to them.
+- **`src/connectors/base.py`** — new `Brain.recall_verbatim()` method.
+  Like `recall()` but returns the source bytes, never the contextualized
+  chunk. Perfect for "show me exactly what I said about X".
+- **`src/connectors/openclaw.py`** — new MCP tool `brain_recall_verbatim`
+  with the same query/k/tier/min_importance/rerank/decay parameters.
+- **Total OpenClaw MCP tools: 19** (was 18 with v0.3.0).
+- **Hermes**: `recall_verbatim()` follows the same `**kwargs` pattern
+  and forwards through `Brain.recall()`.
+- **14 tests** in `tests/test_verbatim.py` covering dataclass, chunk
+  overlap preservation, recall_verbatim fallback, and connector schema.
+
+### L8 — Ebbinghaus memory decay
+
+Public-domain math: Hermann Ebbinghaus, "Memory: A Contribution to
+Experimental Psychology" (1885). Retention: `R(t) = e^(-t / S)`. Same
+math validated by YourMemory (+16pp LoCoMo recall vs mem0) and shipped
+in MemPalace v4 as "Time-decay scoring".
+
+- **`src/decay.py`** — new module:
+  - `ebbinghaus_retention(age_days, stability_days)` — pure math.
+  - `days_since(epoch)` — time-since helper.
+  - `bump_stability(current_stability, recalled=True)` — stability grows
+    by 1.5x per recall (FSRS-6-lite). No penalty on miss (MemPalace v4
+    design choice).
+  - `decay_adjust(results)` — min-max normalizes RRF scores, multiplies
+    in `0.4 * retention + 0.6 * normalized_RRF`. Cold chunks (R < 0.05)
+    get a 0.1x floor penalty — soft cap, never delete.
+  - `maybe_decay(results, enabled=True)` — opt-in via `DUCKBOT_DECAY=1`
+    env var. Default OFF (preserves existing behavior).
+- **`src/query.py`** — `hybrid_query()` runs `maybe_decay()` after
+  `maybe_rerank()` and before truncation. Pipeline:
+  hybrid → RRF → rerank (L7) → decay (L8) → top-k.
+- **`src/memory.py`** / **`src/connectors/base.py`** — `Memory.recall()`
+  and `Brain.recall()` thread `decay=` through.
+- **`src/connectors/openclaw.py`** / **`src/mcp_server.py`** — `recall`
+  MCP schema gains `decay` boolean.
+- **22 tests** in `tests/test_decay.py` covering: retention math at
+  t=0 / t=S / t=2S / negative age / zero stability; days_since recency;
+  bump_stability growth bound; decay_adjust cold-floor penalty; the
+  `maybe_decay` opt-in env var.
+
+### Verification
+
+- **264/264 tests pass** (was 212 in v0.3.0; +52 new across L8/L13/L15).
+- Doctor clean.
+- Secret-scan tested end-to-end against real-looking leaks (caught all).
+- End-to-end through `handle("brain_recall", {..., rerank: True, decay: True})`
+  ranks the procedural SOUL.md rule first with full retention trace.
+- End-to-end through `handle("brain_recall_verbatim", ...)` returns the
+  source bytes for newly-ingested content (verbatim_text present in
+  metadata, no overlap markers).
+
+### What we kept (per Duckets: "don't delete anything")
+- All Layers 0-7 code untouched. L7 still opt-in (`rerank=True`).
+- All 212 prior tests still pass.
+- L8 / L13 are opt-in via env vars or per-call booleans.
+
+### What MemPalace suggested we add next (not yet shipped)
+- **L14 — Pluggable backend seam** — `src/backends/base.py` with Chroma
+  as default. Future-friendly for Qdrant / LanceDB without rewrites.
+- **Multi-host plugin dirs** — they ship `.claude-plugin`, `.codex-plugin`,
+  `.cursor-plugin`, `.antigravity-plugin` alongside MCP. We have
+  OpenClaw + Hermes; the *pattern* is worth replicating.
+
 ## 0.3.0 — 2026-06-23 — Layer 7: cross-encoder rerank + brain-upgrade Round 2
 
 ### What changed

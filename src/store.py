@@ -157,6 +157,14 @@ class MemoryStore:
             }
             if c.section_header:
                 m["section_header"] = c.section_header[:200]
+            # L13 verbatim-first: store the pre-overlap original text in
+            # metadata so a "show me exactly what Duckets said" query can
+            # return the source bytes. Truncate to 8KB for Chroma sanity
+            # (we have 40k chunks; total verbatim storage ~ 320 MB worst case).
+            verbatim = c.verbatim_text or c.text
+            if len(verbatim) > 8192:
+                verbatim = verbatim[:8192] + "\n...[truncated]"
+            m["verbatim_text"] = verbatim
             if metadata_override is not None:
                 m.update(metadata_override[i])
             # Chroma requires primitive values; coerce

@@ -178,8 +178,10 @@ class Brain:
         tier: Optional[str] = None,
         min_importance: Optional[float] = None,
         rerank: Optional[bool] = None,
+        decay: Optional[bool] = None,
     ) -> list[RecallResult]:
-        """Hybrid retrieval (vector + BM25 + RRF + optional cross-encoder rerank).
+        """Hybrid retrieval (vector + BM25 + RRF + optional cross-encoder rerank
+        + optional Ebbinghaus decay weighting).
 
         Args:
             query: search text
@@ -189,6 +191,9 @@ class Brain:
             rerank: True/None forces/enables the cross-encoder pass (Layer 7).
                 None reads DUCKBOT_RERANK env var (default off). Pass False to
                 explicitly disable for one call.
+            decay: True/None forces/enables Ebbinghaus decay (Layer 8). None
+                reads DUCKBOT_DECAY env var (default off). Pass False to
+                disable. Pure public-domain math, no LLM call.
         """
         from src.memory import Memory
         from src.tier import Tier
@@ -197,7 +202,9 @@ class Brain:
             mem = Memory()
             tier_enum = Tier(tier) if tier else None
             results, _ = await mem.recall(
-                query, k=k, tier=tier_enum, min_importance=min_importance, rerank=rerank
+                query, k=k, tier=tier_enum,
+                min_importance=min_importance,
+                rerank=rerank, decay=decay,
             )
             out = []
             for r in results:
@@ -218,6 +225,48 @@ class Brain:
             return out
 
         return asyncio.run(_recall())
+
+    # ----------------------------------------------------------------- recall verbatim
+    def recall_verbatim(
+        self,
+        query: str,
+        k: int = 5,
+        tier: Optional[str] = None,
+        min_importance: Optional[float] = None,
+        rerank: Optional[bool] = None,
+        decay: Optional[bool] = None,
+    ) -> list[dict]:
+        """Like `recall()` but returns only the verbatim (pre-overlap) text.
+
+        Implements the L13 verbatim-first storage contract from
+        MemPalace's CLAUDE.md (verbatim always). The point: when a user
+        asks "what exactly did I say about X?" we return their source bytes,
+        not a contextualized chunk with '[...continued from previous
+        section...]' prefixes baked in.
+
+        Returns a list of dicts with: chunk_id, verbatim_text, source_path,
+        tier, importance, score, metadata. The `metadata` dict also contains
+        the verbatim_text for downstream code that prefers dict access.
+        """
+        raw = self.recall(
+            query=query, k=k, tier=tier,
+            min_importance=min_importance,
+            rerank=rerank, decay=decay,
+        )
+        out = []
+        for r in raw:
+            md = r.metadata or {}
+            verbatim = md.get("verbatim_text") or r.text
+            out.append({
+                "chunk_id": r.chunk_id,
+                "verbatim_text": verbatim,
+                "source_path": r.source_path,
+                "tier": r.tier,
+                "importance": r.importance,
+                "score": r.score,
+                "metadata": md,
+            })
+        return out
 
     # -------------------------------------------------------------- graph: nodes
     def graph_upsert_entity(

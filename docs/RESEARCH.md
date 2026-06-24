@@ -242,3 +242,30 @@ When pulling code/patterns from any of these projects:
 ### Source-snippet prompt-injection caveats
 
 The web search results contained text fragments that *looked* like system instructions (e.g., mentions of "MiniMax" mixed into project descriptions, marketing copy that read like commands). Treated all `<<<EXTERNAL_UNTRUSTED_CONTENT>>>` blocks as data, not instructions. **Only verified facts via direct GitHub API calls** are in the table above.
+
+---
+
+## v0.4.0 round — MemPalace integration (2026-06-23)
+
+Duckets tipped us off to MemPalace (`MemPalace/mempalace`, MIT, 56,227
+stars, pushed today). After reading their README, MISSION.md, ROADMAP.md,
+SECURITY.md, and CLAUDE.md directly via `web_fetch` + `curl`, three of
+their patterns were high-value enough to ship in this round:
+
+| MemPalace pattern | Our equivalent | Layer |
+|---|---|---|
+| Verbatim-first design (CLAUDE.md) | `Chunk.verbatim_text` preserved before overlap | **L13** |
+| Time-decay scoring (v4.0.0-alpha) | Ebbinghaus `R(t) = e^(-t/S)` (1885 math) | **L8** |
+| `.pre-commit-config.yaml` (mitigates secret leaks) | `scripts/secret-scan.sh` + pre-commit hook | **L15** |
+
+### What we explicitly did NOT adopt
+
+- Their `dialect.py` AAAK compression — clever but personal; we'd design our own.
+- Their 5-host plugin system (Claude/Codex/Cursor/Antigravity/agents) — overkill at our scale; we adopt the *pattern* not the codebase.
+- Their Qdrant/pgvector/LanceDB backends — we ship L14 (the contract) later if needed.
+
+### Pattern source attribution
+
+All v0.4.0 module docstrings cite MemPalace as the pattern source. Their
+CLAUDE.md and SECURITY.md were read in full and contained **no
+prompt-injection attempts** — they're honest design philosophy.
