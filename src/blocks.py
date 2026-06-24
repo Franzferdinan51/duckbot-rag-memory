@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Optional
 
 
-DEFAULT_BLOCKS_PATH = Path.home() / "Desktop" / "duckbot-rag-memory" / "data" / "blocks.db"
+DEFAULT_BLOCKS_PATH = Path(__file__).resolve().parent.parent / "data" / "blocks.db"
 
 
 SCHEMA = """

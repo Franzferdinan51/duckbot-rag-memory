@@ -148,6 +148,89 @@ python -m src.cli query "What did we decide about cloud-only models?"
 If all three pass, you're live. The brain will surface relevant context
 to your agent within ~0.6s per query.
 
+## Enhanced Brain: Memory That Writes Back
+
+The enhanced brain is what makes duckbot-rag-memory more than just storage.
+It actively maintains the context files that agents read on startup.
+
+### The problem it solves
+
+Agents start each session with no memory of past work unless you manually
+feed context. `brain_inflate` fetches relevant memories on-demand.
+`brain_sync` writes memories back to the files agents read at startup.
+Together they form a closed loop:
+
+```
+remember() → recall() → brain_inflate() → agent context
+                        ↕
+               brain_sync() ← reflect() + cron
+```
+
+### `brain_inflate` — On-demand context
+
+When you start a new task or session, call `brain_inflate`:
+
+```
+# OpenClaw / Hermes tool call
+brain_inflate(query="what are we working on?", k=10, agent_name="mavis")
+```
+
+Returns a markdown block ready to paste into your thinking — tier labels,
+importance bars, source attribution:
+
+```markdown
+## 🧠 Mavis's Enhanced Memory Context
+
+### 🧩 Semantic — Facts, concepts, knowledge
+- [▓▓▓▓▓░░░░░] The API uses JWT for auth, not session cookies  _source: memory/soul.md_
+
+### ⚙️ Procedural — Rules, patterns, how-to
+- [▓▓▓▓▓▓▓░░░] Run `make test` before every PR  _source: memory/MEMORY.md_
+```
+
+### `brain_sync` — Keep context files fresh
+
+Syncs memories to agent context files automatically:
+
+| Platform | Path | Format | Notes |
+|----------|------|--------|-------|
+| OpenClaw | `~/.openclaw/workspace/memory/MEMORY.md` | Rich markdown | No char limit |
+| OpenClaw | `~/.openclaw/workspace/memory/USER.md` | Rich markdown | User facts |
+| OpenClaw | `~/.openclaw/workspace/memory/SOUL.md` | Rich markdown | Procedural tier |
+| Hermes | `~/.hermes/memories/MEMORY.md` | `§`-delimited | 2,200 char limit |
+| Hermes | `~/.hermes/memories/USER.md` | `§`-delimited | 1,375 char limit |
+| Hermes | `~/.hermes/SOUL.md` | Markdown | Global personality |
+
+The cron already calls `brain_sync` after every ingest run. To sync manually:
+
+```bash
+# Both platforms
+python -m src.cli sync --target both
+
+# OpenClaw only
+python -m src.cli sync --target openclaw
+
+# Hermes only
+python -m src.cli sync --target hermes
+
+# Dry run (preview)
+python -m src.cli sync --dry-run
+```
+
+### OpenClaw skill
+
+The `duckbot-brain` skill teaches your OpenClaw agents to use the enhanced
+brain. Install it:
+
+```bash
+mkdir -p ~/.openclaw/workspace/skills/duckbot-brain/
+ln -sf ~/Desktop/duckbot-rag-memory/skills/duckbot-brain/SKILL.md \
+  ~/.openclaw/workspace/skills/duckbot-brain/SKILL.md
+```
+
+The skill file lives at `skills/duckbot-brain/SKILL.md` in this repo.
+It auto-discovers from `~/.openclaw/workspace/skills/`.
+
 ## Configuration knobs
 
 | Env var | Default | Effect |
@@ -160,6 +243,7 @@ to your agent within ~0.6s per query.
 | `LMSTUDIO_API_KEY` | `lm-studio` | Bearer token. LM Studio's recent builds require it. |
 | `OPENCLAW_WORKSPACE` | `~/.openclaw/workspace` | Watch this dir + auto-ingest new files. |
 | `OPENCLAW_MEMORY` | `<workspace>/memory` | Specifically watch this subdir. |
+| `HERMES_HOME` | `~/.hermes` | Hermes home dir. When set, `brain_sync` also writes to Hermes context files. |
 
 All are read at startup. Restart the MCP server (and any consuming hermes
 session) after changing them.

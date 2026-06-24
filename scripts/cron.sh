@@ -127,6 +127,13 @@ else
   log "Phase: ingest — SKIPPED (no embedding provider; set OPENAI_API_KEY or DUCKBOT_EMBEDDING=local)"
 fi
 
+# 6b. Sync enhanced brain to agent context files (OpenClaw + Hermes).
+# Writes MEMORY.md, USER.md, SOUL.md so agents that read these files
+# on startup get a pre-loaded brain — not a blank slate.
+if [[ "$EMBEDDING_MODE" != "none" ]]; then
+  run_phase "brain-sync" "$PY" -m src.cli sync --target both || true
+fi
+
 # 7. Eval (only if benchmark exists AND we have embeddings)
 BENCH="$REPO_ROOT/benchmarks/golden.jsonl"
 if [[ -f "$BENCH" && "$EMBEDDING_MODE" != "none" ]]; then

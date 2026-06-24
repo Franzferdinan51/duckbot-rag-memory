@@ -39,11 +39,31 @@ from .embeddings import (
     auto_detect_provider,
     is_lmstudio_reachable,
     make_query_embedder,
+    _EMBEDDER_DIM_CACHE,
 )
 from .ingest import IngestStats
 from .query import QueryResult, QueryStats, hybrid_query
 from .store import MemoryStore
 from .tier import Tier, classify, reclassify_for_working
+
+
+# -----------------------------------------------------------------------------
+# Process-level cache for the embedding-dim probe.
+#
+# When Memory() is constructed it has to learn the real dim of the active
+# embedding model — the defaults in src/embeddings.py are guesses (e.g.
+# 1024 for lmstudio). The probe used to be `embed_one("dim probe")` on
+# every Memory() instantiation, which fires a real /v1/embeddings call
+# against LM Studio. In a long-lived process (Hermes gateway, MCP server,
+# watcher, OpenClaw extension) Memory() is re-instantiated on every tool
+# call, so the probe spammed LM Studio's request log with "dim probe"
+# entries and triggered ERR_HTTP_HEADERS_SENT noise.
+#
+# The fix: cache the resolved dim by (base_url, model) at module scope,
+# so the probe runs at most once per process per model. Failed probes
+# are cached as None so we don't keep retrying on a broken endpoint.
+# -----------------------------------------------------------------------------
+_DIM_PROBE_CACHE: dict[tuple[str, str], int | None] = {}
 
 
 # -----------------------------------------------------------------------------
@@ -111,14 +131,40 @@ class Memory:
             # Auto-detect embedder first so we can match its dim to the store
             if self._embedder is None:
                 self._embedder = await auto_detect_provider()
-            # Some providers (LM Studio, local) have lazy dim resolution;
-            # do a single test embed so the dim is set before store init.
-            try:
-                probe = await self._embedder.embed_one("dim probe")
-                if probe and self._embedder.dim != len(probe):
-                    self._embedder.dim = len(probe)
-            except Exception:
-                pass  # dim will be whatever the provider's default is
+            # v0.11.2: skip the probe entirely if we've already learned the
+            # dim for this (base_url, model) in this process.
+            # _EMBEDDER_DIM_CACHE is the source of truth (populated here and
+            # by LMStudioEmbeddings._resolve_dim). _DIM_PROBE_CACHE syncs
+            # from it for backward compat with existing code that reads it.
+            probe_key = (
+                getattr(self._embedder, "base_url", ""),
+                getattr(self._embedder, "model", ""),
+            )
+            # Three states:
+            #   key absent       → never probed, do it now
+            #   key → int (>0)  → cached dim, apply it
+            #   key → None      → previously failed, do NOT retry
+            if probe_key in _EMBEDDER_DIM_CACHE:
+                cached_dim = _EMBEDDER_DIM_CACHE[probe_key]
+                if cached_dim is not None and cached_dim > 0:
+                    if self._embedder.dim != cached_dim:
+                        self._embedder.dim = cached_dim
+                # else: cached None (failed probe) → keep default dim, don't retry
+            else:
+                try:
+                    probe = await self._embedder.embed_one("dim probe")
+                    if probe:
+                        actual = len(probe)
+                        if self._embedder.dim != actual:
+                            self._embedder.dim = actual
+                        # Populate both caches so LMStudioEmbeddings and tests
+                        # both see the resolved dim without re-probing.
+                        _EMBEDDER_DIM_CACHE[probe_key] = actual
+                        _DIM_PROBE_CACHE[probe_key] = actual
+                except Exception:
+                    # Mark as failed so we don't keep retrying
+                    _EMBEDDER_DIM_CACHE[probe_key] = None
+                    _DIM_PROBE_CACHE[probe_key] = None
             self._store = MemoryStore(
                 persist_dir=self._persist_dir,
                 embedding_dim=self._embedder.dim,

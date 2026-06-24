@@ -2,7 +2,7 @@
 
 > Persistent, searchable, and self-curing memory for OpenClaw + Hermes Agent. Auto-updates in real time.
 
-[![Status](https://img.shields.io/badge/status-v0.10.0-yellow)]() [![License](https://img.shields.io/badge/license-MIT-blue)]() [![Open Source](https://img.shields.io/badge/open--source-everything-green)]()
+[![Status](https://img.shields.io/badge/status-v0.11.2-yellow)]() [![License](https://img.shields.io/badge/license-MIT-blue)]() [![Open Source](https://img.shields.io/badge/open--source-everything-green)]()
 
 ## What this is
 

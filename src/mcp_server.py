@@ -28,6 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.memory import Memory
+from src.tier import Tier
 
 
 # -----------------------------------------------------------------------------
@@ -217,7 +218,36 @@ TOOLS = [
             "required": ["tool"],
         },
     },
-]  
+    # ---- v0.11.2 — Enhanced Brain: context inflation ----
+    {
+        "name": "brain_inflate",
+        "description": "Enhanced brain inflation. Recall relevant memories and format them for direct injection into agent context. Use when an agent starts a new task, session, or asks 'what do I know about X?' Returns a ready-to-paste markdown block with tier labels, importance scores, and source attribution.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "what the agent is currently working on or asking about"},
+                "k": {"type": "integer", "default": 10, "description": "max memories to return"},
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "filter by tier"},
+                "min_importance": {"type": "number", "default": 0.3, "description": "minimum importance threshold (0..1)"},
+                "agent_name": {"type": "string", "description": "agent name to personalize context (e.g. 'mavis', 'duckbot')"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "brain_sync",
+        "description": "Sync stored memories back to agent context files. Writes to OpenClaw (~/.openclaw/workspace/memory/), Hermes (~/.hermes/memories/), or both. Call this after ingest or on a cron to keep the enhanced brain's context files fresh — agents read them on startup so they don't start from a blank slate.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "enum": ["openclaw", "hermes", "both"], "default": "openclaw", "description": "which agent's memory files to write"},
+                "memory_k": {"type": "integer", "default": 20, "description": "max memories per tier for MEMORY.md"},
+                "user_k": {"type": "integer", "default": 15, "description": "max facts for USER.md"},
+                "dry_run": {"type": "boolean", "default": False, "description": "preview what would be written without writing files"},
+            },
+        },
+    },
+]
 
 
 # -----------------------------------------------------------------------------
@@ -448,6 +478,300 @@ async def handle_doctor(args: dict) -> dict:
     return {"checks": checks}
 
 
+# -----------------------------------------------------------------------------
+# v0.11.2 — Enhanced Brain: context inflation
+# The brain that enhances agents, not just stores memories.
+# -----------------------------------------------------------------------------
+
+async def handle_brain_inflate(args: dict) -> dict:
+    """Recall relevant memories and format them for direct agent-context injection.
+
+    This is the core "enhanced brain" operation: instead of just storing and
+    retrieving, this FEEDS memories back into agent context in a form that's
+    immediately useful — markdown with tier labels, importance scores, sources.
+
+    Use when:
+      - An agent starts a new session or task
+      - An agent asks "what do I know about X?"
+      - After ingest to surface what was just learned
+    """
+    mem = Memory()
+    query = args["query"]
+    k = args.get("k", 10)
+    tier_filter = args.get("tier")
+    min_imp = args.get("min_importance", 0.3)
+    agent_name = args.get("agent_name", "agent")
+
+    results, _ = await mem.recall(
+        query, k=k * 3,  # over-fetch, filter below
+        tier=tier_filter,
+        min_importance=min_imp,
+    )
+
+    # Filter to top-k and group by tier
+    by_tier: dict[str, list] = {t.value: [] for t in [Tier.WORKING, Tier.EPISODIC, Tier.SEMANTIC, Tier.PROCEDURAL]}
+    for r in results[:k * 3]:
+        if r.importance >= min_imp and (tier_filter is None or r.tier.value == tier_filter):
+            by_tier[r.tier.value].append(r)
+            if all(len(v) >= k // 4 + 1 for v in by_tier.values()):
+                break
+
+    # Format as markdown
+    lines = [
+        f"## 🧠 {agent_name.title()}'s Enhanced Memory Context",
+        "",
+        f"> Query: *{query}*",
+        "",
+    ]
+
+    tier_emoji = {
+        "working": "⚡",
+        "episodic": "📖",
+        "semantic": "🧩",
+        "procedural": "⚙️",
+    }
+    tier_desc = {
+        "working": "Active session / current context",
+        "episodic": "Past experiences / events",
+        "semantic": "Facts, concepts, knowledge",
+        "procedural": "Rules, patterns, how-to",
+    }
+
+    for tier_name in ["semantic", "procedural", "episodic", "working"]:
+        items = by_tier.get(tier_name, [])
+        if not items:
+            continue
+        emoji = tier_emoji.get(tier_name, "•")
+        lines.append(f"### {emoji} {tier_name.title()} — {tier_desc.get(tier_name, '')}")
+        for r in items[:k]:
+            imp_bar = "▓" * int(r.importance * 10) + "░" * (10 - int(r.importance * 10))
+            source = r.source_path or "memory"
+            lines.append(f"- [{imp_bar}] {r.text[:300]}{'...' if len(r.text) > 300 else ''}")
+            lines.append(f"  _source: {source} | tier: {r.tier.value}_")
+        lines.append("")
+
+    if not any(by_tier.values()):
+        lines.append("_No relevant memories found above importance threshold._")
+
+    lines.append("---")
+    lines.append("*This context was auto-generated by DuckBot's enhanced brain (brain_inflate).*")
+
+    markdown_block = "\n".join(lines)
+
+    total = sum(len(v) for v in by_tier.values())
+    return {
+        "context": markdown_block,
+        "total_memories": total,
+        "tiers_covered": [t for t, v in by_tier.items() if v],
+        "query": query,
+        "agent_name": agent_name,
+    }
+
+
+async def handle_brain_sync(args: dict) -> dict:
+    """Sync stored memories back to agent context files.
+
+    Supports two targets:
+    - OpenClaw:  ~/.openclaw/workspace/memory/{MEMORY,USER,SOUL}.md
+                 No char limits — rich markdown format.
+    - Hermes:    ~/.hermes/memories/{MEMORY,USER}.md (char-limited, §-delimited)
+                 ~/.hermes/SOUL.md (no limit)
+
+    This is what makes the brain "enhanced" vs. just "storage":
+    it actively maintains the files agents read at startup.
+    """
+    target = args.get("target", "openclaw")
+    memory_k = args.get("memory_k", 20)
+    user_k = args.get("user_k", 15)
+    dry_run = args.get("dry_run", False)
+
+    from pathlib import Path
+    import os
+    from datetime import datetime
+
+    mem = Memory()
+    written: dict[str, str] = {}
+
+    def _dry(content: str) -> str:
+        return f"[DRY RUN — not written] {len(content)} chars"
+
+    all_tiers = [Tier.WORKING, Tier.EPISODIC, Tier.SEMANTIC, Tier.PROCEDURAL]
+    tier_summaries: dict[str, list] = {t.value: [] for t in all_tiers}
+    for tier in all_tiers:
+        results, _ = await mem.recall("", k=memory_k // 4 + 1, tier=tier.value, min_importance=0.2)
+        tier_summaries[tier.value] = results
+
+    user_results, _ = await mem.recall(
+        "user preferences habits identity profile personality", k=user_k, min_importance=0.2,
+    )
+    soul_results, _ = await mem.recall(
+        "identity principles values rules behavior patterns", k=10, tier="procedural", min_importance=0.2,
+    )
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # ---------------------------------------------------------------------------
+    # OpenClaw target — rich markdown, no char limits
+    # ---------------------------------------------------------------------------
+    if target in ("openclaw", "both"):
+        openclaw_memory = Path(os.environ.get(
+            "OPENCLAW_WORKSPACE_MEMORY",
+            str(Path.home() / ".openclaw" / "workspace" / "memory"),
+        ))
+        openclaw_memory.mkdir(parents=True, exist_ok=True)
+
+        tier_emoji = {"working": "⚡", "episodic": "📖", "semantic": "🧩", "procedural": "⚙️"}
+
+        # MEMORY.md
+        oc_mem_lines = [
+            f"# DuckBot Enhanced Memory — {now}",
+            "",
+            "_Auto-generated by duckbot-rag-memory's enhanced brain. Do not edit manually._",
+            "",
+        ]
+        for tier_name, items in tier_summaries.items():
+            emoji = tier_emoji.get(tier_name, "•")
+            oc_mem_lines.append(f"## {emoji} {tier_name.title()}")
+            for r in items[:memory_k // 4]:
+                imp = r.importance or 0
+                oc_mem_lines.append(
+                    f"- **[{imp:.0%}]** {r.text[:400]}{'...' if len(r.text) > 400 else ''}"
+                )
+                if r.source_path:
+                    oc_mem_lines.append(f"  _src: {r.source_path}_")
+            if not items:
+                oc_mem_lines.append("_No memories in this tier._")
+            oc_mem_lines.append("")
+        oc_mem_content = "\n".join(oc_mem_lines)
+        oc_mem_key = "openclaw/MEMORY.md"
+        if dry_run:
+            written[oc_mem_key] = _dry(oc_mem_content)
+        else:
+            (openclaw_memory / "MEMORY.md").write_text(oc_mem_content, encoding="utf-8")
+            written[oc_mem_key] = str(openclaw_memory / "MEMORY.md")
+
+        # USER.md
+        seen_texts: set[str] = set()
+        oc_user_lines = [f"# User Profile — {now}", "", "_What the enhanced brain knows about the user._", ""]
+        for r in user_results:
+            if r.text not in seen_texts:
+                seen_texts.add(r.text)
+                oc_user_lines.append(f"- {r.text[:500]}")
+                if r.source_path:
+                    oc_user_lines.append(f"  _src: {r.source_path} ({r.tier.value})_")
+        if len(oc_user_lines) <= 3:
+            oc_user_lines.append("_No user facts stored yet._")
+        oc_user_content = "\n".join(oc_user_lines)
+        oc_user_key = "openclaw/USER.md"
+        if dry_run:
+            written[oc_user_key] = _dry(oc_user_content)
+        else:
+            (openclaw_memory / "USER.md").write_text(oc_user_content, encoding="utf-8")
+            written[oc_user_key] = str(openclaw_memory / "USER.md")
+
+        # SOUL.md (procedural — identity + principles)
+        oc_soul_lines = [f"# Agent Soul — {now}", "", "_Identity and principles from the procedural memory tier._", ""]
+        for r in soul_results:
+            oc_soul_lines.append(f"- {r.text[:500]}")
+        if len(oc_soul_lines) <= 3:
+            oc_soul_lines.append("_No soul memories yet._")
+        oc_soul_content = "\n".join(oc_soul_lines)
+        oc_soul_key = "openclaw/SOUL.md"
+        if dry_run:
+            written[oc_soul_key] = _dry(oc_soul_content)
+        else:
+            (openclaw_memory / "SOUL.md").write_text(oc_soul_content, encoding="utf-8")
+            written[oc_soul_key] = str(openclaw_memory / "SOUL.md")
+
+    # ---------------------------------------------------------------------------
+    # Hermes target — char-limited §-delimited format per Hermes spec
+    # https://hermes-agent.nousresearch.com/docs/user-guide/features/memory
+    # ---------------------------------------------------------------------------
+    if target in ("hermes", "both"):
+        hermes_home = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
+        hermes_memories = hermes_home / "memories"
+        hermes_memories.mkdir(parents=True, exist_ok=True)
+
+        # Hermes MEMORY.md: 2,200 char limit, §-delimited entries
+        # Format: each entry is a line, prefixed with §
+        def _make_hermes_entry(r: "RecallResult") -> str:
+            imp = int((r.importance or 0) * 10)
+            bar = "▓" * imp + "░" * (10 - imp)
+            src = f" [{r.source_path or 'memory'}]" if r.source_path else ""
+            return f"§[{bar}]{r.text[:300]}{src}"
+
+        hm_mem_entries: list[str] = []
+        for tier_name, items in tier_summaries.items():
+            for r in items:
+                entry = _make_hermes_entry(r)
+                if sum(len(e) for e in hm_mem_entries) + len(entry) + 60 > 2200:
+                    break
+                hm_mem_entries.append(entry)
+            else:
+                continue
+            break
+
+        hm_mem_lines = [f"MEMORY [{len(''.join(hm_mem_entries))}/2200 chars]"]
+        hm_mem_lines.extend(hm_mem_entries or ["§No memories stored yet."])
+        hm_mem_content = "\n".join(hm_mem_lines)
+        hm_mem_key = "hermes/MEMORY.md"
+        if dry_run:
+            written[hm_mem_key] = _dry(hm_mem_content)
+        else:
+            (hermes_memories / "MEMORY.md").write_text(hm_mem_content, encoding="utf-8")
+            written[hm_mem_key] = str(hermes_memories / "MEMORY.md")
+
+        # Hermes USER.md: 1,375 char limit, §-delimited entries
+        seen: set[str] = set()
+        hm_user_entries: list[str] = []
+        for r in user_results:
+            if r.text in seen:
+                continue
+            seen.add(r.text)
+            src = f" [{r.source_path or 'memory'}]" if r.source_path else ""
+            entry = f"§{r.text[:250]}{src}"
+            if sum(len(e) for e in hm_user_entries) + len(entry) + 60 > 1375:
+                break
+            hm_user_entries.append(entry)
+
+        hm_user_lines = [f"USER PROFILE [{len(''.join(hm_user_entries))}/1375 chars]"]
+        hm_user_lines.extend(hm_user_entries or ["§No user facts stored yet."])
+        hm_user_content = "\n".join(hm_user_lines)
+        hm_user_key = "hermes/USER.md"
+        if dry_run:
+            written[hm_user_key] = _dry(hm_user_content)
+        else:
+            (hermes_memories / "USER.md").write_text(hm_user_content, encoding="utf-8")
+            written[hm_user_key] = str(hermes_memories / "USER.md")
+
+        # Hermes SOUL.md: no hard char limit — at ~/.hermes/SOUL.md (global personality)
+        # https://hermes-agent.nousresearch.com/docs/user-guide/features/personality
+        hm_soul_lines = [
+            f"# Agent Soul — synced from duckbot-rag-memory procedural tier — {now}",
+            "",
+            "_Do not edit manually — this file is auto-generated and will be overwritten on next sync._",
+            "",
+        ]
+        for r in soul_results:
+            hm_soul_lines.append(f"§ {r.text[:500]}")
+        if len(hm_soul_lines) <= 3:
+            hm_soul_lines.append("_No soul memories yet._")
+        hm_soul_content = "\n".join(hm_soul_lines)
+        hm_soul_key = "hermes/SOUL.md"
+        if dry_run:
+            written[hm_soul_key] = _dry(hm_soul_content)
+        else:
+            (hermes_home / "SOUL.md").write_text(hm_soul_content, encoding="utf-8")
+            written[hm_soul_key] = str(hermes_home / "SOUL.md")
+
+    return {
+        "files": written,
+        "dry_run": dry_run,
+        "target": target,
+        "total_memories_synced": sum(len(v) for v in tier_summaries.values()),
+    }
+
+
 HANDLERS = {
     "remember": handle_remember,
     "recall": handle_recall,
@@ -467,6 +791,9 @@ HANDLERS = {
     "dreaming_cycle": handle_dreaming_cycle,
     "learn": handle_learn,
     "active_memory": handle_active_memory,
+    # v0.11.2 — Enhanced Brain: context inflation
+    "brain_inflate": handle_brain_inflate,
+    "brain_sync": handle_brain_sync,
 }
 
 # Register the 18 connector tools (graph + blocks + quarantine + scan).
@@ -520,7 +847,7 @@ def mcp_stdio():
                     "jsonrpc": "2.0", "id": mid,
                     "result": {
                         "protocolVersion": "2024-11-05",
-                        "serverInfo": {"name": "duckbot-memory", "version": "0.11.1"},
+                        "serverInfo": {"name": "duckbot-memory", "version": "0.11.2"},
                         "capabilities": {"tools": {}},
                     },
                 }

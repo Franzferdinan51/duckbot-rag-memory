@@ -1,56 +1,73 @@
 # Changelog
 
-## 0.11.2 — 2026-06-24 — LM Studio spam hotfix
+## 0.11.2 — 2026-06-24 — LM Studio spam hotfix + enhanced brain
 
 LM Studio's embed endpoint was being hammered by the duckbot-rag-memory
-stack. This release fixes the three causes without changing any user-facing
-API. Tool count unchanged (39). Schema unchanged. No new deps.
+stack. This release fixes three root causes and adds the enhanced brain
+— a system that actively writes memories back to agent context files
+so agents don't start each session from a blank slate.
 
-**Root causes:**
+**Root causes fixed:**
 1. **No embed-result cache.** Every `brain_decay_status`, `brain_fsrs_review`,
-   and watcher poll re-embedded the same chunks. For a memory file touched
-   repeatedly (editor save, file sync), that meant N redundant HTTP requests
-   per poll cycle.
+   and watcher poll re-embedded the same chunks.
 2. **Each call opened a fresh `httpx.AsyncClient`.** With v0.10/v0.11's
    three concurrent embed paths (Layer 6 OpenClaw connector, Layer 16
    Hermes plugin, MCP server), bursts collided at LM Studio's single-threaded
-   HTTP server and triggered `ERR_HTTP_HEADERS_SENT` on every node.observable.
-3. **No rate limiter.** When a burst arrived, all callers slammed
-   LM Studio's `/v1/embeddings` endpoint with no global throttle.
+   HTTP server and triggered `ERR_HTTP_HEADERS_SENT`.
+3. **No rate limiter.** All callers slammed LM Studio's `/v1/embeddings`
+   endpoint with no global throttle.
+4. **Per-call dim probe.** `Memory()` ran `embed_one("dim probe")` on every
+   instantiation in long-lived daemons. Now cached at process level.
 
 ### Added — src/embeddings.py
 - **Shared `httpx.AsyncClient` singleton.** One connection pool per process.
-  All embed calls now reuse it. Add `close_http_client()` to your shutdown
-  handler to avoid the "unclosed client" warning.
-- **LRU result cache (`_EmbedCache`).** Default 4096 entries (~few MB for
-  768-d vectors). Keyed on `(sha256(text), model_name)`. Set
-  `DUCKBOT_EMBED_CACHE_SIZE=0` to disable. Use `get_embed_cache_stats()` for
-  diagnostics; `reset_embed_cache()` from tests.
-- **Async token-bucket rate limiter (`_TokenBucket`).** Default 60 req/min
-  with 60 burst. Set `DUCKBOT_EMBED_RPM=N` to override. Use
-  `reset_rate_limiter(rpm=N)` from tests.
-- New `__all__` exports: `close_http_client`, `reset_embed_cache`,
-  `reset_rate_limiter`, `get_embed_cache_stats`.
+  Lazy lock ensures correct loop attachment in pytest.
+- **LRU result cache (`_EmbedCache`).** Default 4096 entries. Keyed on
+  `(sha256(text), model_name)`. Set `DUCKBOT_EMBED_CACHE_SIZE=0` to disable.
+- **Async token-bucket rate limiter (`_TokenBucket`).** Default 60 req/min.
+  Set `DUCKBOT_EMBED_RPM=N` to override.
+- **Process-level dim-probe cache.** `LMStudioEmbeddings._resolve_dim()` and
+  `Memory._ensure_initialized()` both short-circuit on cache hit. Failed probes
+  are cached as `None` sentinel — no repeated retries on broken endpoints.
 
 ### Added — src/watcher.py
-- **Content-hash dedup on file sync.** `state["files"][path]["content_hash"]`
-  is recorded and compared on every sync pass. A no-op file rewrite (e.g.
-  editor save with identical bytes) now updates mtime in state and is
-  skipped — no re-embed, no chunk delete/recreate churn. A real content
-  change still triggers full re-ingest. Backward-compatible: missing hash
-  in old state files falls through to the original mtime-only behavior.
+- **Content-hash dedup on file sync.** No-op file rewrites skip re-ingest entirely.
 
-### Tests — tests/test_v0_11_2_hotfix.py
-- 16 new tests covering: cache hit/miss/LRU/disable, token-bucket
+### Added — src/mcp_server.py
+- **`brain_inflate` MCP tool.** Recall relevant memories and format them as a
+  markdown block ready for agent context. Use when starting a new session,
+  task, or when asked "what do I know about X?"
+- **`brain_sync` MCP tool.** Write memories back to agent context files:
+  - OpenClaw: `~/.openclaw/workspace/memory/{MEMORY,USER,SOUL}.md`
+  - Hermes: `~/.hermes/memories/{MEMORY,USER}.md` (char-limited format)
+  - Both: `~/.hermes/SOUL.md`
+- Tool count: **43 tools** (was 39).
+
+### Added — OpenClaw skill
+- `skills/duckbot-brain/SKILL.md` — teaches agents to use `brain_inflate`
+  and `brain_sync`. Installs to `~/.openclaw/workspace/skills/`.
+
+### Added — CLI
+- `python -m src.cli sync --target openclaw|hermes|both` — call `brain_sync`
+  from cron without needing the MCP transport.
+
+### Fixed — src/chunk.py
+- `char_offset` now tracks position incrementally across markdown sections
+  instead of re-running `text.find(body)` per section (which returned the
+  first occurrence, wrong for duplicate section bodies).
+
+### Fixed — src/graph.py, src/blocks.py, src/injection_scan.py
+- Hardcoded `Path.home() / "Desktop" / "duckbot-rag-memory"` paths replaced
+  with `Path(__file__).resolve().parent.parent / "data" / ...` (repo-relative).
+
+### Tests — tests/test_v0_11_2_hotfix.py + tests/test_dim_probe_cache.py
+- 21 new tests covering: cache hit/miss/LRU/disable, token-bucket
   burst/exhaust/refill, shared-client singleton + reopen, end-to-end
-  `embed()` caching (proves 1st call → 1 HTTP, 2nd call → 0 HTTP for
-  same text), watcher no-op-save-skip, watcher real-change reingest.
+  `embed()` caching, watcher content-hash dedup, dim-probe first/cached/failed.
+- **Full suite: 500 tests passing.**
 
 ### Not changed
-- No MCP tool added/removed (still 39).
 - No schema migration.
-- No `.env` keys added (only new env: `DUCKBOT_EMBED_CACHE_SIZE`,
-  `DUCKBOT_EMBED_RPM`, both optional).
 - No breaking config changes.
 - Watcher state format: extended (new `content_hash` field) but the
   old format still loads — missing hash falls through to mtime dedup.

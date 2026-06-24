@@ -57,13 +57,25 @@ async def _resolve_store_and_embedder() -> tuple[MemoryStore, "EmbeddingProvider
         # No provider available — return a default-shaped store (1536d, OpenAI)
         # so commands like stats and reset still work.
         return MemoryStore(embedding_dim=1536, embedding_provider_name="unconfigured"), None
-    # Make sure the dim is resolved (call embed once if provider supports it)
+    # Make sure the dim is resolved (call embed once if provider supports it).
+    # v0.11.2: use the embeddings module's cache so CLI invocations in the
+    # same process don't re-probe LM Studio. The first CLI call still
+    # resolves the dim; subsequent calls (e.g. in test suites or chained
+    # commands) get the cached value with no network call.
     if embedder.name in ("lmstudio", "local", "minimax"):
-        try:
-            probe = await embedder.embed_one("dim probe")
-            embedder.dim = len(probe)
-        except Exception:
-            pass
+        from src.embeddings import _EMBEDDER_DIM_CACHE
+        cache_key = (getattr(embedder, "base_url", ""), getattr(embedder, "model", ""))
+        cached = _EMBEDDER_DIM_CACHE.get(cache_key)
+        if cached is not None and cached > 0:
+            embedder.dim = cached
+        else:
+            try:
+                probe = await embedder.embed_one("dim probe")
+                if probe:
+                    embedder.dim = len(probe)
+                    _EMBEDDER_DIM_CACHE[cache_key] = embedder.dim
+            except Exception:
+                pass
     store = MemoryStore(
         embedding_dim=embedder.dim,
         embedding_provider_name=embedder.name,
@@ -381,6 +393,37 @@ def cmd_hermes(args: argparse.Namespace) -> int:
     return hermes.main(args.verb + [args.remainder] if hasattr(args, "remainder") and args.remainder else args.verb)
 
 
+async def _run_brain_sync(target: str, memory_k: int, user_k: int) -> dict:
+    """Run brain_sync without needing the MCP stdio transport."""
+    from .mcp_server import handle_brain_sync
+    return await handle_brain_sync({
+        "target": target,
+        "memory_k": memory_k,
+        "user_k": user_k,
+        "dry_run": False,
+    })
+
+
+def cmd_sync(args: argparse.Namespace) -> int:
+    """Sync stored memories to OpenClaw and/or Hermes agent context files.
+
+    This is what makes the enhanced brain work: it writes memories back to
+    the files that agents read at startup (MEMORY.md, USER.md, SOUL.md).
+    Call this after ingest or on a cron to keep context files fresh.
+    """
+    import asyncio
+    from .mcp_server import handle_brain_sync
+    result = asyncio.run(handle_brain_sync({
+        "target": args.target,
+        "memory_k": args.memory_k,
+        "user_k": args.user_k,
+        "dry_run": args.dry_run,
+    }))
+    import json
+    print(json.dumps(result, indent=2, default=str))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="duckbot-rag-memory",
@@ -427,6 +470,14 @@ def main() -> int:
     p_dash = sub.add_parser("dashboard", help="brain observability dashboard")
     p_dash.add_argument("--json", action="store_true", help="output as JSON")
     p_dash.set_defaults(func=cmd_dashboard)
+
+    p_sync = sub.add_parser("sync", help="Sync stored memories to OpenClaw/Hermes context files (enhanced brain)")
+    p_sync.add_argument("--target", choices=["openclaw", "hermes", "both"], default="both",
+                        help="which agent to sync (default: both)")
+    p_sync.add_argument("--memory-k", type=int, default=20, help="max memories per tier for MEMORY.md")
+    p_sync.add_argument("--user-k", type=int, default=15, help="max facts for USER.md")
+    p_sync.add_argument("--dry-run", action="store_true", help="preview without writing files")
+    p_sync.set_defaults(func=cmd_sync)
 
     args = parser.parse_args()
     if not hasattr(args, "func"):

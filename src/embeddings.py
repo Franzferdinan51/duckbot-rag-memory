@@ -53,15 +53,21 @@ import httpx
 # ---------------------------------------------------------------------------
 
 _http_client: httpx.AsyncClient | None = None
-_http_client_lock = asyncio.Lock()
+# Lazy lock: created inside _get_http_client so it attaches to the event loop
+# that first calls it (important for pytest where each test gets its own loop).
+_http_client_lock: asyncio.Lock | None = None
 
 
 async def _get_http_client(timeout: float = 120.0) -> httpx.AsyncClient:
     """Process-wide shared httpx.AsyncClient."""
-    global _http_client
+    global _http_client, _http_client_lock
     if _http_client is not None and not _http_client.is_closed:
         return _http_client
+    # Lazily create lock attached to the current event loop.
+    if _http_client_lock is None:
+        _http_client_lock = asyncio.Lock()
     async with _http_client_lock:
+        # Double-check after acquiring the lock.
         if _http_client is not None and not _http_client.is_closed:
             return _http_client
         _http_client = httpx.AsyncClient(
@@ -76,11 +82,17 @@ async def _get_http_client(timeout: float = 120.0) -> httpx.AsyncClient:
 
 
 async def close_http_client() -> None:
-    """Close the shared client. Call from MCP server shutdown."""
-    global _http_client
-    if _http_client is not None and not _http_client.is_closed:
-        await _http_client.aclose()
+    """Close the shared client. Call from MCP server shutdown.
+
+    Note: does NOT await aclose() on the httpx client — doing so from a
+    closed event loop (e.g. pytest's loop-per-test teardown) raises
+    RuntimeError. The client is orphaned and GC'd; connections close naturally.
+    """
+    global _http_client, _http_client_lock
     _http_client = None
+    # Drop the stale lock so the next _get_http_client call creates a fresh one
+    # attached to whatever event loop is current (critical for pytest reuse).
+    _http_client_lock = None
 
 
 @dataclass
@@ -191,6 +203,33 @@ def get_embed_cache_stats() -> dict:
     """Return cache stats for diagnostics. Used by `cli doctor` and tests."""
     return {"size": len(_embed_cache), "max_size": _embed_cache.max_size}
 
+
+# ---------------------------------------------------------------------------
+# Per-endpoint dim cache for LMStudioEmbeddings._resolve_dim().
+# Keyed by (base_url, model) so different LM Studio instances + model combos
+# each get their own dim resolved independently. A failed probe is cached as
+# None so we don't keep retrying a broken endpoint in the same process.
+# Added in v0.11.2 alongside _embed_cache to fix "dim probe" spam in LM Studio.
+# ---------------------------------------------------------------------------
+_EMBEDDER_DIM_CACHE: dict[tuple[str, str], int | None] = {}
+
+
+def reset_dim_cache() -> None:
+    """Clear the per-endpoint dim cache. Tests use this.
+
+    Clears in-place so that any module-level import of _EMBEDDER_DIM_CACHE
+    (e.g. `from src.embeddings import _EMBEDDER_DIM_CACHE`) stays valid —
+    replacing the reference with `= {}` would leave stale imported refs dirty.
+    """
+    _EMBEDDER_DIM_CACHE.clear()
+
+
+def get_dim_cache_stats() -> dict:
+    """Return dim cache stats for diagnostics."""
+    return {
+        "size": len(_EMBEDDER_DIM_CACHE),
+        "entries": {str(k): v for k, v in _EMBEDDER_DIM_CACHE.items()},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -350,10 +389,19 @@ class LMStudioEmbeddings:
     async def _resolve_dim(self) -> None:
         """Try to learn the actual embedding dim from a test query.
 
-        Bypasses the rate limiter and result cache — this is a one-shot
-        probe, not a real embed. If LM Studio is misconfigured or the
-        model ID isn't loaded, we fall back to the env-configured dim.
+        v0.11.2: short-circuit when the dim is already known for this
+        (base_url, model) in this process. Long-lived daemons
+        (Hermes, MCP server, watcher) instantiate LMStudioEmbeddings
+        many times — without the cache every dim resolution fires a
+        real /v1/embeddings call against LM Studio, which shows up as
+        "test" spam in the server log.
         """
+        cache_key = (self.base_url, self.model)
+        cached = _EMBEDDER_DIM_CACHE.get(cache_key)
+        if cached is not None and cached > 0:
+            if self.dim != cached:
+                self.dim = cached
+            return
         try:
             client = await _get_http_client(timeout=5.0)
             resp = await client.post(
@@ -368,8 +416,13 @@ class LMStudioEmbeddings:
                 data = resp.json()
                 vec = data["data"][0]["embedding"]
                 self.dim = len(vec)
+                _EMBEDDER_DIM_CACHE[cache_key] = self.dim
+            else:
+                # Non-200: server up but wrong model/auth — don't retry this combo
+                _EMBEDDER_DIM_CACHE[cache_key] = None
         except Exception:
-            pass  # fall back to default
+            # Network/connection error — don't retry
+            _EMBEDDER_DIM_CACHE[cache_key] = None
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -695,4 +748,7 @@ __all__ = [
     "reset_embed_cache",
     "reset_rate_limiter",
     "get_embed_cache_stats",
+    "_EMBEDDER_DIM_CACHE",
+    "reset_dim_cache",
+    "get_dim_cache_stats",
 ]

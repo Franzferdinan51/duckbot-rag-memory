@@ -33,7 +33,7 @@ from typing import Optional
 import sqlite3
 
 
-DEFAULT_QUARANTINE_PATH = Path.home() / "Desktop" / "duckbot-rag-memory" / "data" / "quarantine.db"
+DEFAULT_QUARANTINE_PATH = Path(__file__).resolve().parent.parent / "data" / "quarantine.db"
 
 
 # ---------------------------------------------------------------------------

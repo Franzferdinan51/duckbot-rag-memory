@@ -196,12 +196,12 @@ def chunk_markdown(
         sections = [(None, text)]
 
     chunks: list[Chunk] = []
+    char_offset = 0  # Track position across sections, not per-section text.find()
     for section_header, body in sections:
         if not body.strip():
             continue
         # Apply recursive splitter within the section
         section_chunks = _recursive_split(body, SEPARATORS, chunk_chars)
-        char_offset = text.find(body) if body in text else 0
         for idx, chunk_text in enumerate(section_chunks):
             chunk_text = chunk_text.strip()
             if not chunk_text:

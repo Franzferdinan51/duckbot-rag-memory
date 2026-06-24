@@ -36,7 +36,7 @@ from typing import Iterable, Optional
 # ---------------------------------------------------------------------------
 # Default storage path: alongside other RAG data
 # ---------------------------------------------------------------------------
-DEFAULT_GRAPH_PATH = Path.home() / "Desktop" / "duckbot-rag-memory" / "data" / "graph.db"
+DEFAULT_GRAPH_PATH = Path(__file__).resolve().parent.parent / "data" / "graph.db"
 
 
 # ---------------------------------------------------------------------------
