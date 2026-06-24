@@ -22,12 +22,175 @@ The fallback chain is: DUCKBOT_EMBEDDING env > auto-detect LM Studio > OpenAI.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import os
+import time
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import httpx
+
+
+# ---------------------------------------------------------------------------
+# Shared HTTP client + rate limiter + result cache.
+#
+# These were added in the v0.11.2 hotfix to fix the LM Studio embedding
+# spam reported 2026-06-24. Root causes:
+#
+#   1. No embed-result cache. Every `brain_decay_status`, `brain_fsrs_review`,
+#      and watcher poll re-embedded the same chunks.
+#   2. Each call opened a new `httpx.AsyncClient`. With v0.10/v0.11's
+#      three concurrent embed paths (Layer 6 OpenClaw, Layer 16 Hermes,
+#      MCP server), bursts collided at LM Studio and triggered
+#      `ERR_HTTP_HEADERS_SENT`.
+#   3. No rate limiter. When a burst arrived, all callers slammed
+#      LM Studio's single-threaded HTTP server.
+#
+# All three are now handled by `_get_http_client()` (singleton),
+# `_rate_limiter` (per-process token bucket), and the LRU `_embed_cache`.
+# ---------------------------------------------------------------------------
+
+_http_client: httpx.AsyncClient | None = None
+_http_client_lock = asyncio.Lock()
+
+
+async def _get_http_client(timeout: float = 120.0) -> httpx.AsyncClient:
+    """Process-wide shared httpx.AsyncClient."""
+    global _http_client
+    if _http_client is not None and not _http_client.is_closed:
+        return _http_client
+    async with _http_client_lock:
+        if _http_client is not None and not _http_client.is_closed:
+            return _http_client
+        _http_client = httpx.AsyncClient(
+            timeout=timeout,
+            limits=httpx.Limits(
+                max_connections=10,
+                max_keepalive_connections=5,
+                keepalive_expiry=30.0,
+            ),
+        )
+        return _http_client
+
+
+async def close_http_client() -> None:
+    """Close the shared client. Call from MCP server shutdown."""
+    global _http_client
+    if _http_client is not None and not _http_client.is_closed:
+        await _http_client.aclose()
+    _http_client = None
+
+
+@dataclass
+class _TokenBucket:
+    """Simple async token-bucket rate limiter."""
+    rate_per_min: int = 60
+    capacity: int = 60
+    _tokens: float = field(init=False, default=0.0)
+    _last_refill: float = field(init=False, default=0.0)
+    _lock: asyncio.Lock = field(init=False, default_factory=asyncio.Lock)
+
+    def __post_init__(self) -> None:
+        env_rpm = os.environ.get("DUCKBOT_EMBED_RPM", "").strip()
+        if env_rpm:
+            try:
+                self.rate_per_min = max(1, int(env_rpm))
+                self.capacity = self.rate_per_min
+            except ValueError:
+                pass
+        self._tokens = float(self.capacity)
+        self._last_refill = time.monotonic()
+
+    async def acquire(self) -> None:
+        async with self._lock:
+            now = time.monotonic()
+            elapsed = now - self._last_refill
+            refill = (elapsed / 60.0) * self.rate_per_min
+            self._tokens = min(float(self.capacity), self._tokens + refill)
+            self._last_refill = now
+            if self._tokens < 1.0:
+                deficit = 1.0 - self._tokens
+                wait = (deficit / self.rate_per_min) * 60.0
+                await asyncio.sleep(wait)
+                self._tokens = 0.0
+            else:
+                self._tokens -= 1.0
+
+
+_rate_limiter = _TokenBucket()
+
+
+def reset_rate_limiter(rpm=None) -> None:
+    """Reset the global rate limiter. Tests use this; production rarely does."""
+    global _rate_limiter
+    if rpm is not None:
+        _rate_limiter = _TokenBucket(rate_per_min=rpm, capacity=rpm)
+    else:
+        _rate_limiter = _TokenBucket()
+
+
+@dataclass
+class _EmbedCache:
+    """LRU cache for embed results."""
+    max_size: int = 4096
+    _data: dict = field(init=False, default_factory=dict)
+
+    def __post_init__(self) -> None:
+        env_sz = os.environ.get("DUCKBOT_EMBED_CACHE_SIZE", "").strip()
+        if env_sz:
+            try:
+                self.max_size = max(0, int(env_sz))
+            except ValueError:
+                pass
+
+    def _key(self, text: str, model: str):
+        return (hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest(), model)
+
+    def get(self, text: str, model: str):
+        if self.max_size == 0:
+            return None
+        k = self._key(text, model)
+        v = self._data.get(k)
+        if v is not None:
+            self._data.pop(k, None)
+            self._data[k] = v
+        return v
+
+    def put(self, text: str, model: str, vec) -> None:
+        if self.max_size == 0:
+            return
+        k = self._key(text, model)
+        if k in self._data:
+            self._data.pop(k, None)
+        elif len(self._data) >= self.max_size:
+            try:
+                self._data.pop(next(iter(self._data)))
+            except StopIteration:
+                pass
+        self._data[k] = vec
+
+    def clear(self) -> None:
+        self._data.clear()
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+
+_embed_cache = _EmbedCache()
+
+
+def reset_embed_cache() -> None:
+    """Clear the global embed cache. Tests use this."""
+    global _embed_cache
+    _embed_cache = _EmbedCache()
+
+
+def get_embed_cache_stats() -> dict:
+    """Return cache stats for diagnostics. Used by `cli doctor` and tests."""
+    return {"size": len(_embed_cache), "max_size": _embed_cache.max_size}
+
 
 
 # ---------------------------------------------------------------------------
@@ -100,25 +263,39 @@ class OpenAIEmbeddings:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        results: list[list[float]] = []
-        for i in range(0, len(texts), self.batch_size):
-            batch = texts[i:i + self.batch_size]
-            payload = {"model": self.model, "input": batch}
+        # Check cache first; only send uncached to the server.
+        results: list = [None] * len(texts)  # type: ignore[list-item]
+        to_fetch: list = []
+        for i, t in enumerate(texts):
+            cached = _embed_cache.get(t, self.model)
+            if cached is not None:
+                results[i] = cached
+            else:
+                to_fetch.append((i, t))
+        if not to_fetch:
+            return results  # type: ignore[return-value]
+        for i in range(0, len(to_fetch), self.batch_size):
+            batch = to_fetch[i:i + self.batch_size]
+            batch_texts = [t for _, t in batch]
+            payload = {"model": self.model, "input": batch_texts}
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             }
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    f"{self.base_url}/embeddings",
-                    json=payload,
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                data = resp.json()
+            await _rate_limiter.acquire()
+            client = await _get_http_client(timeout=60.0)
+            resp = await client.post(
+                f"{self.base_url}/embeddings",
+                json=payload,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            data = resp.json()
             vectors = [item["embedding"] for item in data["data"]]
-            results.extend(vectors)
-        return results
+            for (orig_idx, text), vec in zip(batch, vectors):
+                results[orig_idx] = vec
+                _embed_cache.put(text, self.model, vec)
+        return results  # type: ignore[return-value]
 
     async def embed_one(self, text: str) -> list[float]:
         return (await self.embed([text]))[0]
@@ -171,49 +348,66 @@ class LMStudioEmbeddings:
                 pass
 
     async def _resolve_dim(self) -> None:
-        """Try to learn the actual embedding dim from a test query."""
+        """Try to learn the actual embedding dim from a test query.
+
+        Bypasses the rate limiter and result cache — this is a one-shot
+        probe, not a real embed. If LM Studio is misconfigured or the
+        model ID isn't loaded, we fall back to the env-configured dim.
+        """
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.post(
-                    f"{self.base_url}/embeddings",
-                    json={"model": self.model, "input": ["test"]},
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    vec = data["data"][0]["embedding"]
-                    self.dim = len(vec)
+            client = await _get_http_client(timeout=5.0)
+            resp = await client.post(
+                f"{self.base_url}/embeddings",
+                json={"model": self.model, "input": ["test"]},
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                vec = data["data"][0]["embedding"]
+                self.dim = len(vec)
         except Exception:
             pass  # fall back to default
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        # Lazy dim resolution on first embed
-        results: list[list[float]] = []
-        for i in range(0, len(texts), self.batch_size):
-            batch = texts[i:i + self.batch_size]
-            payload = {"model": self.model, "input": batch}
+        results: list = [None] * len(texts)  # type: ignore[list-item]
+        to_fetch: list = []
+        for i, t in enumerate(texts):
+            cached = _embed_cache.get(t, self.model)
+            if cached is not None:
+                results[i] = cached
+            else:
+                to_fetch.append((i, t))
+        if not to_fetch:
+            return results  # type: ignore[return-value]
+        for i in range(0, len(to_fetch), self.batch_size):
+            batch = to_fetch[i:i + self.batch_size]
+            batch_texts = [t for _, t in batch]
+            payload = {"model": self.model, "input": batch_texts}
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             }
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(
-                    f"{self.base_url}/embeddings",
-                    json=payload,
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                data = resp.json()
+            await _rate_limiter.acquire()
+            client = await _get_http_client(timeout=120.0)
+            resp = await client.post(
+                f"{self.base_url}/embeddings",
+                json=payload,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            data = resp.json()
             vectors = [item["embedding"] for item in data["data"]]
             if vectors and self.dim != len(vectors[0]):
                 self.dim = len(vectors[0])
-            results.extend(vectors)
-        return results
+            for (orig_idx, text), vec in zip(batch, vectors):
+                results[orig_idx] = vec
+                _embed_cache.put(text, self.model, vec)
+        return results  # type: ignore[return-value]
 
     async def embed_one(self, text: str) -> list[float]:
         return (await self.embed([text]))[0]
@@ -306,12 +500,7 @@ class MiniMaxEmbeddings:
             self.embed_type = "db"  # default for ingest
 
     async def _embed_batch(self, batch: list[str]) -> list[list[float]]:
-        """One HTTP call. Raises EmbeddingError on rate-limit or HTTP error.
-
-        MiniMax returns HTTP 200 even on rate-limit — the actual error is in
-        base_resp.status_code. We treat 1002/1003/1004/1005/1006 as rate limits
-        and back off accordingly.
-        """
+        """One HTTP call. Raises EmbeddingError on rate-limit or HTTP error."""
         import asyncio as _asyncio
         payload = {"model": self.model, "texts": batch, "type": self.embed_type}
         headers = {
@@ -321,28 +510,25 @@ class MiniMaxEmbeddings:
         last_exc: Exception | None = None
         for attempt in range(self.max_retries):
             try:
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    resp = await client.post(
-                        f"{self.base_url}/embeddings",
-                        json=payload,
-                        headers=headers,
+                await _rate_limiter.acquire()
+                client = await _get_http_client(timeout=60.0)
+                resp = await client.post(
+                    f"{self.base_url}/embeddings",
+                    json=payload,
+                    headers=headers,
+                )
+                if resp.status_code == 429:
+                    retry_after = float(resp.headers.get("Retry-After", 0)) or (
+                        self.retry_base_delay * (2 ** attempt)
                     )
-                    if resp.status_code == 429:
-                        # Standard rate-limit response
-                        retry_after = float(resp.headers.get("Retry-After", 0)) or (
-                            self.retry_base_delay * (2 ** attempt)
-                        )
-                        await _asyncio.sleep(retry_after)
-                        last_exc = EmbeddingError(f"rate limited (attempt {attempt + 1})")
-                        continue
-                    resp.raise_for_status()
-                    data = resp.json()
-                # MiniMax shape: {"vectors": [[...]], "base_resp": {...}}
+                    await _asyncio.sleep(retry_after)
+                    last_exc = EmbeddingError(f"rate limited (attempt {attempt + 1})")
+                    continue
+                resp.raise_for_status()
+                data = resp.json()
                 base = data.get("base_resp", {}) or {}
                 base_code = base.get("status_code", 0)
-                # Rate-limit codes per MiniMax docs
                 if base_code in (1002, 1003, 1004, 1005, 1006):
-                    # Rate limit / quota / RPM / RPS. Exponential backoff.
                     delay = self.retry_base_delay * (2 ** attempt)
                     await _asyncio.sleep(delay)
                     last_exc = EmbeddingError(
@@ -350,7 +536,6 @@ class MiniMaxEmbeddings:
                     )
                     continue
                 if base_code and base_code != 0:
-                    # Non-rate-limit API error — fail fast
                     raise EmbeddingError(
                         f"MiniMax error: status_code={base_code} "
                         f"msg={base.get('status_msg', '')[:200]}"
@@ -367,14 +552,26 @@ class MiniMaxEmbeddings:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        results: list[list[float]] = []
-        for i in range(0, len(texts), self.batch_size):
-            batch = texts[i:i + self.batch_size]
-            vectors = await self._embed_batch(batch)
+        results: list = [None] * len(texts)  # type: ignore[list-item]
+        to_fetch: list = []
+        for i, t in enumerate(texts):
+            cached = _embed_cache.get(t, self.model)
+            if cached is not None:
+                results[i] = cached
+            else:
+                to_fetch.append((i, t))
+        if not to_fetch:
+            return results  # type: ignore[return-value]
+        for i in range(0, len(to_fetch), self.batch_size):
+            batch = to_fetch[i:i + self.batch_size]
+            batch_texts = [t for _, t in batch]
+            vectors = await self._embed_batch(batch_texts)
             if vectors and self.dim != len(vectors[0]):
                 self.dim = len(vectors[0])
-            results.extend(vectors)
-        return results
+            for (orig_idx, text), vec in zip(batch, vectors):
+                results[orig_idx] = vec
+                _embed_cache.put(text, self.model, vec)
+        return results  # type: ignore[return-value]
 
     async def embed_one(self, text: str) -> list[float]:
         return (await self.embed([text]))[0]
@@ -494,4 +691,8 @@ __all__ = [
     "get_default_provider",
     "is_lmstudio_reachable",
     "make_query_embedder",
+    "close_http_client",
+    "reset_embed_cache",
+    "reset_rate_limiter",
+    "get_embed_cache_stats",
 ]

@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import signal
@@ -131,6 +132,12 @@ async def sync_files(paths: list[str], state: dict) -> dict:
         del state["files"][path]
 
     # 2. Handle new/changed files
+    #
+    # Change detection now uses content hash in addition to mtime.
+    # Without this, a `touch file.md` (or any no-op save) would re-trigger
+    # the entire ingest+embed pipeline. With ~50 files in the watch list
+    # that's 50 redundant embed calls every poll cycle, which was the
+    # root cause of the LM Studio spam reported 2026-06-24.
     for path, mtime in current_files.items():
         prev = state["files"].get(path, {})
         prev_mtime = prev.get("mtime", 0.0)
@@ -143,6 +150,21 @@ async def sync_files(paths: list[str], state: dict) -> dict:
             content = Path(path).read_text(encoding="utf-8", errors="ignore")
         except Exception as exc:
             stats["errors"].append(f"read {path}: {exc}")
+            continue
+
+        # Content-hash dedup: if the file's content hash is unchanged from
+        # last sync, just update mtime in state and skip. Handles the
+        # common case where a tool (e.g. editor save) rewrites the file
+        # with identical bytes.
+        content_hash = hashlib.sha256(content.encode("utf-8", errors="replace")).hexdigest()
+        prev_hash = prev.get("content_hash", "")
+        if prev_hash == content_hash:
+            state["files"][path] = {
+                **prev,
+                "mtime": mtime,
+                "last_sync": time.time(),
+            }
+            stats["skipped"] += 1
             continue
 
         # Delete prior chunks for this file
@@ -172,6 +194,7 @@ async def sync_files(paths: list[str], state: dict) -> dict:
 
         state["files"][path] = {
             "mtime": mtime,
+            "content_hash": content_hash,
             "chunk_ids": new_chunk_ids,
             "last_sync": time.time(),
             "chunk_count": len(new_chunk_ids),
