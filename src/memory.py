@@ -186,7 +186,11 @@ class Memory:
         results: list[RememberResult] = []
         for chunk in chunks:
             if force_tier is not None:
-                tier = force_tier
+                # Coerce string → Tier for caller convenience (the MCP and CLI
+                # surfaces both pass tier as a string from JSON-RPC). Without
+                # this, `force_tier="episodic"` would crash at store.add_chunks
+                # with `'str' object has no attribute 'value'`.
+                tier = Tier(force_tier) if isinstance(force_tier, str) else force_tier
                 confidence = 1.0
             else:
                 assignment = classify(chunk.source_path, chunk.text)

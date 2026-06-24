@@ -280,3 +280,28 @@ def test_openclaw_extension_adapter_brain_stats_uses_real_attrs(monkeypatch, bra
     # And the broken old fields are GONE
     assert "chunks_per_tier" not in payload
     assert "last_query_at" not in payload
+
+
+# -----------------------------------------------------------------------------
+# Regression: force_tier as a string must be accepted (not just Tier enum)
+# -----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_remember_accepts_string_force_tier(tmp_mem):
+    """`Memory.remember(force_tier='episodic')` must work — strings come from
+    MCP / JSON-RPC callers. Regression for the bug caught while bootstrapping
+    the 2026-06-23 session."""
+    mem, _ = tmp_mem
+    r = await mem.remember("test memory", force_tier="episodic")
+    assert r.tier == Tier.EPISODIC
+    assert r.stored is True
+
+
+@pytest.mark.asyncio
+async def test_remember_accepts_all_tier_strings(tmp_mem):
+    """All four tier strings should coerce to the matching Tier enum."""
+    mem, _ = tmp_mem
+    for tier_str in ("working", "episodic", "semantic", "procedural"):
+        r = await mem.remember(f"test for tier {tier_str}", force_tier=tier_str)
+        assert r.tier.value == tier_str, f"force_tier={tier_str!r} but stored as {r.tier.value}"
