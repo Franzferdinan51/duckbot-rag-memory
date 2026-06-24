@@ -38,11 +38,11 @@ def _try_get_store_stats() -> Optional[dict]:
         return None
 
 
-def _get_chroma_stats_directly() -> Optional[dict]:
+def _get_chroma_stats_directly(persist_dir: Optional[Path] = None) -> Optional[dict]:
     """Directly query chroma for tier counts (no LLM calls)."""
     try:
         from .store import MemoryStore
-        store = MemoryStore()
+        store = MemoryStore(persist_dir=persist_dir) if persist_dir else MemoryStore()
         s = store.stats()
         result = {"total": s.total, "by_tier": {}}
         for attr in ("working", "episodic", "semantic", "procedural"):
@@ -85,13 +85,15 @@ def build_report(
     chroma_path: Optional[Path] = None,
     watcher_log: Optional[Path] = None,
     last_n_sync: int = 10,
+    now: Optional[float] = None,
 ) -> DashboardReport:
     """Build a dashboard report from the live state."""
     r = DashboardReport()
 
     # ---- Chroma / tier counts ----
     try:
-        r.chroma = _get_chroma_stats_directly()
+        persist_dir = Path(chroma_path) if chroma_path else None
+        r.chroma = _get_chroma_stats_directly(persist_dir=persist_dir)
     except Exception as e:
         r.chroma = {"error": str(e)}
 
@@ -134,7 +136,7 @@ def build_report(
             lines = Path(watcher_log).read_text(errors="ignore").strip().split("\n")
             r.recent_sync = _parse_watcher_log(lines[-200:])[-last_n_sync:]
             r.last_24h_stats = _summarize_last_24h(
-                _parse_watcher_log(lines)
+                _parse_watcher_log(lines), now=now
             )
         except Exception as e:
             r.recent_sync = [{"error": str(e)}]
@@ -186,9 +188,9 @@ def _parse_watcher_log(lines: list[str]) -> list[dict]:
     return out
 
 
-def _summarize_last_24h(events: list[dict]) -> dict:
+def _summarize_last_24h(events: list[dict], now: Optional[float] = None) -> dict:
     """Summarize watcher activity in the last 24 hours."""
-    now = time.time()
+    now = time.time() if now is None else now
     cutoff = now - 86400
     syncs = 0
     files_processed: set[str] = set()

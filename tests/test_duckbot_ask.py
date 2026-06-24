@@ -29,6 +29,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "duckbot-ask"
+RECALL_SCRIPT = REPO_ROOT / "scripts" / "brain-recall.sh"
 SNIPPET_FORMATTER = REPO_ROOT / "scripts" / "_format_snippet.py"
 COMPACT_FORMATTER = REPO_ROOT / "scripts" / "_format_compact.py"
 
@@ -203,6 +204,31 @@ class TestBashWrapper:
         text = SCRIPT.read_text(encoding="utf-8")
         for fmt in ("json", "compact", "snippet"):
             assert fmt in text, f"wrapper missing format handler: {fmt}"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX execute bits do not apply on Windows")
+    @pytest.mark.parametrize("script", [SCRIPT, RECALL_SCRIPT])
+    def test_wrapper_is_directly_executable(self, script):
+        """Documented wrappers must run directly, not only via `bash script`."""
+        result = subprocess.run(
+            [str(script), "--help"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=str(REPO_ROOT),
+        )
+        assert result.returncode == 0, result.stderr
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell help only")
+    def test_wrapper_help_reports_actual_max_chars_default(self):
+        result = subprocess.run(
+            [str(SCRIPT), "--help"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=str(REPO_ROOT),
+        )
+        assert result.returncode == 0, result.stderr
+        assert "default 500" in result.stdout
 
 
 # ---------------------------------------------------------------------------

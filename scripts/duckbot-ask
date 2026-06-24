@@ -64,7 +64,7 @@ Usage:
 
 Options:
   -n N               number of results to return (default 3)
-  --max-chars N      preview chars per result (default 200)
+  --max-chars N      preview chars per result (default 500)
   -f FORMAT          output format: json (default), compact, snippet
   -h, --help         show this help
 

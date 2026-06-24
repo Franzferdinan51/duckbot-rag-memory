@@ -16,7 +16,7 @@ How others do it (research 2026-06-23):
   - Cognee: add() is the canonical entry; cognify() is opt-in batch
   - Hermes Agent: FTS5 + periodic nudge
 
-We use **polling** (2s interval) by default. On macOS, `watchdog`'s FSEvents
+We use **polling** (300s interval) by default. On macOS, `watchdog`'s FSEvents
 segfaults when combined with `chromadb` + `httpx` in the same process. Polling
 gives us the same latency profile (seconds, not hours) without the crash.
 Set `DUCKBOT_WATCH_USE_FSEVENTS=1` to opt into watchdog. Sort by mtime DESC
@@ -249,7 +249,7 @@ def start_watchdog_handler(paths: list[str], interval: float = 300.0, initial_sy
 
     Args:
       paths: list of files/directories to watch
-      interval: poll interval for coalesced events (default 2s)
+      interval: poll interval for coalesced events (default 300s)
       initial_sync: if True, ingest all existing markdown before watching for events.
         This can segfault on macOS when ChromaDB+httpx+watchdog are all loaded in
         the same process — if that happens, run `watcher once` separately first.

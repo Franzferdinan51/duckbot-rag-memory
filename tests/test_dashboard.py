@@ -4,6 +4,8 @@ test_dashboard.py — tests for the observability dashboard.
 
 import sys
 import tempfile
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -86,12 +88,17 @@ def test_dashboard_shows_quarantine_stats(isolated_paths):
 def test_dashboard_parses_watcher_log(isolated_paths):
     """Dashboard should parse watcher.log and show recent activity."""
     log = isolated_paths["watcher_log"]
-    log.write_text("""[2026-06-23T10:00:00-0400]   added 5 chunks from /path/to/foo.md
-[2026-06-23T10:00:01-0400] sync pass: {'added': 5, 'updated': 0, 'deleted': 0, 'skipped': 0, 'errors': []}
-[2026-06-23T10:01:00-0400]   added 3 chunks from /path/to/bar.md
-[2026-06-23T10:01:01-0400] sync pass: {'added': 3, 'updated': 0, 'deleted': 0, 'skipped': 0, 'errors': ['embed failed']}
+    now = time.time()
+    first = datetime.fromtimestamp(now - 61, tz=timezone.utc).isoformat()
+    second = datetime.fromtimestamp(now - 60, tz=timezone.utc).isoformat()
+    third = datetime.fromtimestamp(now - 1, tz=timezone.utc).isoformat()
+    fourth = datetime.fromtimestamp(now, tz=timezone.utc).isoformat()
+    log.write_text(f"""[{first}]   added 5 chunks from /path/to/foo.md
+[{second}] sync pass: {{'added': 5, 'updated': 0, 'deleted': 0, 'skipped': 0, 'errors': []}}
+[{third}]   added 3 chunks from /path/to/bar.md
+[{fourth}] sync pass: {{'added': 3, 'updated': 0, 'deleted': 0, 'skipped': 0, 'errors': ['embed failed']}}
 """)
-    r = build_report(**isolated_paths)
+    r = build_report(**isolated_paths, now=now)
     assert len(r.recent_sync) == 4
     assert r.recent_sync[0]["type"] == "file"
     assert r.recent_sync[0]["action"] == "added"
@@ -101,6 +108,40 @@ def test_dashboard_parses_watcher_log(isolated_paths):
     assert r.last_24h_stats["syncs"] == 2
     assert r.last_24h_stats["chunks_added"] == 8
     assert r.last_24h_stats["errors"] == 1
+
+
+def test_dashboard_uses_injected_clock_for_24h_window(isolated_paths):
+    """A fixed clock keeps the dashboard's 24-hour window deterministic."""
+    now = 1_700_000_000.0
+    fresh = datetime.fromtimestamp(now - 60, tz=timezone.utc).isoformat()
+    expired = datetime.fromtimestamp(now - 86_401, tz=timezone.utc).isoformat()
+    isolated_paths["watcher_log"].write_text(
+        f"[{fresh}] sync pass: {{'added': 2, 'updated': 0, 'deleted': 0, 'skipped': 0, 'errors': []}}\n"
+        f"[{expired}] sync pass: {{'added': 99, 'updated': 0, 'deleted': 0, 'skipped': 0, 'errors': []}}\n"
+    )
+
+    report = build_report(**isolated_paths, now=now)
+
+    assert report.last_24h_stats["syncs"] == 1
+    assert report.last_24h_stats["chunks_added"] == 2
+
+
+def test_dashboard_passes_custom_chroma_path_to_stats(isolated_paths, monkeypatch, tmp_path):
+    """A custom dashboard store must not silently read the default database."""
+    import src.dashboard as dashboard
+
+    custom_chroma = tmp_path / "alternate-chroma"
+    received = []
+
+    def fake_chroma_stats(*, persist_dir=None):
+        received.append(persist_dir)
+        return {"total": 0, "by_tier": {}}
+
+    monkeypatch.setattr(dashboard, "_get_chroma_stats_directly", fake_chroma_stats)
+
+    build_report(**isolated_paths, chroma_path=custom_chroma)
+
+    assert received == [custom_chroma]
 
 
 def test_dashboard_handles_empty_watcher_log(isolated_paths):

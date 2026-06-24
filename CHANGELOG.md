@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.11.4 — 2026-06-24 — Reliability pass
+
+### Fixed
+
+- Dashboard tests no longer expire with wall-clock time: reports and the
+  24-hour summary accept an optional clock for deterministic validation while
+  production still uses the current time by default.
+- `build_report(chroma_path=...)` now reads the specified Chroma directory
+  rather than silently querying the default store.
+- `scripts/duckbot-ask` and `scripts/brain-recall.sh` are executable as
+  documented; the wrapper help now correctly reports its 500-character
+  default preview limit.
+- Watcher docstrings now state the actual five-minute polling default.
+
 ## 0.11.2 — 2026-06-24 — LM Studio spam hotfix + enhanced brain
 
 LM Studio's embed endpoint was being hammered by the duckbot-rag-memory
