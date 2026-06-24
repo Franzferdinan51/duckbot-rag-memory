@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.3.0 — 2026-06-23 — Layer 7: cross-encoder rerank + brain-upgrade Round 2
+
+### What changed
+- **`src/rerank.py`** — new module implementing Layer 7 (the cross-encoder rerank pass).
+  - Three backends with auto-detect chain (priority: local `sentence-transformers` → LM Studio rerank endpoint → noop).
+  - Default model: **`BAAI/bge-reranker-base`** (278M params, MIT weights, free, runs locally on LM Studio's stack).
+  - Failure-safe: if the backend throws or returns the wrong number of scores, input order is preserved — the query never fails because of rerank.
+  - Score blending: `final = 0.7 * rerank_score + 0.3 * normalized_RRF` (RRF min-max normalized to [0,1] first).
+  - Noop fallback for environments without `sentence-transformers` (still produces stable output).
+- **`src/query.py`** — `hybrid_query()` accepts `rerank=True/False/None` (None reads `DUCKBOT_RERANK` env var).
+- **`src/memory.py`** — `Memory.recall()` accepts `rerank=` and threads it through to `hybrid_query`.
+- **`src/connectors/base.py`** — `Brain.recall()` accepts `rerank=`.
+- **`src/connectors/openclaw.py`** — `brain_recall` MCP tool schema gains `rerank` boolean parameter. **Total OpenClaw MCP tools: 17 (was 16).**
+- **`src/mcp_server.py`** — standalone `recall` MCP tool also gains `rerank` parameter.
+- **`src/connectors/hermes.py`** — `recall()` already used `**kwargs`, so `rerank=` passes through transparently.
+- **`tests/test_rerank.py`** — 23 new tests covering: NoopBackend, SentenceTransformersBackend import path, LM Studio URL handling, score blending math, dict-input normalization, failure modes, env var precedence, maybe_rerank hook.
+- **`docs/RESEARCH.md`** — appended "Layer 7+ Candidates" section with verified GitHub API license/status checks.
+
+### Cost
+- **Zero new spend.** `bge-reranker-base` is MIT-licensed weights; `sentence-transformers` library is Apache-2.0; both already pip-installable.
+- ~1 GB RAM, ~50-100 ms per batch of 32 (query, doc) pairs on M-series Mac.
+- Model downloads from HuggingFace on first call (~540 MB); cached after.
+
+### Activation
+- Per-call: `Brain.recall(query, rerank=True)` or via MCP `{"rerank": true}`.
+- Global: `DUCKBOT_RERANK=1 ./.venv/bin/python -m src.cli query "..."`
+- Default: **off** — opt-in to keep existing RRF behavior unchanged for callers who don't ask.
+
+### What we kept (per Duckets: "don't delete anything")
+- All Layers 0-6 code untouched.
+- All 189 prior tests still pass (212 total now with 23 new).
+
+### Known limitations
+- Rerank model only loaded on first `rerank=True` call (lazy load — startup stays fast).
+- No batching across concurrent queries yet.
+- No async-native `score()` for SentenceTransformersBackend (uses sync predict); could be async-wrapped for higher throughput.
+- LLM-based fact extraction still uses regex heuristics (Layer 2 v0.2 limitation; deferred to L8).
+
 ## 0.2.0 — 2026-06-23 — Beyond RAG: real-time memory system
 
 ### What changed

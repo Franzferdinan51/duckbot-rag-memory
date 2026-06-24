@@ -177,8 +177,19 @@ class Brain:
         k: int = 5,
         tier: Optional[str] = None,
         min_importance: Optional[float] = None,
+        rerank: Optional[bool] = None,
     ) -> list[RecallResult]:
-        """Hybrid retrieval (vector + BM25 + RRF). Returns flat list."""
+        """Hybrid retrieval (vector + BM25 + RRF + optional cross-encoder rerank).
+
+        Args:
+            query: search text
+            k: top-k results
+            tier: restrict to one tier (working/episodic/semantic/procedural)
+            min_importance: drop chunks below this importance score
+            rerank: True/None forces/enables the cross-encoder pass (Layer 7).
+                None reads DUCKBOT_RERANK env var (default off). Pass False to
+                explicitly disable for one call.
+        """
         from src.memory import Memory
         from src.tier import Tier
 
@@ -186,7 +197,7 @@ class Brain:
             mem = Memory()
             tier_enum = Tier(tier) if tier else None
             results, _ = await mem.recall(
-                query, k=k, tier=tier_enum, min_importance=min_importance
+                query, k=k, tier=tier_enum, min_importance=min_importance, rerank=rerank
             )
             out = []
             for r in results:

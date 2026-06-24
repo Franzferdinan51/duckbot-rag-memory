@@ -72,7 +72,7 @@ TOOL_DEFINITIONS: list[dict] = [
     },
     {
         "name": "brain_recall",
-        "description": "Hybrid retrieval (vector + BM25 + RRF) over all chunks. Returns top-k with tier, source, importance, score.",
+        "description": "Hybrid retrieval (vector + BM25 + RRF, plus optional cross-encoder rerank) over all chunks. Returns top-k with tier, source, importance, score.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -80,6 +80,7 @@ TOOL_DEFINITIONS: list[dict] = [
                 "k": {"type": "integer", "default": 5},
                 "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
                 "min_importance": {"type": "number"},
+                "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank (BGE bge-reranker-base). Default off; pass true to opt in. No paid API."},
             },
             "required": ["query"],
         },
@@ -289,6 +290,7 @@ def handle(tool_name: str, args: dict) -> dict:
                 k=args.get("k", 5),
                 tier=args.get("tier"),
                 min_importance=args.get("min_importance"),
+                rerank=args.get("rerank"),
             )
             return {"results": _serialize(results)}
         if tool_name == "brain_reflect":

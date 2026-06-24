@@ -51,7 +51,7 @@ TOOLS = [
     },
     {
         "name": "recall",
-        "description": "Search memory. Hybrid vector + BM25 retrieval. Returns top-k results with tier, importance, source_path.",
+        "description": "Search memory. Hybrid vector + BM25 retrieval, with optional cross-encoder rerank (Layer 7). Returns top-k results with tier, importance, source_path.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -59,6 +59,7 @@ TOOLS = [
                 "k": {"type": "integer", "default": 5, "description": "number of results"},
                 "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "filter by tier"},
                 "min_importance": {"type": "number", "description": "filter by importance threshold (0..1)"},
+                "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank with BAAI/bge-reranker-base (MIT, local). No paid API. Off by default; pass true to opt in."},
             },
             "required": ["query"],
         },
@@ -171,6 +172,7 @@ async def handle_recall(args: dict) -> dict:
         k=args.get("k", 5),
         tier=args.get("tier"),
         min_importance=args.get("min_importance"),
+        rerank=args.get("rerank"),
     )
     return {
         "results": [r.to_dict() for r in results],

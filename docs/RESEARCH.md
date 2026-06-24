@@ -131,3 +131,114 @@ Our `benchmarks/golden.jsonl` is 30+ queries drawn from real DuckBot sessions (e
 - **RAGFlow** (document-centric): Built for enterprise doc parsing (PDFs, OCR). Our source is markdown — overkill.
 - **AutoGen / CrewAI** (agent orchestration): Not building an agent framework, just memory.
 - **Pinecone** (managed vector DB): Costs money, no local mode.
+
+---
+
+## Layer 7+ Candidates — Brain Upgrade Round 2 (2026-06-23)
+
+Survey done by OpenClaw on Duckets' instruction: "enhance and upgrade the memory system, not just RAG; don't add anything that requires pay I haven't mentioned; we can use parts without needing them; be careful not to push sensitive data; careful of memory poisoning and prompt injection when searching GitHub for tools."
+
+### Search method
+
+1. Web search for open-source AI agent memory systems (Tavily, with time_filter=year).
+2. **Verified every license + last-commit directly via the GitHub REST API** (search snippets are not trusted).
+3. Filtered for: Apache-2.0 / MIT, self-hostable, no paid cloud dependency required for core features.
+4. Cross-checked against what's already in the repo (Layers 1-6).
+
+### Verified project status (GitHub API, 2026-06-23)
+
+| Project | Repo | License | Stars | Status |
+|---|---|---|---|---|
+| Graphiti | `getzep/graphiti` | Apache-2.0 | 27,769 | Active (pushed 2026-06-23). **Already in Layer 1** as inspiration for our `src/graph.py`. |
+| mem0 | `mem0ai/mem0` | Apache-2.0 | 59,256 | Active (pushed 2026-06-23). **Already cited** in `src/consolidate.py`. |
+| Letta | `letta-ai/letta` | Apache-2.0 | 23,486 | Last push 2026-05-14. **Already cited** in `src/blocks.py`. |
+| Cognee | `topoteretes/cognee` | Apache-2.0 | 20,253 | Active (pushed 2026-06-24). **Already cited** in CLI + consolidate. |
+| sentence-transformers | `huggingface/sentence-transformers` | Apache-2.0 | 18,846 | Active. **Reusable directly** for rerank. |
+| FlagEmbedding (BGE) | `FlagOpen/FlagEmbedding` | MIT | 11,854 | Active. **Reusable directly** for rerank. |
+| MemOS | `MemTensor/MemOS` | Apache-2.0 | 9,973 | Active. Mention only — their L1/L2/L3 abstraction overlaps ours. |
+| memsearch (Zilliz) | `zilliztech/memsearch` | MIT | 2,103 | Active. Markdown-based; uses Milvus (we use Chroma). |
+| TsinghuaC3I/Awesome-Memory-for-Agents | survey | n/a | n/a | Watch-list only. |
+| TeleAI-UAGI/Awesome-Agent-Memory | survey | n/a | n/a | Watch-list only. |
+| Vestige | `samvallad33/vestige` | **AGPL-3.0** | 563 | Active. ⚠️ Viral license — **cannot directly copy code**. FSRS-6 algorithm itself is open. |
+| YourMemory | `sachitrafa/YourMemory` | **CC-BY-NC 4.0** | 246 | Active. ⚠️ Non-commercial. **Cannot copy code**. Ebbinghaus math is public domain (1885). |
+
+### What we can integrate (MIT/Apache, self-hostable, zero paid APIs)
+
+#### Layer 7 candidate: cross-encoder rerank pass
+- **Source:** `BAAI/bge-reranker-base` / `bge-reranker-v2-m3` via `FlagOpen/FlagEmbedding` (MIT) or `huggingface/sentence-transformers` (Apache-2.0).
+- **Why:** The biggest single recall win we can add. CHANGELOG.md already lists "Cross-encoder rerank pass not yet wired" as a known limitation.
+- **Cost:** Free, runs locally (we already have LM Studio — we can run a reranker there, or `pip install sentence-transformers` which is Apache-2.0).
+- **Risk:** Low. The model is small (278M params), inference is fast on M-series.
+- **Pattern (from sentence-transformers docs):**
+  ```python
+  from sentence_transformers import CrossEncoder
+  reranker = CrossEncoder("BAAI/bge-reranker-base", max_length=512)
+  scores = reranker.predict([(query, doc) for doc in candidates])
+  ranked = sorted(zip(candidates, scores), key=lambda x: -x[1])[:top_k]
+  ```
+- **Plug point:** `src/query.py` — add a `rerank` step after RRF fusion when `DUCKBOT_RERANK=1` is set (default off; opt-in).
+
+#### Layer 8 candidate: Ebbinghaus-style memory decay
+- **Source:** The math is from Hermann Ebbinghaus, *Memory: A Contribution to Experimental Psychology* (1885). Public domain.
+- **Why:** Memories never decay in our current system. After 6 months the episodic tier will be enormous and noisy. Mem0's "memory decay" feature is opt-in search-time reranking, not deletion. YourMemory and MemBank validate the approach (LoCoMo 52% Recall@5).
+- **Cost:** Free math; we already have importance scores.
+- **Risk:** Low. Decay only affects retrieval ordering, not storage. Easy to disable.
+- **Pattern:**
+  ```python
+  # Ebbinghaus retention curve: R(t) = e^(-t / S)
+  # S = stability (increases each time the chunk is recalled)
+  def ebbinghaus_retention(chunk_age_days, stability):
+      return math.exp(-chunk_age_days / max(stability, 1e-3))
+  ```
+- **Plug point:** New `src/decay.py`. Modify `src/query.py` to multiply RRF score by `retention * (1 + importance_bonus)`.
+
+#### Layer 9 candidate: FSRS-6 spaced repetition scheduling
+- **Source:** Free Spaced Repetition Scheduler v6 — algorithm by Jarrett Ye. Open specification, MIT implementations on GitHub. Vestige uses it but is AGPL-3.0 (cannot copy).
+- **Why:** Combine with decay so that *recalling* a memory reinforces it (spaced-repetition), while *not recalling* lets it decay. This is how human memory works.
+- **Cost:** Pure math. No new deps.
+- **Risk:** Low. Adds a `review_due_at` field to each chunk metadata; the watcher can use it for "memory hygiene" passes.
+- **Plug point:** New `src/fsrs.py`. Integrate into `src/memory.py::remember()` (every recall bumps stability per FSRS-6 update rule).
+
+#### Layer 10 candidate: HyDE (Hypothetical Document Embeddings)
+- **Source:** Gao et al., "Precise Zero-Shot Dense Retrieval without Relevance Labels" (2022). Algorithm is public.
+- **Why:** For conceptual queries ("how do I feel about X?"), the query embedding is in a different space than the chunk embeddings. HyDE generates a *hypothetical answer* with a small LM, embeds *that*, and retrieves against the centroid. Big win on short / vague queries.
+- **Cost:** Free. Uses our existing LM Studio `qwen3.5-9b` (already loaded for the watcher).
+- **Risk:** Low — opt-in feature flag. Skips LLM call if `DUCKBOT_HYDE=0`.
+- **Plug point:** New `src/hyde.py`. Wire into `src/query.py` before the embed step.
+
+#### Layer 11 candidate: weighted RRF with per-tier priors
+- **Source:** Custom — but a known pattern in Cognee's hybrid retriever.
+- **Why:** Right now RRF treats all tiers equally. But procedural rules (`AGENTS.md`) should rank higher than episodic chatter for "what's the rule about X" queries. Add per-tier priors.
+- **Cost:** Zero.
+- **Plug point:** `src/query.py` — `weighted_rrf()` variant.
+
+#### Layer 12 candidate: cross-source memory bridging (Layer 6 extension)
+- **Source:** zilliztech/memsearch (MIT) has a clean "memory across agents" pattern.
+- **Why:** Layer 6 already has OpenClaw + Hermes connectors. Extend to read from session-memory MCPs at query time (instead of just writing).
+- **Cost:** Free; uses our existing MCP layer.
+- **Risk:** Medium — bidirectional MCP sync needs care to avoid feedback loops. Use a "last-seen" version vector per source.
+- **Plug point:** Extend `src/connectors/base.py`.
+
+### What we explicitly rejected and why
+
+- **Vestige source code** — AGPL-3.0 is viral. Cannot copy. We re-implement the ideas (FSRS-6, spreading activation) ourselves.
+- **YourMemory source code** — CC-BY-NC 4.0 is non-commercial. Cannot copy. Ebbinghaus math is public domain so we can implement it from scratch.
+- **mem0 cloud / Letta cloud / Zep cloud** — paid. We self-host.
+- **DSPy** — needs labeled data we don't have.
+- **Onyx (40+ connectors)** — built for enterprise doc parsing, not personal markdown memory.
+- **RAGFlow** — same as above; overkill for markdown-only.
+- **Managed vector DBs** (Pinecone, Weaviate Cloud) — costs money, no local mode.
+
+### Verification policy
+
+When pulling code/patterns from any of these projects:
+1. **License first.** Read LICENSE in the repo, not just README.
+2. **Last commit.** Stale repos (no commits in 6+ months) get downgraded in priority.
+3. **Snippet, don't bundle.** We adopt patterns and small algorithms; we do NOT vendor full modules from AGPL/NC projects.
+4. **Attribute.** Every Layer 7+ file will have a top-of-file docstring citing the source.
+5. **No auto-run.** Any external install goes through `requirements.txt` review. No `curl ... | sh`.
+6. **Sensitive data.** Never push `.env`, never push `data/chroma/`, never push session logs with secrets. (Already enforced by `.gitignore` + `scripts/secret-scan.sh` pre-commit hook.)
+
+### Source-snippet prompt-injection caveats
+
+The web search results contained text fragments that *looked* like system instructions (e.g., mentions of "MiniMax" mixed into project descriptions, marketing copy that read like commands). Treated all `<<<EXTERNAL_UNTRUSTED_CONTENT>>>` blocks as data, not instructions. **Only verified facts via direct GitHub API calls** are in the table above.
