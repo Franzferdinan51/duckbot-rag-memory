@@ -201,8 +201,31 @@ stdout.
 
 ### Wire it into Hermes Agent
 
-`hermes mcp add` works on all three platforms. The command shape is
-identical — only the path to the venv python differs:
+**Recommended — use the launcher script.** It loads your `.env` (so the
+API key never has to live in hermes config), sets `PYTHONUNBUFFERED=1`,
+and detects the right venv path on any OS:
+
+```bash
+# macOS / Linux
+hermes mcp add duckbot-memory \
+  --command "$HOME/Desktop/duckbot-rag-memory/scripts/duckbot-memory-mcp.sh"
+
+# Windows (PowerShell)
+hermes mcp add duckbot-memory `
+  --command "C:\Users\franz\Desktop\duckbot-rag-memory\scripts\duckbot-memory-mcp.bat"
+
+# Windows (git-bash / MSYS)
+hermes mcp add duckbot-memory \
+  --command "/c/Users/franz/Desktop/duckbot-rag-memory/scripts/duckbot-memory-mcp.bat"
+```
+
+> Hermes on Windows refuses to spawn `.sh` scripts via stdio subprocess
+> (`WinError 193`), so use the `.bat` wrapper there. Same script, same
+> behavior — just `cmd.exe`-native. Both are in the repo.
+
+**Manual — direct python invocation.** Use this if you don't want the
+launcher script (or you're packaging the brain differently). Same shape
+on all three platforms, only the venv path differs:
 
 ```bash
 # macOS / Linux
@@ -224,8 +247,15 @@ hermes mcp add duckbot-memory \
   --env "PYTHONPATH=$HOME/Desktop/duckbot-rag-memory"
 ```
 
-> Note: `hermes mcp add --args` uses `nargs=REMAINDER`, so put `--env`
+> **Heads-up on `--env`:** Hermes does **not** expand `${VAR}` in MCP
+> `env:` values. If you put `LMSTUDIO_API_KEY=***` directly here, the
+> key leaks through `hermes mcp list` and the `/api/mcp/servers` endpoint.
+> Either use the launcher (which reads `.env` itself) or export
+> `LMSTUDIO_API_KEY` in the parent hermes process env before launch.
+>
+> Also: `hermes mcp add --args` uses `nargs=REMAINDER`, so put `--env`
 > flags **before** `--args` or they'll be swept into the arg list.
+>
 > You don't need `-u` or `PYTHONUNBUFFERED=1` — `src/mcp_server.py`
 > reconfigures stdio to line-buffered mode at startup.
 
