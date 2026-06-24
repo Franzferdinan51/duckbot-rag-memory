@@ -627,13 +627,20 @@ class Brain:
             queue = []
             for r in results:
                 md = r.metadata or {}
-                # FSRS state lives in metadata under these keys (set by L9 path)
+                # FSRS state lives in metadata under these keys (set by L9 path).
+                # On a fresh corpus chunks have no FSRS state — use the
+                # ingested_at timestamp as a proxy for "first reviewed" so the
+                # queue isn't permanently empty. The previous version skipped
+                # such chunks entirely (silent no-op on fresh installs).
                 stability = float(md.get("fsrs_stability_days") or md.get("stability_days") or 0.0)
+                if stability <= 0:
+                    stability = 7.0  # default 1-week stability for new chunks
                 difficulty = float(md.get("fsrs_difficulty") or md.get("difficulty") or 5.0)
                 last_review = float(md.get("fsrs_last_review_ts") or md.get("last_review_ts") or 0.0)
-                if last_review <= 0 or stability <= 0:
-                    # Chunk has no FSRS state — it's "fresh", not in the queue
-                    continue
+                if last_review <= 0:
+                    # No explicit review timestamp → fall back to ingested_at.
+                    # If even that is missing, use 0 (chunk appears ancient).
+                    last_review = float(md.get("ingested_at") or 0.0)
                 elapsed_days = max(0.0, (t - last_review) / 86400.0)
                 R = fsrs_retrievability(elapsed_days, stability)
                 if R < 0.9:  # REVIEW_THRESHOLD

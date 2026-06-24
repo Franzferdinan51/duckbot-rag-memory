@@ -318,19 +318,10 @@ class DreamingBridge:
 
 
 # -----------------------------------------------------------------------------
-# Sync wrappers — same `_run_async` pattern as the Brain facade.
+# Sync wrappers — `_run_async` is the single source of truth in connectors/base.
 # -----------------------------------------------------------------------------
 
-def _run_async(coro):
-    import asyncio
-    import concurrent.futures
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        return ex.submit(asyncio.run, coro).result()
-
+from .base import _run_async  # re-exported for local module usage
 
 def read_dreams(
     memory: Memory,

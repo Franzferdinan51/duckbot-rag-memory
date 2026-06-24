@@ -107,9 +107,10 @@ class ActiveMemoryAdapter:
 
     def memory_recent(self, k: int = 10, tier: Optional[str] = None) -> dict:
         s = self.brain.stats(include_vector_store=False)
-        # Without a dedicated "recent" method, we sample recall() with no
-        # query — this returns the most recent-ish chunks. Good enough.
-        r = self.brain.recall(query="", k=k, tier=tier, rerank=False)
+        # Sample recall() with a meaningful query so the embedder + BM25
+        # have actual signal to rank by. The previous version passed an
+        # empty string which produced essentially-random ordering.
+        r = self.brain.recall(query="recent memory", k=k, tier=tier, rerank=False)
         return ActiveMemoryResult(
             tool="memory_recent",
             data={

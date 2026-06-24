@@ -166,6 +166,8 @@ class ChromaBackend(VectorBackend):
             metadatas.append(m)
         documents = [c.text for c in chunks]
         coll.upsert(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
+        # Track the last-ingest timestamp so stats() doesn't have to scan.
+        self._last_ingest_ts = time.time()
         return len(chunks)
 
     def query(
@@ -279,31 +281,43 @@ class ChromaBackend(VectorBackend):
 
     def stats(self) -> BackendStats:
         tier_stats: list[TierStats] = []
-        last_ingest_ts = 0.0
         for t in self._tier_names:
             try:
                 count = self._collections[t].count()
             except Exception:
                 count = 0
             tier_stats.append(TierStats(name=t, chunk_count=int(count)))
-        # Best-effort last_ingest_ts: scan metadata (slow for big collections).
-        # We cap at 1000 chunks per tier for this scan.
-        for t in self._tier_names:
-            try:
-                resp = self._collections[t].get(include=["metadatas"], limit=1000)
-                for m in (resp.get("metadatas") or []):
-                    ts = float(m.get("ingested_at") or 0)
-                    if ts > last_ingest_ts:
-                        last_ingest_ts = ts
-            except Exception:
-                pass
+        # Prefer the in-memory tracker updated by add_chunks (O(1)).
+        # Fall back to a capped metadata scan (max 1000 rows per tier)
+        # only if the tracker has never been set — e.g. for a fresh
+        # process importing a pre-existing store.
+        last_ingest_ts = float(getattr(self, "_last_ingest_ts", 0.0) or 0.0)
+        if last_ingest_ts <= 0:
+            for t in self._tier_names:
+                try:
+                    resp = self._collections[t].get(include=["metadatas"], limit=1000)
+                    for m in (resp.get("metadatas") or []):
+                        ts = float(m.get("ingested_at") or 0)
+                        if ts > last_ingest_ts:
+                            last_ingest_ts = ts
+                except Exception:
+                    pass
         return BackendStats(
             backend_name=self.name,
             tiers=tier_stats,
-            last_ingest_ts=float(last_ingest_ts),
+            last_ingest_ts=last_ingest_ts,
             last_query_ts=float(getattr(self, "_last_query_ts", 0.0) or 0.0),
             extra={"persist_dir": str(self._persist_dir)},
         )
+
+    def mark_ingested(self) -> None:
+        """Record the last-ingest timestamp in-memory. stats() reads from
+        this to avoid an O(N) metadata scan on every dashboard refresh."""
+        self._last_ingest_ts = time.time()
+
+    def mark_queried(self) -> None:
+        """Record the last-query timestamp in-memory."""
+        self._last_query_ts = time.time()
 
     # ---- Convenience -------------------------------------------------------
 

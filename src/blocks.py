@@ -219,17 +219,27 @@ class BlockStore:
 
     # ---- Stats -------------------------------------------------------------
 
-    def stats(self) -> dict:
+    def stats(self, *, max_names: int = 50) -> dict:
+        """Return block store stats.
+
+        Args:
+            max_names: Cap the `block_names` list to this size. The full
+                list is available via `.names()` for callers who want
+                everything; the dashboard only needs the first few.
+        """
         n_blocks = self._conn.execute("SELECT COUNT(*) FROM blocks").fetchone()[0]
         n_writes = self._conn.execute("SELECT COUNT(*) FROM block_history").fetchone()[0]
         total_chars = self._conn.execute(
             "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM blocks"
         ).fetchone()[0]
+        all_names = self.names()
         return {
             "blocks": n_blocks,
             "total_writes": n_writes,
             "total_chars": total_chars,
-            "block_names": self.names(),
+            "block_names": all_names[:max_names],
+            "block_names_truncated": len(all_names) > max_names,
+            "block_names_total": len(all_names),
         }
 
     def close(self) -> None:

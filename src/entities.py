@@ -225,9 +225,14 @@ class EntityExtractor:
                             self._normalize_name(t.target),
                             ExtractedEntity(name=self._normalize_name(t.target), kind="concept"),
                         )
-            except Exception:
-                # LLM failures are non-fatal; regex output stands
-                pass
+            except Exception as e:
+                # LLM failures are non-fatal but log them so we can spot
+                # provider outages / config drift instead of silently dropping
+                # everything. Regex output above still stands.
+                import logging
+                logging.getLogger(__name__).debug(
+                    "EntityExtractor LLM pass failed; using regex-only output: %s", e,
+                )
 
         return list(entities.values()), triples
 

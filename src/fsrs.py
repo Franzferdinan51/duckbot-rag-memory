@@ -305,17 +305,10 @@ def fsrs_adjust(
     )
 
 
-def days_since(epoch: float | int | None) -> float:
-    """Convert a unix timestamp to days since then. Returns inf if epoch is None."""
-    if epoch is None:
-        return float("inf")
-    now = time.time()
-    return max(0.0, (now - float(epoch)) / 86400.0)
-
-
-# -----------------------------------------------------------------------------
-# Opt-in dispatch (matches the pattern in src/rerank.py and src/decay.py)
-# -----------------------------------------------------------------------------
+# `days_since` lives in src.decay — import it from there so there's one
+# canonical implementation. Avoids the two copies drifting apart (they
+# were identical as of v0.11.10).
+from .decay import days_since  # re-exported below for backward compat
 
 
 def _env_enabled() -> bool:

@@ -69,7 +69,23 @@ def get_backend(name: str | None = None, **kwargs: Any) -> VectorBackend:
     module_path, class_name = known[name].rsplit(".", 1)
     import importlib
 
-    module = importlib.import_module(module_path)
+    try:
+        module = importlib.import_module(module_path)
+    except ImportError as exc:
+        # The native dep for this backend isn't installed. Re-raise with
+        # a useful hint based on which dep is missing, so the user can
+        # recover without grepping the source.
+        missing = exc.name or "unknown"
+        hints = {
+            "chromadb": "pip install chromadb",
+            "qdrant_client": "pip install qdrant-client",
+            "lancedb": "pip install lancedb pyarrow",
+        }
+        hint = hints.get(module_path, f"pip install {missing}")
+        raise ImportError(
+            f"backend {name!r} requires {missing!r} ({hint}). "
+            f"Either install it or set DUCKBOT_BACKEND=chroma (the bundled default)."
+        ) from exc
     cls = getattr(module, class_name)
     return cls(**kwargs)
 

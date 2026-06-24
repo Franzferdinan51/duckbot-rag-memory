@@ -52,6 +52,7 @@ SECRET_PATTERNS=(
     "MiniMax API key|MiniMax-[A-Za-z0-9]{20,}"
     "Bearer token literal|Bearer[[:space:]]+[A-Za-z0-9._-]{20,}"
     "Generic high-entropy secret|(api[_-]?key|secret|token|password)[[:space:]]*[:=][[:space:]]*['\"][A-Za-z0-9._/+-]{16,}['\"]"
+    "Generic unquoted secret|([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Tt][Oo][Kk][Ee][Nn]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd])[[:space:]]*[:=][[:space:]]*[A-Za-z0-9._/+-]{16,}"
     "Private RSA key|-----BEGIN RSA PRIVATE KEY-----"
     "Private OpenSSH key|-----BEGIN OPENSSH PRIVATE KEY-----"
     "Private PGP key|-----BEGIN PGP PRIVATE KEY BLOCK-----"
