@@ -496,8 +496,34 @@ _register_connector_tools()
 # -----------------------------------------------------------------------------
 
 def mcp_stdio():
-    """Run the MCP server on stdio. JSON-RPC 2.0 protocol."""
+    """Run the MCP server on stdio. JSON-RPC 2.0 protocol.
+
+    Stdout/stderr are forced to line-buffered, binary-untouched mode on
+    startup. Without this, Windows block-buffers the subprocess stdout
+    (4-8 KiB chunks) and short ``initialize`` responses (<200 bytes) get
+    stuck in the kernel pipe buffer, causing MCP clients to time out
+    with "Connection closed" before the first response arrives.
+    ``reconfigure(line_buffering=True)`` (py3.7+) is cross-platform
+    and is a no-op on platforms that already flush per-write, so this
+    is safe on macOS and Linux too. See:
+    https://docs.python.org/3/library/sys.html#sys.stdout.reconfigure
+    """
     import sys as _s
+    try:
+        # ``line_buffering=True`` flushes after every newline.
+        # ``write_through=True`` bypasses any parent TextIOWrapper.
+        for stream in (_s.stdin, _s.stdout, _s.stderr):
+            # reconfigure() is unavailable on some embedded Pythons / odd
+            # stdio wrappers; guard it so a benign host quirk never
+            # blocks the server from starting.
+            try:
+                stream.reconfigure(line_buffering=True)
+            except (AttributeError, ValueError, OSError):
+                pass
+    except Exception:
+        # Never let a stdio-reconfigure edge case abort startup; the
+        # server should still answer (just possibly slower).
+        pass
     while True:
         try:
             line = _s.stdin.readline()

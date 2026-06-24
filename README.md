@@ -199,6 +199,64 @@ Wire any of these into OpenClaw, Claude Code, Cursor, Codex via their
 respective MCP configs. The server returns JSON-RPC 2.0 responses on
 stdout.
 
+### Wire it into Hermes Agent
+
+`hermes mcp add` works on all three platforms. The command shape is
+identical — only the path to the venv python differs:
+
+```bash
+# macOS / Linux
+hermes mcp add duckbot-memory \
+  --command "$HOME/Desktop/duckbot-rag-memory/.venv/bin/python" \
+  --args "-m src.mcp_server" \
+  --env "PYTHONPATH=$HOME/Desktop/duckbot-rag-memory"
+
+# Windows (PowerShell)
+hermes mcp add duckbot-memory `
+  --command "$HOME\Desktop\duckbot-rag-memory\.venv\Scripts\python.exe" `
+  --args "-m src.mcp_server" `
+  --env "PYTHONPATH=$HOME\Desktop\duckbot-rag-memory"
+
+# Windows (git-bash / MSYS)
+hermes mcp add duckbot-memory \
+  --command "$HOME/Desktop/duckbot-rag-memory/.venv/Scripts/python.exe" \
+  --args "-m src.mcp_server" \
+  --env "PYTHONPATH=$HOME/Desktop/duckbot-rag-memory"
+```
+
+> Note: `hermes mcp add --args` uses `nargs=REMAINDER`, so put `--env`
+> flags **before** `--args` or they'll be swept into the arg list.
+> You don't need `-u` or `PYTHONUNBUFFERED=1` — `src/mcp_server.py`
+> reconfigures stdio to line-buffered mode at startup.
+
+To run a one-shot query through the MCP transport without registering it
+as a server, use the CLI directly — same tool, no MCP framing:
+
+```bash
+# macOS / Linux
+./.venv/bin/python -m src.cli query "What did we decide about cloud-only models?" -n 5
+
+# Windows
+.venv\Scripts\python.exe -m src.cli query "What did we decide about cloud-only models?" -n 5
+```
+
+### Cross-platform paths (Windows users)
+
+The README shows POSIX paths (`./.venv/bin/python`, `/Users/duckets/...`)
+for brevity. On Windows the equivalent paths are:
+
+| POSIX | Windows |
+|---|---|
+| `./.venv/bin/python` | `.venv\Scripts\python.exe` |
+| `nohup ./.venv/bin/python ... &` | `start /B .venv\Scripts\python.exe ...` |
+| `/Users/duckets/Desktop/duckbot-rag-memory` | `C:\Users\<you>\Desktop\duckbot-rag-memory` |
+| `bash scripts/install.sh` | `powershell -File scripts\install.ps1` |
+| `launchd plist` (`scripts/install-macos.sh`) | Task Scheduler entry (`scripts/install.ps1`) |
+| `systemd --user` (`scripts/install-linux.sh`) | Task Scheduler entry (`scripts/install.ps1`) |
+
+The `scripts/install.ps1` Windows installer handles venv, dependencies,
+optional LM Studio embedding setup, and Task Scheduler registration.
+
 ### Example: search verbatim through the MCP server
 
 ```bash
