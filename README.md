@@ -2,7 +2,7 @@
 
 > Persistent, searchable, and self-curing memory for OpenClaw + Hermes Agent. Auto-updates in real time.
 
-[![Status](https://img.shields.io/badge/status-v0.2-yellow)]() [![License](https://img.shields.io/badge/license-MIT-blue)]() [![Open Source](https://img.shields.io/badge/open--source-everything-green)]()
+[![Status](https://img.shields.io/badge/status-v0.9.1-yellow)]() [![License](https://img.shields.io/badge/license-MIT-blue)]() [![Open Source](https://img.shields.io/badge/open--source-everything-green)]()
 
 ## What this is
 
@@ -29,9 +29,9 @@ Inspired by (and pulling from):
 
 ```bash
 cd ~/Desktop/duckbot-rag-memory
-./.venv/bin/python -m src.cli doctor          # verify everything works
-./.venv/bin/python -m src.cli watch once      # one-shot full sync (~5 min for 150 files)
-./.venv/bin/python -m src.watcher daemon      # run auto-updater in background
+./.venv/bin/python -m src.cli doctor           # verify everything works
+./.venv/bin/python -m src.watcher once         # one-shot full sync (~5 min for 150 files)
+./.venv/bin/python -m src.watcher daemon       # run auto-updater in background
 ./.venv/bin/python -m src.cli query "What did we decide about cloud-only models?" -n 5
 ```
 
@@ -111,7 +111,10 @@ The watcher (uses `watchdog` for FSEvents/inotify, falls back to polling) watche
 - `~/Desktop/ai-Py-boy-emulation-main/` (project docs)
 - `~/Desktop/Newest Desktop Control/` (project docs)
 
-Override with extra paths: `./.venv/bin/python -m src.watcher run <path1> <path2>`.
+**Note:** these defaults are hardcoded for Duckets' machine in
+`src/watcher.py:DEFAULT_WATCH`. For your own setup, override with extra
+paths: `./.venv/bin/python -m src.watcher run <path1> <path2>`.
+Or edit `DEFAULT_WATCH` in `src/watcher.py` directly.
 
 ### Why polling, not watchdog
 

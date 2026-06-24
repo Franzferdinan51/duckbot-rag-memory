@@ -479,20 +479,42 @@ def _daemon_windows(paths: list[str], args) -> int:
     PID_PATH.parent.mkdir(parents=True, exist_ok=True)
     PID_PATH.write_text("starting")
 
-    # The detached child must NOT inherit the parent's stdio handles. We
-    # pass stdin/stdout/stderr=DEVNULL to close them in the child. This is
-    # the cross-platform equivalent of dup2'ing to /dev/null.
+    # Open log files for the detached child's stdio. We use line-buffered
+    # append mode so `tail -f` sees output immediately. POSIX _daemon_posix
+    # does the equivalent via dup2; on Windows, Popen's stdout/stderr
+    # kwargs let us redirect the same way without console inheritance.
     import subprocess
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        log_out = open(str(LOG_PATH), "a+", buffering=1)  # line-buffered
+        log_err = open(str(LOG_PATH), "a+", buffering=1)
+    except OSError as e:
+        print(f"❌ Failed to open log file: {e}", file=sys.stderr)
+        try:
+            PID_PATH.unlink()
+        except FileNotFoundError:
+            pass
+        return 1
+
     try:
         p = subprocess.Popen(
             [sys.executable, "-m", "src.watcher", "run", *paths,
              "--interval", str(args.interval)],
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_out,
+            stderr=log_err,
             creationflags=creationflags,
             close_fds=True,
         )
+    except Exception as e:
+        print(f"❌ Failed to start watcher: {e}", file=sys.stderr)
+        log_out.close()
+        log_err.close()
+        try:
+            PID_PATH.unlink()
+        except FileNotFoundError:
+            pass
+        return 1
     except Exception as e:
         print(f"❌ Failed to start watcher: {e}", file=sys.stderr)
         try:

@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.9.1 — 2026-06-23 — Bug fixes from cross-platform audit
+
+After the v0.9.0 push, Duckets asked: "Make sure fix any bugs and push
+to main and also update the README." This is the honest audit pass.
+
+### Bugs found and fixed (real, demonstrable)
+
+1. **Windows daemon silently dropped all output** (`src/watcher.py`).
+   `_daemon_windows` used `subprocess.DEVNULL` for the detached child's
+   stdout AND stderr, so any error or log line from the actual watcher
+   was silently lost. On Windows you couldn't tell why the watcher
+   crashed. Now redirected to `LOG_PATH` (same as POSIX does via
+   `dup2`). Regression test: `test_windows_daemon_redirects_logs_to_file`.
+
+2. **README Quick Start had a non-existent CLI subcommand**.
+   Said `./.venv/bin/python -m src.cli watch once`. But `src.cli` only
+   has subcommands: `ingest`, `query`, `stats`, `eval`, `consolidate`,
+   `reset`, `compact`, `doctor`, `hermes`, `dashboard`. The actual
+   "one-shot sync" command is `src.watcher once`. Fixed in README.
+
+3. **launchd plist had hardcoded `/Users/duckets/Desktop/...` paths**.
+   The plist was committed with Duckets' absolute path baked in. Anyone
+   who cloned the repo elsewhere got a broken plist. Now it's a template
+   with `__REPO_ROOT__` placeholders, and `install-macos.sh` does
+   `sed "s|__REPO_ROOT__|$REPO_ROOT|g"` before copying to
+   `~/Library/LaunchAgents/`. Regression test:
+   `test_no_hardcoded_absolute_paths_in_scripts`,
+   `test_plist_is_a_template`, `test_plist_substitution_round_trip`.
+
+4. **`start-watcher.sh` had a hardcoded absolute path**.
+   `cd /Users/duckets/Desktop/duckbot-rag-memory` at the top. Replaced
+   with `cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.."` to
+   derive `REPO_ROOT` from the script's own location. Regression test:
+   `test_start_watcher_sh_uses_relative_paths`.
+
+5. **`install.ps1` required `git` on PATH to resolve the repo root**.
+   On locked-down Windows boxes without Git for Windows, `git rev-parse
+   --show-toplevel` returns null and the script bails. Added a
+   `Resolve-RepoRoot` fallback that walks up from `$PSScriptRoot` until
+   it finds `src\watcher.py` — an unambiguous marker file. Regression
+   test: `test_install_ps1_has_repo_fallback`.
+
+### Honesty about what was missed in v0.9.0
+
+When I pushed v0.9.0, I claimed "it works cross-platform" but I was
+running on a Mac. Several of these bugs would have been caught by a
+proper `pwsh` syntax check on a Windows box, or by running the
+launchd plist on a fresh Mac where the absolute path doesn't exist.
+The audit this round was the right thing — but I should have done it
+before pushing v0.9.0 in the first place.
+
+### Verification
+
+- 446/446 tests pass (was 439; +7 from regression tests).
+- Bash syntax check on all 5 .sh scripts: pass.
+- `git status` clean (only the intended files changed).
+- Secret-scan clean.
+- Pre-commit hook approved the commit.
+
 ## 0.9.0 — 2026-06-23 — Full cross-platform support (Win/Mac/Linux)
 
 After the v0.8.0 push, Duckets asked: "make sure the WHOLE thing is

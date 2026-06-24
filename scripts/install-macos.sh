@@ -53,7 +53,12 @@ if [[ "$(uname)" == "Darwin" ]]; then
   if [[ "$install_launchd" == "y" || "$install_launchd" == "Y" ]]; then
     PLIST_SRC="$REPO_ROOT/scripts/com.duckbot.memory-watcher.plist"
     PLIST_DST="$HOME/Library/LaunchAgents/com.duckbot.memory-watcher.plist"
-    cp "$PLIST_SRC" "$PLIST_DST"
+    # Template-substitute __REPO_ROOT__ with the actual repo path.
+    # The plist is committed as a template (no hardcoded paths) so it
+    # works for any user who clones the repo.
+    mkdir -p "$(dirname "$PLIST_DST")"
+    sed "s|__REPO_ROOT__|$REPO_ROOT|g" "$PLIST_SRC" > "$PLIST_DST"
+    chmod 644 "$PLIST_DST"
     launchctl unload "$PLIST_DST" 2>/dev/null || true
     launchctl load -w "$PLIST_DST"
     echo "Installed and started: $PLIST_DST"

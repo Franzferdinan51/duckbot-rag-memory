@@ -1,18 +1,39 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  duckbot-secret-scan: allowlist-file
+  com.duckbot.memory-watcher.plist — TEMPLATE.
+
+  Install via:
+    ./scripts/install-macos.sh
+  which will replace every __REPO_ROOT__ with the absolute path of the
+  repo before copying to ~/Library/LaunchAgents/.
+
+  Manual install (if you must):
+    sed "s|__REPO_ROOT__|$REPO_ROOT|g" \
+      scripts/com.duckbot.memory-watcher.plist \
+      > ~/Library/LaunchAgents/com.duckbot.memory-watcher.plist
+    launchctl load -w ~/Library/LaunchAgents/com.duckbot.memory-watcher.plist
+-->
 <plist version="1.0">
 <dict>
   <key>Label</key>
   <string>com.duckbot.memory-watcher</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/duckets/Desktop/duckbot-rag-memory/.venv/bin/python</string>
+    <string>__REPO_ROOT__/.venv/bin/python</string>
     <string>-m</string>
     <string>src.watcher</string>
     <string>run</string>
+    <string>__REPO_ROOT__/memory</string>
+    <string>__REPO_ROOT__/AGENTS.md</string>
+    <string>__REPO_ROOT__/SOUL.md</string>
+    <string>__REPO_ROOT__/USER.md</string>
+    <string>__REPO_ROOT__/IDENTITY.md</string>
+    <string>__REPO_ROOT__/TOOLS.md</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/duckets/Desktop/duckbot-rag-memory</string>
+  <string>__REPO_ROOT__</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -26,15 +47,13 @@
   <integer>10</integer>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PATH</key>
-    <string>/Users/duckets/Library/pnpm:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>PYTHONUNBUFFERED</key>
     <string>1</string>
   </dict>
   <key>StandardOutPath</key>
-  <string>/Users/duckets/Desktop/duckbot-rag-memory/data/watcher.log</string>
+  <string>__REPO_ROOT__/data/watcher.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/duckets/Desktop/duckbot-rag-memory/data/watcher.log</string>
+  <string>__REPO_ROOT__/data/watcher.log</string>
   <key>ProcessType</key>
   <string>Background</string>
 </dict>

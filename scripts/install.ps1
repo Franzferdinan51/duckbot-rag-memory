@@ -32,9 +32,36 @@ $ErrorActionPreference = 'Stop'
 
 # --- 1. Resolve repo root + paths -------------------------------------------
 
-$RepoRoot = git rev-parse --show-toplevel 2>$null
+# Resolve the repo root, with fallbacks for Windows machines that don't
+# have `git` on PATH (rare, but happens on locked-down corporate boxes).
+# Walk up from $PSScriptRoot until we find a directory containing
+# `src/watcher.py` — that's the unambiguous repo marker.
+function Resolve-RepoRoot {
+    param([string]$Start)
+    $current = (Resolve-Path $Start).Path
+    while ($true) {
+        if (Test-Path (Join-Path $current "src\watcher.py")) {
+            return $current
+        }
+        $parent = Split-Path $current -Parent
+        if ($parent -eq $current) {
+            return $null  # reached filesystem root without finding the marker
+        }
+        $current = $parent
+    }
+}
+
+$RepoRoot = $null
+try {
+    $gitRoot = git rev-parse --show-toplevel 2>$null
+    if ($gitRoot) { $RepoRoot = $gitRoot }
+} catch {}
+
 if (-not $RepoRoot) {
-    Write-Error "Not in a git repo. cd to the repo root and re-run."
+    $RepoRoot = Resolve-RepoRoot -Start $PSScriptRoot
+}
+if (-not $RepoRoot) {
+    Write-Error "Could not locate the repo root. cd to the repo root and re-run."
     exit 1
 }
 Set-Location $RepoRoot

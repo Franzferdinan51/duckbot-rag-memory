@@ -117,6 +117,72 @@ def test_watcher_daemon_dispatches_to_windows(monkeypatch):
     assert called["posix"] == 0
 
 
+def test_windows_daemon_redirects_logs_to_file(monkeypatch, tmp_path):
+    """Windows daemon must redirect child stdio to LOG_PATH, not DEVNULL.
+
+    Regression test: prior to the v0.9.1 fix, _daemon_windows used
+    subprocess.DEVNULL for stdout/stderr, which silently dropped any
+    error/log output from the detached child.
+    """
+    import subprocess
+    from src import watcher
+
+    captured_kwargs = {}
+
+    class FakePopen:
+        pid = 12345
+        def poll(self): return None
+
+    def fake_popen(args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return FakePopen()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(watcher, "PID_PATH", tmp_path / "watcher.pid")
+    monkeypatch.setattr(watcher, "LOG_PATH", tmp_path / "watcher.log")
+
+    class Args:
+        paths = []
+        interval = 2.0
+
+    # Direct call (not via cmd_daemon dispatcher)
+    watcher._daemon_windows([], Args())
+
+    # Critically: stdout and stderr must NOT be DEVNULL.
+    # They must be open file objects (the log files).
+    assert captured_kwargs.get("stdout") is not subprocess.DEVNULL, (
+        "Windows daemon silently drops child stdout to /dev/null"
+    )
+    assert captured_kwargs.get("stderr") is not subprocess.DEVNULL, (
+        "Windows daemon silently drops child stderr to /dev/null"
+    )
+    # And the log file should exist
+    assert (tmp_path / "watcher.log").exists()
+
+
+def test_windows_daemon_creates_log_dir(monkeypatch, tmp_path):
+    """_daemon_windows must create LOG_PATH's parent dir before opening."""
+    import subprocess
+    from src import watcher
+
+    class FakePopen:
+        pid = 99999
+        def poll(self): return None
+
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: FakePopen())
+    nested_log = tmp_path / "nested" / "deeper" / "watcher.log"
+    monkeypatch.setattr(watcher, "PID_PATH", tmp_path / "watcher.pid")
+    monkeypatch.setattr(watcher, "LOG_PATH", nested_log)
+
+    class Args:
+        paths = []
+        interval = 2.0
+
+    # Should not raise FileNotFoundError
+    watcher._daemon_windows([], Args())
+    assert nested_log.exists()
+
+
 # -----------------------------------------------------------------------------
 # /dev/null replaced with os.devnull
 # -----------------------------------------------------------------------------
@@ -233,6 +299,79 @@ def test_bash_script_parses(script):
         text=True,
     )
     assert result.returncode == 0, f"bash syntax error in {script}: {result.stderr}"
+
+
+# -----------------------------------------------------------------------------
+# Hardcoded paths are bugs (the repo must work for any user, not just one)
+# -----------------------------------------------------------------------------
+
+
+def test_no_hardcoded_absolute_paths_in_scripts():
+    """No scripts/ file should reference /Users/<user>/<path> literally.
+
+    Regression: scripts/start-watcher.sh and com.duckbot.memory-watcher.plist
+    previously had /Users/duckets/Desktop/duckbot-rag-memory baked in,
+    which broke for any user who cloned the repo elsewhere.
+    """
+    import re
+    pattern = re.compile(r"/Users/[a-zA-Z0-9_.-]+/")
+    offenders = []
+    for p in (Path(ROOT) / "scripts").rglob("*"):
+        if p.is_dir() or p.suffix in (".pyc",):
+            continue
+        try:
+            text = p.read_text(errors="ignore")
+        except Exception:
+            continue
+        if pattern.search(text):
+            offenders.append(str(p.relative_to(ROOT)))
+    assert not offenders, (
+        f"Hardcoded /Users/<user>/ paths found (must use template placeholders "
+        f"or git-relative paths):\n" + "\n".join(offenders)
+    )
+
+
+def test_plist_is_a_template():
+    """com.duckbot.memory-watcher.plist must use __REPO_ROOT__ placeholders."""
+    p = Path(ROOT) / "scripts" / "com.duckbot.memory-watcher.plist"
+    assert p.exists(), "plist missing"
+    text = p.read_text()
+    assert "__REPO_ROOT__" in text, "plist must be a template with __REPO_ROOT__ placeholders"
+    assert "/Users/" not in text, "plist must not have hardcoded paths"
+
+
+def test_plist_substitution_round_trip():
+    """sed substitution replaces __REPO_ROOT__ with any path."""
+    import re
+    p = Path(ROOT) / "scripts" / "com.duckbot.memory-watcher.plist"
+    text = p.read_text()
+    fake_root = "/tmp/fake/repo/path"
+    out = text.replace("__REPO_ROOT__", fake_root)
+    assert "__REPO_ROOT__" not in out
+    assert fake_root + "/.venv/bin/python" in out
+    assert fake_root + "/data/watcher.log" in out
+
+
+def test_install_ps1_has_repo_fallback():
+    """install.ps1 must fall back to walking-up-the-tree if git isn't available."""
+    p = Path(ROOT) / "scripts" / "install.ps1"
+    assert p.exists()
+    text = p.read_text()
+    assert "git rev-parse" in text, "PS1 should still try git first"
+    assert "Resolve-RepoRoot" in text, "PS1 needs a fallback when git isn't available"
+    assert "src\\watcher.py" in text or "src/watcher.py" in text, (
+        "PS1 fallback must use src/watcher.py as the unambiguous repo marker"
+    )
+
+
+def test_start_watcher_sh_uses_relative_paths():
+    """start-watcher.sh must not hardcode /Users/<user>/<path>."""
+    p = Path(ROOT) / "scripts" / "start-watcher.sh"
+    text = p.read_text()
+    assert "/Users/" not in text, "start-watcher.sh must use relative paths"
+    assert "SCRIPT_DIR" in text and "REPO_ROOT" in text, (
+        "start-watcher.sh should derive REPO_ROOT from BASH_SOURCE"
+    )
 
 
 # -----------------------------------------------------------------------------
