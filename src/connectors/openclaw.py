@@ -31,7 +31,8 @@ OpenClaw wires this up by adding to `~/.openclaw/openclaw.json`:
   }
 
 Restart OpenClaw gateway to pick up the new MCP server, then `mcporter list`
-should show 16 tools (the 7 from `src.mcp_server.py` + 9 new from this file).
+should show 27 tools (this file's 27 brain_* tools — OpenClaw has its own
+non-overlapping stack for the base `remember`/`recall`/`reflect`/etc.).
 
 No LLM, no paid services, no surprises. Local stdlib only.
 """
@@ -554,7 +555,7 @@ def openclaw_config_snippet(repo_path: str = "/Users/duckets/Desktop/duckbot-rag
             "command": f"{repo_path}/.venv/bin/python",
             "args": ["-m", "src.mcp_server"],
             "cwd": repo_path,
-            "description": "DuckBot brain: vector + graph + blocks + quarantine + dreaming + /learn + active-memory (39 tools)",
+            "description": "DuckBot brain: vector + graph + blocks + quarantine + dreaming + /learn + active-memory (27 tools)",
             "env": {
                 "DUCKBOT_EMBEDDING": "minimax",
                 # MINIMAX_API_KEY should be read from openclaw.json's secrets,

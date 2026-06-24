@@ -97,9 +97,10 @@ def test_chunk_verbatim_text_can_be_set_explicitly():
 
 
 def test_brain_recall_verbatim_returns_verbatim_field():
-    """Smoke test: Brain.recall_verbatim returns a list of dicts with verbatim_text."""
+    """Smoke test: Brain.recall_verbatim returns a list of VerbatimResult
+    dataclasses (the typed sibling of RecallResult)."""
     # Use a mock Memory result by patching the facade.
-    from src.connectors.base import Brain
+    from src.connectors.base import Brain, VerbatimResult
 
     b = Brain()
 
@@ -121,10 +122,13 @@ def test_brain_recall_verbatim_returns_verbatim_field():
 
     out = b.recall_verbatim("test query")
     assert len(out) == 1
-    assert out[0]["verbatim_text"] == "original source text"
-    assert out[0]["source_path"] == "/tmp/test.md"
-    # verbatim_text must NOT be the contextualized chunk text.
-    assert out[0]["verbatim_text"] != out[0]["metadata"].get("verbatim_text", "") or True
+    assert isinstance(out[0], VerbatimResult)
+    assert out[0].verbatim_text == "original source text"
+    assert out[0].source_path == "/tmp/test.md"
+    # to_dict() preserves the legacy dict shape for backward compat.
+    d = out[0].to_dict()
+    assert d["verbatim_text"] == "original source text"
+    assert d["source_path"] == "/tmp/test.md"
 
 
 def test_brain_recall_verbatim_falls_back_to_text_when_no_verbatim_metadata():
@@ -144,7 +148,8 @@ def test_brain_recall_verbatim_falls_back_to_text_when_no_verbatim_metadata():
 
     b.recall = lambda **kwargs: [_StubRecallResult()]
     out = b.recall_verbatim("test query")
-    assert out[0]["verbatim_text"] == "some text"
+    # VerbatimResult dataclass — access via attribute, or .to_dict() for the dict shape.
+    assert out[0].verbatim_text == "some text"
 
 
 def test_brain_recall_verbatim_passes_rerank_through(monkeypatch):

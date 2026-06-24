@@ -255,15 +255,6 @@ TOOLS = [
 # Brain facade. OpenClaw picks them up automatically because they're in TOOLS.
 # -----------------------------------------------------------------------------
 
-def _import_connector_tools() -> tuple[list[dict], dict]:
-    """Import the OpenClaw connector's TOOL_DEFINITIONS and dispatchers.
-    Returns (extra_tools, extra_handlers)."""
-    from src.connectors.openclaw import TOOL_DEFINITIONS, handle as _handle
-    extra_tools = list(TOOL_DEFINITIONS)
-    extra_handlers = {t["name"]: (lambda args, h=_handle: h(t["name"], args)) for t in TOOL_DEFINITIONS}
-    return extra_tools, extra_handlers
-
-
 # Tool definitions and handlers are loaded lazily so a missing layer doesn't
 # break the whole server. We populate them right after HANDLERS is defined below.
 def _register_connector_tools() -> None:
@@ -915,13 +906,21 @@ def mcp_stdio():
 
 def main():
     p = argparse.ArgumentParser(description="DuckBot memory MCP server")
-    p.add_argument("--http", type=int, help="run as HTTP server on PORT (instead of stdio)")
+    p.add_argument(
+        "--http", type=int, default=None,
+        help="HTTP mode is not yet implemented — accepted for forward "
+             "compatibility but exits with a clear error if used.",
+    )
     args = p.parse_args()
-    if args.http:
-        # Minimal HTTP wrapper using aiohttp or similar
-        # For now just print a hint
-        print(f"HTTP mode not yet implemented. Use stdio for now. (Would listen on {args.http})", file=sys.stderr)
-        sys.exit(1)
+    if args.http is not None:
+        print(
+            f"Error: HTTP mode (--http {args.http}) is not yet implemented. "
+            "Use stdio: `python -m src.mcp_server` (no flag), then point "
+            "your MCP client at `scripts/duckbot-memory-mcp.sh` or `.bat`. "
+            "Tracked in CHANGELOG.",
+            file=sys.stderr,
+        )
+        sys.exit(2)  # 2 = misuse, not 1 = generic error
     mcp_stdio()
 
 

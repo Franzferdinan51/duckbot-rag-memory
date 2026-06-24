@@ -220,11 +220,14 @@ class DreamingBridge:
         """Pick high-importance episodic chunks and write a dream entry.
 
         This is the consolidation pass: episodic events get distilled to
-        a `semantic` rule and a `dreaming/deep/<date>.md` file is written
-        so OpenClaw's dreamer picks it up.
+        a deterministic template summary and a `dreaming/deep/<date>.md`
+        file is written so OpenClaw's dreamer picks it up.
 
-        For now the distillation is deterministic (template-based), not
-        LLM-summarized. OpenClaw's dreamer can do LLM synthesis on top.
+        Honest note: the "distill to a semantic rule" half is not yet
+        implemented — we write the dream file (a curated bullet list of
+        high-importance previews), but we do NOT yet upsert anything into
+        the semantic tier here. That happens in `reflect()` instead.
+        OpenClaw's dreamer can do LLM synthesis on top of the dream file.
         """
         result = DreamCycleResult()
 

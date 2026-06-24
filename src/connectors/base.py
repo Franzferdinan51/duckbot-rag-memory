@@ -113,6 +113,24 @@ class RecallResult:
         return asdict(self)
 
 
+@dataclass
+class VerbatimResult:
+    """Result of recall_verbatim() — like RecallResult but `text` is the
+    pre-overlap, pre-prefix source bytes (the user's exact words) instead
+    of the contextualized chunk as stored. This is the L13 verbatim-first
+    contract from MemPalace."""
+    chunk_id: str = ""
+    verbatim_text: str = ""
+    source_path: str = ""
+    tier: str = ""
+    importance: float = 0.0
+    score: float = 0.0
+    metadata: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
 # -----------------------------------------------------------------------------
 # The facade
 # -----------------------------------------------------------------------------
@@ -171,9 +189,12 @@ class Brain:
             if not scan.is_clean:
                 # Quarantine it. The user can review and reject (true positive)
                 # or approve (false positive) — only approval re-stores it.
-                if self.quarantine_path.exists() or self.quarantine_path.parent.exists():
-                    with QuarantineStore(path=self.quarantine_path) as q:
-                        q.add(scan)
+                # QuarantineStore.__init__ creates the parent directory, so
+                # we can always call it (no need for the pre-guard that the
+                # previous version had — that guard was always-true and
+                # confused readers).
+                with QuarantineStore(path=self.quarantine_path) as q:
+                    q.add(scan)
                 return RememberResult(
                     quarantined=True,
                     stored=False,
@@ -286,7 +307,7 @@ class Brain:
         decay: Optional[bool] = None,
         tier_priors: Optional[bool] = None,
         tier_priors_overrides: Optional[dict[str, float]] = None,
-    ) -> list[dict]:
+    ) -> list[VerbatimResult]:
         """Like `recall()` but returns only the verbatim (pre-overlap) text.
 
         Implements the L13 verbatim-first storage contract from
@@ -295,9 +316,8 @@ class Brain:
         not a contextualized chunk with '[...continued from previous
         section...]' prefixes baked in.
 
-        Returns a list of dicts with: chunk_id, verbatim_text, source_path,
-        tier, importance, score, metadata. The `metadata` dict also contains
-        the verbatim_text for downstream code that prefers dict access.
+        Returns a list of VerbatimResult (a typed dataclass sibling of
+        RecallResult). Call .to_dict() on each for the legacy dict shape.
         """
         raw = self.recall(
             query=query, k=k, tier=tier,
@@ -306,19 +326,19 @@ class Brain:
             tier_priors=tier_priors,
             tier_priors_overrides=tier_priors_overrides,
         )
-        out = []
+        out: list[VerbatimResult] = []
         for r in raw:
             md = r.metadata or {}
             verbatim = md.get("verbatim_text") or r.text
-            out.append({
-                "chunk_id": r.chunk_id,
-                "verbatim_text": verbatim,
-                "source_path": r.source_path,
-                "tier": r.tier,
-                "importance": r.importance,
-                "score": r.score,
-                "metadata": md,
-            })
+            out.append(VerbatimResult(
+                chunk_id=r.chunk_id,
+                verbatim_text=verbatim,
+                source_path=r.source_path,
+                tier=r.tier,
+                importance=r.importance,
+                score=r.score,
+                metadata=md,
+            ))
         return out
 
     # -------------------------------------------------------------- graph: nodes
@@ -473,10 +493,19 @@ class Brain:
 
     def block_rethink(self, name: str, instruction: str) -> dict:
         """Atomic re-prompt-and-replace: runs an LLM-driven rethink on a block.
-        For now, this is a no-op stub that returns the current block — it
-        requires an LLM call which we don't want to add to the default path.
-        Use the dashboard or a separate LLM-driven script to do the actual
-        rethink, then call block_write() to commit.
+
+        HONEST NOTE: This is a no-op stub. It does NOT call any LLM and does
+        NOT modify the block. The "self-editing memory blocks" claim in the
+        README is aspirational — the workflow today is:
+
+          1. read the block via `block_read`
+          2. run an external LLM-driven rethink (your own script or the
+             dashboard)
+          3. write the result via `block_write`
+
+        Surfacing `implemented=False` so MCP clients can detect the stub
+        status programmatically (rather than parsing the human-readable
+        `note` field).
         """
         b = self.block_read(name)
         if b is None:
@@ -484,7 +513,11 @@ class Brain:
         return {
             "name": name,
             "instruction": instruction,
-            "note": "block_rethink is a stub — use LLM-driven script + block_write",
+            "implemented": False,
+            "note": (
+                "block_rethink is a stub — use LLM-driven script + block_write. "
+                "See docstring for the current workflow."
+            ),
             "current": b,
         }
 

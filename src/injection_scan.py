@@ -24,6 +24,7 @@ Inspired by OWASP ASI06 + Microsoft "Mitigating Prompt Injection Attacks".
 from __future__ import annotations
 
 import base64
+import json
 import re
 import time
 import uuid
@@ -261,7 +262,6 @@ class QuarantineStore:
 
     def add(self, result: ScanResult) -> str:
         """Add a scan result to quarantine. Returns the scan_id."""
-        import json
         if result.is_clean:
             raise ValueError("cannot quarantine a clean scan result")
         self._conn.execute(

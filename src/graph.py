@@ -137,6 +137,18 @@ CREATE INDEX IF NOT EXISTS idx_rel_source ON relationships(source_id);
 CREATE INDEX IF NOT EXISTS idx_rel_target ON relationships(target_id);
 CREATE INDEX IF NOT EXISTS idx_rel_label  ON relationships(label);
 CREATE INDEX IF NOT EXISTS idx_rel_window ON relationships(valid_from, valid_until);
+
+-- Normalized alias lookup table. The JSON `aliases` column on entities
+-- is fine for storage but unsearchable by index. Storing each alias as
+-- its own row lets us do O(log N) alias lookups instead of full-table
+-- scans. Maintained by upsert_entity() and remove_entity().
+CREATE TABLE IF NOT EXISTS entity_aliases (
+    alias       TEXT NOT NULL,
+    entity_id   TEXT NOT NULL,
+    PRIMARY KEY (alias, entity_id),
+    FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_alias_lookup ON entity_aliases(alias);
 """
 
 
@@ -169,15 +181,16 @@ class Graph:
                 "UPDATE entities SET aliases = ? WHERE id = ?",
                 (self._encode_json(new_aliases), existing.id),
             )
-            self._conn.commit()
-            existing.aliases = new_aliases
+            # Keep the normalized alias side-table in sync.
+            self._replace_aliases(existing.id, new_aliases)
             if notes is not None:
                 existing.notes = notes
                 self._conn.execute(
                     "UPDATE entities SET notes = ? WHERE id = ?",
                     (notes, existing.id),
                 )
-                self._conn.commit()
+            existing.aliases = new_aliases
+            self._conn.commit()
             return existing
         eid = entity_id or str(uuid.uuid4())
         ent = Entity(id=eid, name=name, kind=kind, aliases=list(aliases), notes=notes)
@@ -186,8 +199,24 @@ class Graph:
             "VALUES (?, ?, ?, ?, ?, ?)",
             (ent.id, ent.name, ent.kind, self._encode_json(ent.aliases), ent.notes, ent.created_at),
         )
+        self._replace_aliases(ent.id, ent.aliases)
         self._conn.commit()
         return ent
+
+    def _replace_aliases(self, entity_id: str, aliases: list[str]) -> None:
+        """Replace the entity's rows in the normalized alias side-table.
+
+        Used by upsert_entity so the index-backed alias lookup in
+        _find_entity_by_name stays in sync with the JSON `aliases` column.
+        """
+        self._conn.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (entity_id,))
+        for a in aliases:
+            if not a:
+                continue
+            self._conn.execute(
+                "INSERT OR IGNORE INTO entity_aliases (alias, entity_id) VALUES (?, ?)",
+                (a, entity_id),
+            )
 
     def get_entity(self, entity_id: str) -> Optional[Entity]:
         row = self._conn.execute(
@@ -225,10 +254,16 @@ class Graph:
                           relationship_id: Optional[str] = None) -> Relationship:
         """Add a new relationship. If an identical active relationship already
         exists (same source, target, label, no end date), this is a no-op and
-        the existing relationship is returned."""
+        the existing relationship is returned.
+
+        For "create a new edge at a specific timestamp, ending any old one",
+        use supersede() — it explicitly ends the old edge before calling
+        add_relationship().
+        """
         if valid_from is None:
             valid_from = time.time()
-        # Dedupe: if there's already an active edge with the same endpoints+label, reuse it
+        # Dedupe: if there's already an active edge with the same endpoints+label,
+        # reuse it. supersede() bypasses this by ending the old edge first.
         existing = self._conn.execute(
             "SELECT * FROM relationships WHERE source_id = ? AND target_id = ? "
             "AND label = ? AND valid_until IS NULL",
@@ -357,19 +392,21 @@ class Graph:
     # -- Internals ----------------------------------------------------------
 
     def _find_entity_by_name(self, name: str) -> Optional[Entity]:
-        # exact name match first
+        # exact name match first (uses idx_entities_name)
         row = self._conn.execute(
             "SELECT * FROM entities WHERE name = ?", (name,)
         ).fetchone()
         if row:
             return self._row_to_entity(row)
-        # then alias match
-        rows = self._conn.execute("SELECT * FROM entities WHERE aliases IS NOT NULL").fetchall()
-        for r in rows:
-            aliases = self._decode_json(r["aliases"]) or []
-            if name in aliases:
-                return self._row_to_entity(r)
-        return None
+        # alias match — use the normalized entity_aliases side-table for
+        # O(log N) lookup instead of a full-table scan + JSON decode per row.
+        row = self._conn.execute(
+            "SELECT e.* FROM entities e "
+            "JOIN entity_aliases a ON a.entity_id = e.id "
+            "WHERE a.alias = ? LIMIT 1",
+            (name,),
+        ).fetchone()
+        return self._row_to_entity(row) if row else None
 
     def _row_to_entity(self, row: sqlite3.Row) -> Entity:
         return Entity(

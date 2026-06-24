@@ -106,18 +106,20 @@ def maybe_apply_tier_priors(
     if not results:
         return results
 
-    # Apply the prior, attach an audit field, sort.
-    annotated = []
-    for r in results:
+    # Clone each result so we don't mutate caller-owned objects. The
+    # previous version used setattr on the originals, contradicting the
+    # "Original list is not mutated" docstring.
+    import copy
+    annotated = [copy.copy(r) for r in results]
+    for r in annotated:
         tier = getattr(r, "tier", None) or "episodic"
         prior = get_prior(tier, overrides)
         original_rrf = getattr(r, "rrf_score", 0.0) or 0.0
         adjusted = prior * original_rrf
-        # Always set the audit fields + adjusted score.
+        # Always set the audit fields + adjusted score on the COPY.
         setattr(r, "_tier_prior", prior)
         setattr(r, "_rrf_score_pre_prior", original_rrf)
         setattr(r, "rrf_score", adjusted)
-        annotated.append(r)
 
     annotated.sort(key=lambda r: r.rrf_score, reverse=True)
     return annotated
