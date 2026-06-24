@@ -115,9 +115,16 @@ INGEST_ARGS=(
   "$OPENCLAW_WORKSPACE/SOUL.md"
   "$OPENCLAW_WORKSPACE/IDENTITY.md"
   "$OPENCLAW_MEMORY"
-  "$HOME/Desktop/ai-Py-boy-emulation-main"
-  "$HOME/Desktop/Newest Desktop Control"
 )
+# Opt-in: extra project paths via DUCKBOT_INGEST_EXTRA (colon-separated).
+# The previous version hardcoded two paths that only existed on one
+# operator's machine, making the script fragile for everyone else.
+if [[ -n "${DUCKBOT_INGEST_EXTRA:-}" ]]; then
+  IFS=':' read -r -a _extra_paths <<< "$DUCKBOT_INGEST_EXTRA"
+  for p in "${_extra_paths[@]}"; do
+    [[ -n "$p" ]] && INGEST_ARGS+=("$p")
+  done
+fi
 
 # 6. Ingest (only if we have an embedding provider)
 if [[ "$EMBEDDING_MODE" != "none" ]]; then

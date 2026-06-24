@@ -32,8 +32,16 @@ $ErrorActionPreference = 'Stop'
 
 $RepoRoot = git rev-parse --show-toplevel 2>$null
 if (-not $RepoRoot) {
-    Write-Error "Not in a git repo. cd to the repo root and re-run."
-    exit 1
+    # Fallback for non-git fresh checkouts: assume this script lives in
+    # <repo>/scripts/ so the parent is the repo root. The previous version
+    # just errored out, blocking users from running the watcher on a
+    # tarball/zip install.
+    $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
+    if (-not (Test-Path (Join-Path $RepoRoot "src"))) {
+        Write-Error "Not in a git repo and could not infer repo root from script location."
+        exit 1
+    }
 }
 Set-Location $RepoRoot
 

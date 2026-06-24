@@ -83,7 +83,8 @@ duckbot-rag-memory/
 |   |-- cli.py            # python -m src.cli
 |   |-- decay.py fsrs.py rerank.py tier_priors.py  # brain layers (L8/L9/L7/L11)
 |   |-- blocks.py entities.py graph.py              # brain layers (L3/L2/L1)
-|   |-- injection_scan.py verbatim.py              # brain layers (L15/L13)
+|   |-- injection_scan.py                          # brain layer (L15)
+|   |-- verbatim_text storage is in chunk.py metadata + VerbatimResult in connectors/base.py (L13)
 |   |-- backends/         # chroma / lancedb / qdrant (pluggable)
 |   `-- connectors/       # openclaw / active_memory / dreaming / learn
 |-- tests/              # pytest suite (512 tests collected; CI skips LM Studio tests)
