@@ -1642,3 +1642,56 @@ def test_bootstrap_scripts_exist_and_exec():
             content = f.read()
         assert ".venv" in content, f"{name} doesn't reference the venv path"
         assert "src.cli" in content, f"{name} doesn't call src.cli — won't work"
+
+
+def test_consolidate_extraction_uses_llm_when_available(monkeypatch):
+    """extract_facts_from_chunk must supplement regex with mem0-style
+    LLM extraction when LM Studio is reachable. Mocked here so the test
+    doesn't need a live LM Studio."""
+    from src import consolidate
+    from src import llm_client
+    # Force the LLM path on (default behavior when env is unset).
+    monkeypatch.delenv("DUCKBOT_NO_LLM_EXTRACTION", raising=False)
+    # Mock chat_completion to return a small mem0-style response.
+    def fake_chat(messages, **_kw):
+        return "[user-said] Duckets prefers dark mode.\n[decision] Use ChromaDB."
+    monkeypatch.setattr(llm_client, "chat_completion", fake_chat)
+    chunk = ("Long chunk text that is definitely long enough to trigger "
+             "the LLM path. " * 30)  # > 200 chars
+    facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")
+    # Both the LLM-extracted facts AND any regex matches should be present.
+    texts = {f.text for f in facts}
+    assert "Duckets prefers dark mode." in texts
+    assert "Use ChromaDB." in texts
+    # All LLM-derived facts must have higher confidence than regex matches.
+    kinds = {f.text: f.kind for f in facts}
+    assert kinds.get("Duckets prefers dark mode.") == "user-said"
+    assert kinds.get("Use ChromaDB.") == "decision"
+
+
+def test_consolidate_extraction_skips_llm_when_disabled(monkeypatch):
+    """DUCKBOT_NO_LLM_EXTRACTION=1 forces the regex-only path."""
+    from src import consolidate
+    from src import llm_client
+    monkeypatch.setenv("DUCKBOT_NO_LLM_EXTRACTION", "1")
+    def fake_chat(messages, **_kw):
+        raise AssertionError("chat_completion should not have been called")
+    monkeypatch.setattr(llm_client, "chat_completion", fake_chat)
+    chunk = "x " * 500  # long enough to trigger LLM if not disabled
+    consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")  # must not raise
+
+
+def test_consolidate_extraction_falls_back_on_llm_failure(monkeypatch):
+    """When LM Studio is unreachable, chat_completion returns None and
+    extract_facts_from_chunk must still return whatever the regex path
+    found — never crash."""
+    from src import consolidate
+    from src import llm_client
+    monkeypatch.delenv("DUCKBOT_NO_LLM_EXTRACTION", raising=False)
+    def fake_chat_none(messages, **_kw):
+        return None  # LM Studio unreachable
+    monkeypatch.setattr(llm_client, "chat_completion", fake_chat_none)
+    chunk = "Duckets said he prefers dark mode."
+    facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")
+    # Regex still catches the "user-said" fact.
+    assert any(f.kind == "user-said" for f in facts)

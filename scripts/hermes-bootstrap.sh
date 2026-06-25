@@ -44,18 +44,18 @@ echo "   Markdown files: $COUNT"
 echo
 
 # 1. Doctor
-echo "→ Verifying setup..."
+echo "→ Step 1/5: Verifying setup..."
 "$PY" -m src.cli doctor >/dev/null
 
 # 2. Ingest every .md / .markdown file
-echo "→ Ingesting markdown into brain (working tier)..."
+echo "→ Step 2/5: Ingesting markdown into brain (working tier)..."
 "$PY" -m src.cli ingest "$HERMES_HOME" || {
     echo "❌ Ingest failed" >&2
     exit 1
 }
 
 # 3. Inflate so Hermes has consolidated context files
-echo "→ Inflating consolidated context (MEMORY.md, USER.md, SOUL.md)..."
+echo "→ Step 3/5: Inflating consolidated context (MEMORY.md, USER.md, SOUL.md)..."
 "$PY" -m src.cli sync --target hermes || {
     echo "⚠ brain_sync failed (non-fatal)" >&2
 }
@@ -77,3 +77,25 @@ echo "    $REPO_ROOT/scripts/hermes-preflight.sh"
 echo
 echo "    And the post-flight hook to consolidate every session:"
 echo "    $REPO_ROOT/scripts/hermes-postflight.sh"
+
+# 4. Install the pre-commit secret-scan hook (defense in depth: catches
+#    accidental .env / API key commits).
+echo
+echo "→ Step 4/5: Installing pre-commit secret-scan hook..."
+HOOK_SRC="$REPO_ROOT/scripts/secret-scan.sh"
+HOOK_DST="$REPO_ROOT/.git/hooks/pre-commit"
+if [ -f "$HOOK_SRC" ] && [ -d "$REPO_ROOT/.git" ]; then
+    cp "$HOOK_SRC" "$HOOK_DST"
+    chmod +x "$HOOK_DST"
+    echo "    Installed: $HOOK_DST"
+else
+    echo "    ⚠ secret-scan.sh not found or no .git; skipping hook install"
+fi
+
+# 5. End-to-end demo
+echo
+echo "→ Step 5/5: Running the end-to-end demo..."
+echo
+"$REPO_ROOT/scripts/demo.sh" || {
+    echo "⚠ demo run failed (non-fatal — try it manually: scripts/demo.sh)" >&2
+}
