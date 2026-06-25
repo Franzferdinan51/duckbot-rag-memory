@@ -164,10 +164,11 @@ Survey done by OpenClaw on Duckets' instruction: "enhance and upgrade the memory
 
 ### What we can integrate (MIT/Apache, self-hostable, zero paid APIs)
 
-#### Layer 7 candidate: cross-encoder rerank pass
-- **Source:** `BAAI/bge-reranker-base` / `bge-reranker-v2-m3` via `FlagOpen/FlagEmbedding` (MIT) or `huggingface/sentence-transformers` (Apache-2.0).
-- **Why:** The biggest single recall win we can add. CHANGELOG.md already lists "Cross-encoder rerank pass not yet wired" as a known limitation.
-- **Cost:** Free, runs locally (we already have LM Studio — we can run a reranker there, or `pip install sentence-transformers` which is Apache-2.0).
+#### Layer 7 (implemented in v0.1): cross-encoder rerank pass
+- **Source:** `BAAI/bge-reranker-base` / `bge-reranker-v2-m3` via `FlagOpen/FlagEmbedding` (MIT) or `huggingface/sentence-transformers` (Apache-2.0). Also `LMStudioBackend` for LM Studio.
+- **Why:** The biggest single recall win we can add. **Already wired** in `src/rerank.py` (`CrossEncoder` + `LMStudioBackend`) with a plug point in `src/query.py` Phase 6.
+- **Status:** Plug point is live; opt-in via `rerank=True` kwarg or `DUCKBOT_RERANK=1` env var. Default OFF because cross-encoder adds ~50–200ms per query depending on model size.
+- **Cost:** Free, runs locally. `pip install sentence-transformers` is Apache-2.0.
 - **Risk:** Low. The model is small (278M params), inference is fast on M-series.
 - **Pattern (from sentence-transformers docs):**
   ```python
@@ -176,7 +177,7 @@ Survey done by OpenClaw on Duckets' instruction: "enhance and upgrade the memory
   scores = reranker.predict([(query, doc) for doc in candidates])
   ranked = sorted(zip(candidates, scores), key=lambda x: -x[1])[:top_k]
   ```
-- **Plug point:** `src/query.py` — add a `rerank` step after RRF fusion when `DUCKBOT_RERANK=1` is set (default off; opt-in).
+- **Plug point:** `src/query.py` Phase 6 (after RRF fusion, before truncation). The `maybe_rerank()` function picks the backend automatically — LM Studio via `/v1/score` if available, else `sentence-transformers.CrossEncoder` if installed, else no-op.
 
 #### Layer 8 candidate: Ebbinghaus-style memory decay
 - **Source:** The math is from Hermann Ebbinghaus, *Memory: A Contribution to Experimental Psychology* (1885). Public domain.

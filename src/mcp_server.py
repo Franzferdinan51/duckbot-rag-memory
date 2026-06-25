@@ -152,6 +152,19 @@ TOOLS = [
         },
     },
     {
+        "name": "brain_decay_apply",
+        "description": "Prune chunks whose Ebbinghaus retention R has dropped below `retention_floor`. The 'memory decay' cron job. Public-domain math (1885); no LLM call. Default `dry_run=True` so the caller can preview; pass `dry_run=False` to actually delete. Use on a daily schedule to keep the episodic tier from growing unbounded.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "limit to one tier (default: all)"},
+                "retention_floor": {"type": "number", "default": 0.05, "description": "chunks with R < floor are pruned"},
+                "max_prune": {"type": "integer", "default": 1000, "description": "safety cap on chunks deleted in one call"},
+                "dry_run": {"type": "boolean", "default": True, "description": "preview only — don't actually delete"},
+            },
+        },
+    },
+    {
         "name": "forget_by_query",
         "description": "Delete the top-k chunks matching a query. Use carefully — destructive.",
         "inputSchema": {
@@ -355,6 +368,19 @@ TOOLS = [
         },
     },
     {
+        "name": "brain_fsrs_optimize_apply",
+        "description": "One-call: fit w20 from recall history, then apply it if it improves the MSE by at least `min_improvement_pct` over the current default. Returns the optimization result + whether it was applied. Use on a weekly cron — keeps the forgetting curve tuned to the brain's actual usage pattern.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "min_improvement_pct": {"type": "number", "default": 1.0, "description": "minimum improvement over baseline (percent) to apply"},
+                "w20_lo": {"type": "number", "default": 0.05},
+                "w20_hi": {"type": "number", "default": 3.0},
+                "w20_step": {"type": "number", "default": 0.05},
+            },
+        },
+    },
+    {
         "name": "brain_export",
         "description": "Export the entire brain as a single markdown file. One section per chunk, grouped by tier, with provenance. Use this to back up the brain, migrate to another machine, share with another agent, or inspect the corpus in a text editor. Default path is data/brain_export.md. Idempotent: re-running overwrites the same file. The reverse operation is brain_import — together they let you round-trip the brain as plain markdown.",
         "inputSchema": {
@@ -494,6 +520,22 @@ async def handle_decay_status(args: dict) -> dict:
     from src.connectors.base import Brain
     brain = Brain()
     return brain.decay_status(tier=args.get("tier"), k=args.get("k", 50))
+
+
+async def handle_brain_decay_apply(args: dict) -> dict:
+    """Prune chunks whose Ebbinghaus retention R has dropped below
+    `retention_floor`. The 'memory decay' cron job — run on a daily
+    schedule to keep the episodic tier from growing unbounded.
+    Public-domain math (1885); no LLM call.
+    """
+    from src.connectors.base import Brain
+    brain = Brain()
+    return brain.decay_apply(
+        tier=args.get("tier"),
+        retention_floor=float(args.get("retention_floor", 0.05)),
+        max_prune=int(args.get("max_prune", 1000)),
+        dry_run=bool(args.get("dry_run", True)),
+    )
 
 
 async def handle_forget_by_query(args: dict) -> dict:
@@ -1421,6 +1463,54 @@ async def handle_brain_apply_fsrs_w20(args: dict) -> dict:
     }
 
 
+async def handle_brain_fsrs_optimize_apply(args: dict) -> dict:
+    """One-call: fit w20 from recall history, apply it if the MSE
+    improvement vs the current default exceeds `min_improvement_pct`.
+    Returns the full optimization result + whether it was applied.
+    Use on a weekly cron.
+    """
+    from src.fsrs_optimizer import fit_and_apply
+    from src.connectors.base import Brain
+    from src.memory import Memory
+    min_imp = float(args.get("min_improvement_pct", 1.0))
+    w20_lo = float(args.get("w20_lo", 0.05))
+    w20_hi = float(args.get("w20_hi", 3.0))
+    w20_step = float(args.get("w20_step", 0.05))
+    mem = Memory()
+    store, _ = await mem._ensure_initialized()
+    result = fit_and_apply(
+        store,
+        w20_lo=w20_lo, w20_hi=w20_hi, w20_step=w20_step,
+    )
+    improvement = result.baseline_mse - result.best_mse
+    pct = (improvement / max(result.baseline_mse, 1e-9)) * 100
+    applied = False
+    old_w20 = None
+    new_w20 = None
+    if pct >= min_imp and result.best_w20 > 0:
+        brain = Brain()
+        old_w20 = brain._run_async(brain.fsrs_review_queue.__func__.__module__) if False else None  # not needed
+        from src import fsrs
+        old_w20 = fsrs.DEFAULT_W20
+        fsrs.DEFAULT_W20 = result.best_w20
+        import os
+        os.environ["DUCKBOT_FSRS_W20"] = str(result.best_w20)
+        new_w20 = result.best_w20
+        applied = True
+    return {
+        "applied": applied,
+        "old_w20": old_w20,
+        "new_w20": new_w20,
+        "improvement_pct": round(pct, 2),
+        "min_required": min_imp,
+        "best_w20": result.best_w20,
+        "baseline_w20": result.baseline_w20,
+        "n_chunks": result.n_chunks,
+        "n_remembered": result.n_remembered,
+        "n_forgotten": result.n_forgotten,
+    }
+
+
 async def handle_brain_export(args: dict) -> dict:
     """Export the entire brain as a single markdown file.
 
@@ -1753,6 +1843,7 @@ HANDLERS = {
     "recall_verbatim": handle_recall_verbatim,
     "fsrs_review": handle_fsrs_review,
     "decay_status": handle_decay_status,
+    "brain_decay_apply": handle_brain_decay_apply,
     "forget_by_query": handle_forget_by_query,
     "search_verbatim": handle_search_verbatim,
     # v0.11.0 — OpenClaw dreaming bridge + Hermes /learn + Active Memory
@@ -1770,6 +1861,7 @@ HANDLERS = {
     "brain_palace": handle_brain_palace,
     "brain_optimize_fsrs": handle_brain_optimize_fsrs,
     "brain_apply_fsrs_w20": handle_brain_apply_fsrs_w20,
+    "brain_fsrs_optimize_apply": handle_brain_fsrs_optimize_apply,
     "brain_export": handle_brain_export,
     "brain_import": handle_brain_import,
     "brain_seed_demo": handle_brain_seed_demo,

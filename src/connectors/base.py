@@ -923,6 +923,108 @@ class Brain:
 
         return _run_async(_status())
 
+    # -- Decay apply (prune below retention threshold) -------------------
+
+    def decay_apply(
+        self,
+        tier: Optional[str] = None,
+        retention_floor: float = 0.05,
+        max_prune: int = 1000,
+        dry_run: bool = True,
+        now: Optional[float] = None,
+    ) -> dict:
+        """Prune chunks whose Ebbinghaus retention R has dropped below
+        `retention_floor`. Public-domain math (1885); no LLM call.
+
+        This is the "memory decay" cron job — run on a daily schedule to
+        keep the episodic tier from growing unbounded. Default dry_run=True
+        so the caller can preview; pass dry_run=False to actually delete.
+
+        Args:
+            tier: limit to one tier (default: all).
+            retention_floor: chunks with R < floor are pruned (default 0.05).
+            max_prune: safety cap on chunks deleted in one call.
+            dry_run: when True, just report what would be pruned.
+            now: current time (default time.time()).
+
+        Returns: dict with {dry_run, tier, retention_floor, scanned,
+        would_prune, actually_pruned, ids, most_decayed_sample}.
+        """
+        from src.tier import Tier
+        from src.memory import Memory
+        from src.decay import ebbinghaus_retention
+
+        async def _apply() -> dict:
+            mem = Memory()
+            tier_enum = Tier(tier) if tier else None
+            t = now if now is not None else time.time()
+            # Walk each tier (overfetch a bit so we don't bias to one tier).
+            per_tier: dict[str, int] = {}
+            ids_to_prune: list[tuple[str, str]] = []  # (chunk_id, tier)
+            sample: list[dict] = []
+            for tier_name in ("working", "episodic", "semantic", "procedural"):
+                if tier_enum is not None and tier_enum.value != tier_name:
+                    continue
+                try:
+                    coll = mem._store.collection_for(Tier(tier_name))
+                    data = coll.get(
+                        include=["documents", "metadatas"], limit=10000,
+                    )
+                except Exception:
+                    continue
+                ids = (data or {}).get("ids") or []
+                docs = (data or {}).get("documents") or []
+                metas = (data or {}).get("metadatas") or []
+                per_tier[tier_name] = 0
+                for cid, doc, md in zip(ids, docs, metas):
+                    md = md or {}
+                    if md.get("superseded_by"):
+                        continue
+                    try:
+                        S = float(md.get("stability_days") or md.get("importance", 0.0) * 30.0 or 0.0)
+                    except (TypeError, ValueError):
+                        S = 0.0
+                    if S <= 0:
+                        S = 0.01
+                    last_t = float(md.get("last_recalled_at") or md.get("ingested_at") or t)
+                    elapsed_days = max(0.0, (t - last_t) / 86400.0)
+                    R = ebbinghaus_retention(elapsed_days, S)
+                    if R < retention_floor:
+                        if len(ids_to_prune) < max_prune:
+                            ids_to_prune.append((cid, tier_name))
+                            per_tier[tier_name] += 1
+                            if len(sample) < 10:
+                                sample.append({
+                                    "chunk_id": cid,
+                                    "tier": tier_name,
+                                    "elapsed_days": round(elapsed_days, 1),
+                                    "stability_days": round(S, 2),
+                                    "retention": round(R, 4),
+                                    "preview": (doc[:80] + "…") if len(doc) > 80 else doc,
+                                })
+
+            actually_pruned = 0
+            if not dry_run and ids_to_prune:
+                for cid, tier_name in ids_to_prune:
+                    try:
+                        mem._store.collection_for(Tier(tier_name)).delete(
+                            ids=[cid],
+                        )
+                        actually_pruned += 1
+                    except Exception:
+                        continue
+            return {
+                "dry_run": dry_run,
+                "tier": tier,
+                "retention_floor": retention_floor,
+                "would_prune": len(ids_to_prune),
+                "actually_pruned": actually_pruned,
+                "per_tier": per_tier,
+                "ids": [cid for cid, _ in ids_to_prune[:50]],  # cap the response
+                "most_decayed_sample": sample,
+            }
+        return _run_async(_apply())
+
     # -- Forget by query --------------------------------------------------
     def forget_by_query(
         self,

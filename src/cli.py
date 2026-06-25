@@ -304,16 +304,32 @@ def cmd_nudge(args: argparse.Namespace) -> int:
 
 
 def cmd_optimize_fsrs(args: argparse.Namespace) -> int:
-    """Self-tune the FSRS-6 forgetting-curve exponent (w20)."""
-    async def run():
-        from src.mcp_server import handle_brain_optimize_fsrs
-        return await handle_brain_optimize_fsrs({
-            "default_w20": args.default_w20,
-            "w20_lo": args.w20_lo,
-            "w20_hi": args.w20_hi,
-            "w20_step": args.w20_step,
-        })
-    result = asyncio.run(run())
+    """Self-tune the FSRS-6 forgetting-curve exponent (w20).
+
+    With --apply: also call brain_fsrs_optimize_apply which only
+    commits if the fit improves the MSE by at least --min-improvement-pct.
+    Use on a weekly cron.
+    """
+    if args.apply:
+        async def run_apply():
+            from src.mcp_server import handle_brain_fsrs_optimize_apply
+            return await handle_brain_fsrs_optimize_apply({
+                "min_improvement_pct": args.min_improvement_pct,
+                "w20_lo": args.w20_lo,
+                "w20_hi": args.w20_hi,
+                "w20_step": args.w20_step,
+            })
+        result = asyncio.run(run_apply())
+    else:
+        async def run():
+            from src.mcp_server import handle_brain_optimize_fsrs
+            return await handle_brain_optimize_fsrs({
+                "default_w20": args.default_w20,
+                "w20_lo": args.w20_lo,
+                "w20_hi": args.w20_hi,
+                "w20_step": args.w20_step,
+            })
+        result = asyncio.run(run())
     print(json.dumps(result, indent=2))
     return 0
 
@@ -360,6 +376,25 @@ def cmd_seed_demo(args: argparse.Namespace) -> int:
     async def run():
         from src.mcp_server import handle_brain_seed_demo
         return await handle_brain_seed_demo({"force": args.force})
+    result = asyncio.run(run())
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def cmd_decay(args: argparse.Namespace) -> int:
+    """Memory decay: prune chunks below the Ebbinghaus retention floor.
+
+    Default is dry-run (preview only). Pass --apply to actually delete.
+    Daily cron: `python -m src.cli decay --apply --retention-floor 0.05`.
+    """
+    async def run():
+        from src.mcp_server import handle_brain_decay_apply
+        return await handle_brain_decay_apply({
+            "tier": args.tier,
+            "retention_floor": args.retention_floor,
+            "max_prune": args.max_prune,
+            "dry_run": not args.apply,
+        })
     result = asyncio.run(run())
     print(json.dumps(result, indent=2))
     return 0
@@ -687,13 +722,32 @@ def main() -> int:
     # Optimize FSRS: self-tune w20.
     p_opt = sub.add_parser(
         "optimize-fsrs",
-        help="self-tune the FSRS-6 forgetting-curve exponent",
+        help="self-tune the FSRS-6 forgetting-curve exponent (with --apply, commits if better)",
     )
     p_opt.add_argument("--default-w20", type=float, default=0.9, help="comparison baseline")
     p_opt.add_argument("--w20-lo", type=float, default=0.05, help="search grid low")
     p_opt.add_argument("--w20-hi", type=float, default=3.0, help="search grid high")
     p_opt.add_argument("--w20-step", type=float, default=0.05, help="search grid step")
+    p_opt.add_argument("--apply", action="store_true",
+                      help="commit the new w20 if it improves the baseline by at least --min-improvement-pct")
+    p_opt.add_argument("--min-improvement-pct", type=float, default=1.0,
+                      help="minimum improvement over baseline (percent) to apply")
     p_opt.set_defaults(func=cmd_optimize_fsrs)
+
+    # Memory decay: prune chunks below retention floor.
+    p_decay = sub.add_parser(
+        "decay",
+        help="memory decay: prune chunks below the Ebbinghaus retention floor (with --apply, deletes)",
+    )
+    p_decay.add_argument("--tier", choices=["working", "episodic", "semantic", "procedural"],
+                         help="limit to one tier (default: all)")
+    p_decay.add_argument("--retention-floor", type=float, default=0.05,
+                         help="chunks with R < floor are pruned (default 0.05)")
+    p_decay.add_argument("--max-prune", type=int, default=1000,
+                         help="safety cap on chunks deleted in one call")
+    p_decay.add_argument("--apply", action="store_true",
+                         help="actually delete (default: dry-run — preview only)")
+    p_decay.set_defaults(func=cmd_decay)
 
     # Apply FSRS w20: persist the new value.
     p_apply = sub.add_parser(
