@@ -2,8 +2,8 @@
 
 Persistent, searchable memory that dramatically expands the limited default memory of OpenClaw and Hermes Agent. Drop-in replacement for the flat chat-history buffers both agents ship with — adds a 4-tier CoALA memory model, hybrid retrieval, entity graph, verbatim recall, FSRS-6 spaced repetition, dreaming consolidation, and a Wing/Room/Drawer 2D hierarchy on top.
 
-[![Status](https://img.shields.io/badge/latest_changelog-0.13.0-yellow)]()
-[![MCP](https://img.shields.io/badge/MCP_server-0.13.0-green)]()
+[![Status](https://img.shields.io/badge/latest_changelog-0.14.0-yellow)]()
+[![MCP](https://img.shields.io/badge/MCP_server-0.14.0-green)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 [![CI](https://github.com/Franzferdinan51/duckbot-rag-memory/actions/workflows/ci.yml/badge.svg)]()
 
@@ -24,7 +24,7 @@ DuckBot memory is a focused RAG and long-term memory layer for personal agent wo
 | Consolidation | None | `reflect()` + `dreaming_cycle()` promote episodic → semantic |
 | Conflict detection | None (new fact overwrites old) | mem0-style: near-duplicates marked `superseded_by` |
 | Discovery | Grep through markdown | AAAK compression dialect scans the whole corpus in <500 tokens |
-| Self-improvement | None | `brain_skill_create` distills wins into agentskills.io SKILL.md; `brain_optimize_fsrs` self-tunes the forgetting curve |
+| Self-improvement | None | **Agent-driven skill pipeline**: agents stamp candidates with `brain_remember(kind="skill_candidate")` (no LLM) and promote them to agentskills.io SKILL.md themselves; `brain_optimize_fsrs` self-tunes the forgetting curve |
 | Proactive | None | `brain_nudge` surfaces stale-but-important memories the agent is forgetting |
 | Audit trail | None | Bi-temporal graph: `valid_from`/`valid_until` (world time) + `recorded_from`/`recorded_until` (when the brain knew) |
 
@@ -52,11 +52,12 @@ The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs,
 - **Wing/Room/Drawer 2D hierarchy (MemPalace-inspired):** people/projects × time × verbatim chunks, accessible via `brain_palace` MCP tool.
 - **AAAK compression dialect:** compact one-line-per-chunk format for whole-corpus LLM scanning in <500 tokens, via `brain_index` MCP tool.
 - **Honcho-style user modeling:** periodic distillation of user-related facts into a single `user` memory block, via `brain_user_model`.
-- **Skill auto-creation:** when an agent solves a new task, distill it into an agentskills.io-compatible `SKILL.md` via `brain_skill_create`.
+- **Agent-driven skill pipeline:** agents stamp lightweight candidates with `brain_remember(kind="skill_candidate")` (no LLM call from the brain) and promote them to agentskills.io SKILL.md via `brain_skills_promote`. The brain is pure storage + template — only the embedding model runs.
+- **Skill auto-creation:** when an agent solves a new task, it can also distill it directly into an agentskills.io-compatible `SKILL.md` via `brain_skill_create`.
 - **Proactive memory nudges:** surface stale-but-important memories before they're forgotten, via `brain_nudge` MCP tool.
 - **Local-first embeddings:** LM Studio works well locally; MiniMax, OpenAI, and sentence-transformers are also supported.
 - **Watcher daemon:** polls markdown sources every five minutes by default and dedups unchanged content by hash.
-- **MCP stdio server:** 56 tools for recall, remember, reflect, graph, blocks, dreaming, learning, quarantine, sync, wake-up, palace, index, nudge, skillgen, user modeling, export/import, and demo seeding.
+- **MCP stdio server:** 63 tools for recall, remember, reflect, graph, blocks, dreaming, learning, quarantine, sync, wake-up, palace, index, nudge, skillgen, user modeling, agent-driven skill pipeline, export/import, and demo seeding.
 - **Shell wrappers:** `scripts/duckbot-ask`, `scripts/brain-recall.sh`, `scripts/hermes-preflight.sh`, `scripts/hermes-postflight.sh`, and the one-command bootstraps `scripts/openclaw-bootstrap.sh` / `scripts/hermes-bootstrap.sh` for first-time setup.
 
 > If you (or an agent) just want to install this without reading the README, see [INSTALL.md](INSTALL.md) for a single-page copy-paste recipe (prereqs → install → bootstrap → register MCP → cron).
@@ -195,13 +196,13 @@ hermes mcp add duckbot-memory `
 
 Prefer the launcher scripts over passing env vars directly to MCP config. They load `.env` at process start, set unbuffered output, and choose the correct venv path per OS.
 
-The current MCP server exposes 56 tools:
+The current MCP server exposes 63 tools:
 
 | Area | Tools |
 | --- | --- |
 | Core memory | `remember`, `recall`, `reflect`, `forget`, `stats`, `watch`, `doctor` |
 | Retrieval maintenance | `recall_verbatim`, `search_verbatim`, `fsrs_review`, `decay_status`, `forget_by_query` |
-| Enhanced brain | `brain_wake_up`, `brain_inflate`, `brain_sync`, `brain_recall`, `brain_remember`, `brain_reflect`, `brain_stats`, `brain_index`, `brain_nudge`, `brain_skill_create`, `brain_user_model`, `brain_palace`, `brain_optimize_fsrs`, `brain_apply_fsrs_w20`, `brain_export`, `brain_import`, `brain_seed_demo` |
+| Enhanced brain | `brain_wake_up`, `brain_inflate`, `brain_sync`, `brain_recall`, `brain_remember`, `brain_reflect`, `brain_stats`, `brain_index`, `brain_nudge`, `brain_skill_create`, `brain_skills_list`, `brain_skills_promote`, `brain_user_model`, `brain_palace`, `brain_optimize_fsrs`, `brain_apply_fsrs_w20`, `brain_export`, `brain_import`, `brain_seed_demo` |
 | Graph | `brain_graph_entity`, `brain_graph_relate`, `brain_graph_query`, `brain_graph_relationships`, `brain_graph_history` |
 | Blocks | `brain_block_read`, `brain_block_write`, `brain_block_append`, `brain_block_delete`, `brain_block_list`, `brain_seed_blocks` |
 | Safety | `brain_injection_scan`, `brain_quarantine_list`, `brain_quarantine_review` |
@@ -241,6 +242,45 @@ python -m src.cli apply-fsrs-w20 0.42       # commit (persists via DUCKBOT_FSRS_
 
 `brain_wake_up` is the one-call session-start context load: top-k recent memories, active memory blocks, graph summary, and FSRS review queue. Designed for Hermes pre-flight + OpenClaw session-start hooks. `brain_inflate` recalls relevant memories and formats them as a markdown context block for an agent. `brain_sync` writes distilled context back to OpenClaw and Hermes memory files, respecting each platform's format and size limits. `brain_nudge` surfaces stale-but-important memories the agent might be forgetting. `brain_palace` exposes the MemPalace-inspired 2D hierarchy (person/project → time → verbatim chunk). `brain_optimize_fsrs` + `brain_apply_fsrs_w20` self-tune the FSRS-6 forgetting-curve exponent. `brain_skill_create` distills a successful task into an agentskills.io-compatible `SKILL.md`. `brain_user_model` aggregates user-related facts into a single Honcho-style user block.
 
+## Agent-Driven Skill Pipeline
+
+The brain never calls a generative LLM — only the embedding model runs. The agent authors skill content using its own LLM context; the brain is pure storage + template. This keeps the brain's VRAM footprint to just the embedder, regardless of how many candidates you accumulate.
+
+The flow:
+
+1. **Finish a task worth repeating** → stamp a lightweight candidate:
+   ```
+   brain_remember(
+     text="Restarted BATMAN by running docker compose down && up",
+     kind="skill_candidate",
+     summary="BATMAN container restart",
+     importance=0.8,
+   )
+   ```
+   The brain stores the chunk in the procedural tier with `metadata.kind="skill_candidate"`. No LLM call. Returns `chunk_id` immediately so you can promote it later.
+
+2. **At a quiet moment** → review unpromoted candidates:
+   ```
+   brain_skills_list()    # sorted by recency then importance
+   ```
+
+3. **Write the SKILL.md yourself** (you have the full context — what worked, what the user prefers, what to watch out for), then promote:
+   ```
+   brain_skills_promote(
+     chunk_id="mem_abc123",
+     name="Restart BATMAN Container",
+     description="Use this when BATMAN is offline and needs a restart",
+     instructions=[
+       "Run docker compose down in the BATMAN directory",
+       "Run docker compose up -d",
+       "Verify health with curl localhost:8080/health",
+     ],
+   )
+   ```
+   The brain writes `skills/<slug>/SKILL.md` via the existing `skillgen.write_skill` (pure template) and marks the candidate chunk as `promoted=True`.
+
+The same 11-tool core surface (which includes `brain_skills_list` and `brain_skills_promote`) is exposed by every thin entry point: OpenClaw adapter, Hermes plugin, and the canonical MCP server. See [docs/PLUGIN_SURFACE.md](docs/PLUGIN_SURFACE.md) for the full comparison.
+
 ## Architecture
 
 ```text
@@ -275,19 +315,22 @@ duckbot-rag-memory/
 |   |-- memory.py         # unified Memory facade
 |   |-- query.py          # hybrid retrieval + RRF + keyword/temporal boost
 |   |-- consolidate.py    # episodic -> semantic distillation
-|   |-- mcp_server.py     # MCP stdio server (56 tools)
+|   |-- mcp_server.py     # MCP stdio server (63 tools)
 |   |-- watcher.py        # polling watcher daemon
 |   |-- cli.py            # command-line interface
 |   |-- dialect.py        # AAAK compression dialect (brain_index)
 |   |-- palace.py         # Wing/Room/Drawer 2D index (brain_palace)
-|   |-- skillgen.py       # agentskills.io SKILL.md generator
+|   |-- skillgen.py       # agentskills.io SKILL.md generator (pure template)
+|   |-- skill_pipeline.py # agent-driven candidate -> skill pipeline (no LLM)
 |   |-- spellcheck.py     # common-typo fixer on ingest
 |   |-- fsrs_optimizer.py # self-tune FSRS w20 from recall history
 |   |-- blocks.py graph.py entities.py
 |   |                      # blocks + temporal graph + entity extraction
 |   |-- backends/         # chroma, lancedb, qdrant interfaces
-|   `-- connectors/       # OpenClaw, Active Memory, dreaming, learn
-|-- tests/                # pytest suite, currently 608 tests collected
+|   |-- connectors/       # OpenClaw (legacy), Active Memory, dreaming, learn
+|   |-- extensions/       # shared agent surface (11 tools) + OpenClaw adapter
+|   `-- plugins/          # Hermes MemoryProvider plugin package
+|-- tests/                # pytest suite, currently 712 tests
 |-- benchmarks/           # golden retrieval evals
 |-- scripts/              # install, watcher, MCP launcher, query helpers,
 |                         #   hermes-preflight.sh, hermes-postflight.sh
@@ -329,7 +372,7 @@ pytest --collect-only -q
 bash scripts/secret-scan.sh
 ```
 
-Current local check: **608 tests collected**. The suite is exercised in CI on every push.
+Current local check: **712 tests passing**. The suite is exercised in CI on every push.
 
 ## Cross-Platform Notes
 
