@@ -627,8 +627,14 @@ async def handle_forget_by_query(args: dict) -> dict:
 async def handle_search_verbatim(args: dict) -> dict:
     from src.connectors.base import Brain
     brain = Brain()
+    # Reject empty / whitespace-only needle — same fix as the shared
+    # surface's brain_search_verbatim. Otherwise every chunk trivially
+    # matches "" via Python's `in` check.
+    needle = (args.get("needle") or "").strip()
+    if not needle:
+        return {"error": "needle must be a non-empty string"}
     return {"matches": brain.search_verbatim(
-        needle=args["needle"], k=args.get("k", 5),
+        needle=needle, k=args.get("k", 5),
     )}
 
 
