@@ -391,6 +391,17 @@ class Memory:
                     md["recall_count"] = int(md.get("recall_count", 0)) + 1
                     md["last_recalled_at"] = time.time()
                     md["importance"] = min(1.0, float(md.get("importance", 0.5)) + 0.02)
+                    # Bump FSRS stability on every successful recall — this is
+                    # the core "memories strengthen when you use them" loop.
+                    # Without it, recall_count goes up but forgetting math
+                    # stays the same, so the brain never learns from usage.
+                    from .decay import bump_stability
+                    cur_s = md.get("fsrs_stability_days") or md.get("stability_days")
+                    md["fsrs_stability_days"] = bump_stability(
+                        float(cur_s) if cur_s is not None else None,
+                        recalled=True,
+                    )
+                    md["fsrs_last_review_ts"] = time.time()
                     coll.update(ids=[r.chunk_id], metadatas=[md])
             except Exception:
                 pass

@@ -1,448 +1,284 @@
-# 🦆 DuckBot Memory System
+# DuckBot RAG + Memory System
 
-> Persistent, searchable, and self-curing memory for OpenClaw + Hermes Agent. Auto-updates in real time.
+Persistent, searchable memory for DuckBot, OpenClaw, Hermes Agent, and any MCP client.
 
-[![Status](https://img.shields.io/badge/status-v0.11.3-yellow)]() [![License](https://img.shields.io/badge/license-MIT-blue)]() [![Open Source](https://img.shields.io/badge/open--source-everything-green)]() [![CI](https://github.com/Franzferdinan51/duckbot-rag-memory/actions/workflows/ci.yml/badge.svg)]()
+[![Status](https://img.shields.io/badge/latest_changelog-0.11.5-yellow)]()
+[![MCP](https://img.shields.io/badge/MCP_server-0.11.7-green)]()
+[![License](https://img.shields.io/badge/license-MIT-blue)]()
+[![CI](https://github.com/Franzferdinan51/duckbot-rag-memory/actions/workflows/ci.yml/badge.svg)]()
 
-## What this is
+## What This Is
 
-A **RAG pipeline + memory layer + auto-updater** built specifically for personal AI agent usage. Combines:
+DuckBot memory is a focused RAG and long-term memory layer for personal agent workflows. It ingests markdown, classifies it into memory tiers, embeds it, stores it in local vector collections, and exposes recall/write tools through CLI wrappers and MCP.
 
-- **RAG core** — markdown-aware chunking, vector + BM25 hybrid retrieval, Reciprocal Rank Fusion
-- **CoALA 4-tier** — working / episodic / semantic / procedural memory taxonomy
-- **Entity memory** — people, places, orgs, products with relationships (Cognee-inspired)
-- **Auto-updater** — file-watcher daemon syncs new/changed markdown in real time (mem0 hook pattern, 5-min polling with content-hash dedup)
-- **Sleep-time consolidation** — `reflect()` pass that promotes episodic → semantic
-- **Importance scoring** — recall bumps importance; old + unused decays naturally (L8 Ebbinghaus + L9 FSRS-6 spaced repetition)
-- **Pluggable embeddings** — LM Studio (primary), MiniMax (fallback), OpenAI, sentence-transformers
-- **MCP server** — 45 tools (`remember` / `recall` / `reflect` / `forget` / `stats` / `brain_decay_status` / `brain_fsrs_review` / `brain_dreaming_read` / ...) for any MCP client
-- **Shell-friendly CLI** — `scripts/duckbot-ask` and `scripts/brain-recall` for cron + scripts
+It is designed for a practical loop:
 
-Inspired by (and pulling from):
-- **mem0** (mem0ai/mem0) — hook-based auto-capture, `add`/`update`/`search` API
-- **Letta / MemGPT** (letta-ai/letta) — tiered memory, self-editing blocks, sleep-time agents
-- **Cognee** (topoteretes/cognee) — ECL pipeline (Extract → Cognify → Load), knowledge graph
-- **Hermes Agent** (NousResearch/hermes-agent) — FTS5 session search, LLM summarization
-- **CoALA framework** (Princeton 2023) — 4-tier memory taxonomy
-- **LangChain** RecursiveCharacterTextSplitter, **LlamaIndex** SentenceSplitter
+1. Capture durable context from OpenClaw memory files, project docs, and direct `remember` calls.
+2. Retrieve with hybrid vector + keyword search.
+3. Consolidate episodic notes into semantic facts.
+4. Sync useful memories back into agent context files.
 
-## Quick start
+The project draws from mem0, Letta/MemGPT, Cognee, Hermes Agent, and the CoALA memory taxonomy, but it keeps the runtime small: no general agent framework, no hosted database requirement, no secrets in client config.
+
+## Core Capabilities
+
+- **Four memory tiers:** working, episodic, semantic, and procedural.
+- **Markdown-aware chunking:** recursive splitting around headers, paragraphs, sentences, and words.
+- **Hybrid retrieval:** vector search + BM25-style keyword matching + Reciprocal Rank Fusion.
+- **Entity and relationship memory:** lightweight graph storage for people, projects, files, and links between them.
+- **Verbatim recall:** exact source text retrieval for quotes, commands, and sensitive wording.
+- **Memory health layers:** decay, FSRS-style review scheduling, tier priors, rerank hooks, and injection scanning.
+- **Local-first embeddings:** LM Studio works well locally; MiniMax, OpenAI, and sentence-transformers are also supported.
+- **Watcher daemon:** polls markdown sources every five minutes by default and dedups unchanged content by hash.
+- **MCP stdio server:** 45 tools for recall, remember, reflect, graph, blocks, dreaming, learning, quarantine, and sync.
+- **Shell wrappers:** `scripts/duckbot-ask` and `scripts/brain-recall.sh` for use from any terminal or cron job.
+
+## Quick Start
 
 ```bash
 cd ~/Desktop/duckbot-rag-memory
-./.venv/bin/python -m src.cli doctor           # verify everything works
-./.venv/bin/python -m src.watcher once         # one-shot full sync (~5 min for 150 files)
-./.venv/bin/python -m src.watcher daemon       # run auto-updater in background
-./.venv/bin/python -m src.cli query "What did we decide about cloud-only models?" -n 5
+
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env
+# Edit .env with your embedding provider settings.
+
+python -m src.cli doctor
+python -m src.cli ingest ~/.openclaw/workspace/memory
+python -m src.cli query "What did we decide about cloud-only models?" -n 5
 ```
 
-Or from any shell (loads `.env` automatically, cross-platform venv detection):
+From any shell:
 
 ```bash
 ./scripts/duckbot-ask "What did we decide about cloud-only models?"
 ./scripts/duckbot-ask -f compact -n 3 "Duckets correction style"
 ./scripts/duckbot-ask -f snippet "BATMAN container restart recipe"
-./scripts/brain-recall "Duckets current mining status"     # alias for duckbot-ask
+./scripts/brain-recall.sh "watcher restart steps"
 ```
 
-To expose the brain as MCP tools to Hermes Agent or any MCP client:
+The wrappers load `.env` themselves and detect the local venv, so API keys do not need to be placed in MCP or shell history.
+
+## Recommended Embedding Setup
+
+LM Studio is the preferred local path:
 
 ```bash
-hermes mcp add duckbot-memory \
-  --command "$(pwd)/scripts/duckbot-memory-mcp.sh"
-# (On Windows use scripts/duckbot-memory-mcp.bat instead.)
-# See docs/INTEGRATION.md for the full install recipe + gotchas.
-```
-
-Or programmatically:
-
-```python
-from src.memory import Memory
-mem = Memory()
-await mem.remember("Today we installed cua-driver v0.6.2.")
-results, stats = await mem.recall("cua-driver", k=3)
-await mem.reflect()  # sleep-time consolidation
-```
-
-## Architecture (one page)
-
-```
-┌───────────────────────────────────────────────────────────────┐
-│                      file watcher (real time)                  │
-│  /memory/*.md, AGENTS.md, SOUL.md, project docs               │
-│  ↓ on change                                                   │
-│  ┌────────────────────────────────────────────────────────┐   │
-│  │            Memory.remember(text)                        │   │
-│  │  chunk → tier classify → entity extract → importance   │   │
-│  │           → embed (LM Studio / MiniMax / OpenAI)        │   │
-│  │           → upsert into ChromaDB (idempotent)           │   │
-│  └────────────────────────────────────────────────────────┘   │
-│                              ↓                                 │
-│  ┌────────────────────────────────────────────────────────┐   │
-│  │ ChromaDB (one collection per tier)                     │   │
-│  │   duckbot_working   (capped, recent sessions)          │   │
-│  │   duckbot_episodic  (daily logs, dated)                │   │
-│  │   duckbot_semantic  (distilled facts, entities)        │   │
-│  │   duckbot_procedural(rules, norms, AGENTS/SOUL)        │   │
-│  └────────────────────────────────────────────────────────┘   │
-│                              ↓                                 │
-│  ┌────────────────────────────────────────────────────────┐   │
-│  │ Memory.recall(query)                                    │   │
-│  │  embed query → vector search + BM25 → RRF fuse         │   │
-│  │  → bump importance of returned chunks                  │   │
-│  │  → spread activation to related chunks                 │   │
-│  └────────────────────────────────────────────────────────┘   │
-│                              ↓                                 │
-│  OpenClaw agents / Claude Code / Cursor / Codex via MCP        │
-│  (tools: remember, recall, reflect, forget, stats, watch)      │
-└───────────────────────────────────────────────────────────────┘
-```
-
-## Auto-update (no cron)
-
-Per Duckets (2026-06-23): **no automatic cron** — memory updates in real time.
-
-```bash
-# 1. One-shot full sync (good for cold start or recovery)
-./.venv/bin/python -m src.watcher once
-
-# 2. Run as a long-lived process (foreground; survives exec-tool sessions)
-nohup ./.venv/bin/python -m src.watcher run </dev/null >data/watcher.log 2>&1 &
-
-# 3. Or wire it into launchd (auto-restart on crash + on boot)
-cp scripts/com.duckbot.memory-watcher.plist ~/Library/LaunchAgents/
-launchctl load -w ~/Library/LaunchAgents/com.duckbot.memory-watcher.plist
-
-# 4. Or trigger via MCP from any agent
-call_tool("watch", {"daemon": true})
-```
-
-Management:
-
-```bash
-./.venv/bin/python -m src.watcher status   # check if running
-./.venv/bin/python -m src.watcher stop     # SIGTERM the daemon
-```
-
-The watcher (uses `watchdog` for FSEvents/inotify, falls back to polling) watches:
-- `~/.openclaw/workspace/memory/` (all daily logs)
-- `~/.openclaw/workspace/MEMORY.md`, `AGENTS.md`, `SOUL.md`, `IDENTITY.md`
-- `~/Desktop/ai-Py-boy-emulation-main/` (project docs)
-- `~/Desktop/Newest Desktop Control/` (project docs)
-
-**Note:** these defaults are hardcoded for Duckets' machine in
-`src/watcher.py:DEFAULT_WATCH`. For your own setup, override with extra
-paths: `./.venv/bin/python -m src.watcher run <path1> <path2>`.
-Or edit `DEFAULT_WATCH` in `src/watcher.py` directly.
-
-### Why polling, not watchdog
-
-On macOS, `watchdog` (FSEvents) combined with `chromadb` + `httpx` in the same
-process segfaults reliably. The polling handler (default since 2026-06-23) is
-rock-solid and trades a 5-minute poll (300s default, override with `--interval N`)
-for that stability. To opt back into FSEvents:
-`DUCKBOT_WATCH_USE_FSEVENTS=1 ./.venv/bin/python -m src.watcher run`.
-
-### Why `run` not `daemon`
-
-`watcher daemon` uses an internal double-fork that gets killed by SIGHUP from the
-parent shell on macOS (the orphaned grandchild inherits a defunct controlling tty).
-The working pattern is `subprocess.Popen(start_new_session=True)` from a Python
-helper script (see `scripts/start-watcher.sh`), or `launchd` which provides a
-proper background process tree. The `daemon` subcommand is kept for compatibility
-but not the recommended path on macOS.
-
-### Why Python 3.12, not 3.9
-
-The Xcode-shipped Python 3.9.6 + chromadb 1.5.9 + arm64 segfaults on `coll.count()`
-and `coll.upsert()`. The fix is to recreate the venv with the homebrew Python 3.12
-or 3.13:
-
-```bash
-cd ~/Desktop/duckbot-rag-memory
-/opt/homebrew/bin/python3.12 -m venv .venv
-# If the symlinks still point to Python 3.9, fix them:
-cd .venv/bin && rm -f python python3 python3.9 && ln -s python3.12 python3 && ln -s python3.12 python
-cd ../.. && ./.venv/bin/python -m pip install -r requirements.txt
-```
-
-## Embedding providers
-
-Per Duckets (2026-06-23): **LM Studio primary, MiniMax fallback.**
-
-Set in `.env`:
-```bash
-DUCKBOT_EMBEDDING=lmstudio  # primary
+DUCKBOT_EMBEDDING=lmstudio
 LMSTUDIO_URL=http://127.0.0.1:1234/v1
-LMSTUDIO_KEY=sk-lm-xxx:yyy
-LMSTUDIO_MODEL=text-embedding-embeddinggemma-300m
-
-# Fallback (cloud, paid, high quality)
-MINIMAX_API_KEY=sk-cp-xxx
-MINIMAX_BASE_URL=https://api.minimax.io/v1
+LMSTUDIO_API_KEY=lm-studio
+LMSTUDIO_MODEL=text-embedding-nomic-embed-text-v1.5
 ```
 
-Auto-detect chain: `DUCKBOT_EMBEDDING` env > LM Studio reachable > MiniMax key > OpenAI key > sentence-transformers.
-
-## MCP server (for any agent)
-
-Exposes the memory API to MCP clients. Run as stdio server:
+Other supported providers:
 
 ```bash
-./.venv/bin/python -m src.mcp_server
+# Cloud fallback
+DUCKBOT_EMBEDDING=minimax
+MINIMAX_API_KEY=...
+
+# OpenAI
+DUCKBOT_EMBEDDING=openai
+OPENAI_API_KEY=...
+
+# Offline local model
+DUCKBOT_EMBEDDING=local
 ```
 
-**45 tools total** (v0.11.7):
+If `DUCKBOT_EMBEDDING` is unset, the code auto-detects from available credentials and local services. Keep real keys only in `.env`; it is gitignored and protected by the secret-scan scripts.
 
-| Tool | Layer | Purpose |
-|---|---|---|
-| `remember`, `recall`, `reflect`, `forget`, `stats`, `watch`, `doctor` | core | the seven base tools |
-| `recall_verbatim` | L13 | verbatim-first retrieval (no overlap, no contextual prefixes) |
-| `fsrs_review` | L9 | chunks due for FSRS-6 review (R(t,S) < 0.9), sorted by urgency |
-| `decay_status` | L8 | Ebbinghaus decay status (R = e^(-t/S)) by tier |
-| `forget_by_query` | — | delete the top-k chunks matching a query |
-| `search_verbatim` | L13 | exact substring match against verbatim source text |
-| `brain_*` (25 more) | — | the OpenClaw connector tools, also exposed via stdio MCP for any MCP client |
+## Watcher
 
-The 25 `brain_*` tools cover the knowledge graph (L1: `brain_graph_entity`,
-`brain_graph_relate`, `brain_graph_query`, `brain_graph_relationships`,
-`brain_graph_history`), memory blocks (L3: `brain_block_read`,
-`brain_block_write`, `brain_block_append`, `brain_block_delete`,
-`brain_block_list`, `brain_seed_blocks`), injection quarantine (L4:
-`brain_injection_scan`, `brain_quarantine_list`, `brain_quarantine_review`),
-plus the 4 new v0.10.0 tools renamed with the `brain_` prefix for
-OpenClaw (`brain_recall`, `brain_recall_verbatim`, `brain_remember`,
-`brain_stats`, `brain_reflect`, `brain_fsrs_review`,
-`brain_decay_status`, `brain_forget_by_query`, `brain_search_verbatim`).
-
-Wire any of these into OpenClaw, Claude Code, Cursor, Codex via their
-respective MCP configs. The server returns JSON-RPC 2.0 responses on
-stdout.
-
-### Wire it into Hermes Agent
-
-**Recommended — use the launcher script.** It loads your `.env` (so the
-API key never has to live in hermes config), sets `PYTHONUNBUFFERED=1`,
-and detects the right venv path on any OS:
+Use the watcher for live-ish ingest instead of cron. It polls every five minutes by default, tracks content hashes, and skips no-op rewrites.
 
 ```bash
-# macOS / Linux
+# One sync pass, useful for backfill or recovery.
+python -m src.watcher once
+
+# Foreground watcher.
+python -m src.watcher run
+
+# Detached launcher, recommended for macOS/Linux shells.
+./scripts/start-watcher.sh
+
+# Service integration.
+./scripts/install-macos.sh   # launchd
+./scripts/install-linux.sh   # systemd user service
+pwsh scripts/install.ps1     # Windows Task Scheduler
+
+# Status and stop.
+python -m src.watcher status
+python -m src.watcher stop
+```
+
+Default watch paths include OpenClaw memory files and selected project docs. Pass explicit paths to override:
+
+```bash
+python -m src.watcher run ~/.openclaw/workspace/memory ./AGENTS.md ./README.md
+```
+
+On macOS, polling is the default because `watchdog`/FSEvents has historically been unstable in the same process as ChromaDB and httpx. You can opt into native events with:
+
+```bash
+DUCKBOT_WATCH_USE_FSEVENTS=1 python -m src.watcher run
+```
+
+## MCP Integration
+
+Run the memory server directly:
+
+```bash
+python -m src.mcp_server
+```
+
+Or register it with Hermes Agent:
+
+```bash
 hermes mcp add duckbot-memory \
   --command "$HOME/Desktop/duckbot-rag-memory/scripts/duckbot-memory-mcp.sh"
+```
 
-# Windows (PowerShell)
+Windows:
+
+```powershell
 hermes mcp add duckbot-memory `
   --command "C:\Users\franz\Desktop\duckbot-rag-memory\scripts\duckbot-memory-mcp.bat"
-
-# Windows (git-bash / MSYS)
-hermes mcp add duckbot-memory \
-  --command "/c/Users/franz/Desktop/duckbot-rag-memory/scripts/duckbot-memory-mcp.bat"
 ```
 
-> Hermes on Windows refuses to spawn `.sh` scripts via stdio subprocess
-> (`WinError 193`), so use the `.bat` wrapper there. Same script, same
-> behavior — just `cmd.exe`-native. Both are in the repo.
+Prefer the launcher scripts over passing env vars directly to MCP config. They load `.env` at process start, set unbuffered output, and choose the correct venv path per OS.
 
-**Manual — direct python invocation.** Use this if you don't want the
-launcher script (or you're packaging the brain differently). Same shape
-on all three platforms, only the venv path differs:
+The current MCP server exposes 45 tools:
+
+| Area | Tools |
+| --- | --- |
+| Core memory | `remember`, `recall`, `reflect`, `forget`, `stats`, `watch`, `doctor` |
+| Retrieval maintenance | `recall_verbatim`, `search_verbatim`, `fsrs_review`, `decay_status`, `forget_by_query` |
+| Enhanced brain | `brain_inflate`, `brain_sync`, `brain_recall`, `brain_remember`, `brain_reflect`, `brain_stats` |
+| Graph | `brain_graph_entity`, `brain_graph_relate`, `brain_graph_query`, `brain_graph_relationships`, `brain_graph_history` |
+| Blocks | `brain_block_read`, `brain_block_write`, `brain_block_append`, `brain_block_delete`, `brain_block_list`, `brain_seed_blocks` |
+| Safety | `brain_injection_scan`, `brain_quarantine_list`, `brain_quarantine_review` |
+| Connectors | `dreaming_read`, `dreaming_cycle`, `learn`, `active_memory`, plus `brain_*` aliases |
+
+See [docs/INTEGRATION.md](docs/INTEGRATION.md) for client-specific setup, Windows gotchas, and verification steps.
+
+## Enhanced Brain
+
+The enhanced brain closes the loop between retrieval and agent startup context.
 
 ```bash
-# macOS / Linux
-hermes mcp add duckbot-memory \
-  --command "$HOME/Desktop/duckbot-rag-memory/.venv/bin/python" \
-  --args "-m src.mcp_server" \
-  --env "PYTHONPATH=$HOME/Desktop/duckbot-rag-memory"
+# Sync useful memories into OpenClaw and Hermes context files.
+python -m src.cli sync --target both
 
-# Windows (PowerShell)
-hermes mcp add duckbot-memory `
-  --command "$HOME\Desktop\duckbot-rag-memory\.venv\Scripts\python.exe" `
-  --args "-m src.mcp_server" `
-  --env "PYTHONPATH=$HOME\Desktop\duckbot-rag-memory"
-
-# Windows (git-bash / MSYS)
-hermes mcp add duckbot-memory \
-  --command "$HOME/Desktop/duckbot-rag-memory/.venv/Scripts/python.exe" \
-  --args "-m src.mcp_server" \
-  --env "PYTHONPATH=$HOME/Desktop/duckbot-rag-memory"
+# Preview without writing.
+python -m src.cli sync --dry-run
 ```
 
-> **Heads-up on `--env`:** Hermes does **not** expand `${VAR}` in MCP
-> `env:` values. If you put `LMSTUDIO_API_KEY=***` directly here, the
-> key leaks through `hermes mcp list` and the `/api/mcp/servers` endpoint.
-> Either use the launcher (which reads `.env` itself) or export
-> `LMSTUDIO_API_KEY` in the parent hermes process env before launch.
->
-> Also: `hermes mcp add --args` uses `nargs=REMAINDER`, so put `--env`
-> flags **before** `--args` or they'll be swept into the arg list.
->
-> You don't need `-u` or `PYTHONUNBUFFERED=1` — `src/mcp_server.py`
-> reconfigures stdio to line-buffered mode at startup.
+`brain_inflate` recalls relevant memories and formats them as a markdown context block for an agent. `brain_sync` writes distilled context back to OpenClaw and Hermes memory files, respecting each platform's format and size limits.
 
-To run a one-shot query through the MCP transport without registering it
-as a server, use the CLI directly — same tool, no MCP framing:
+## Architecture
 
-```bash
-# macOS / Linux
-./.venv/bin/python -m src.cli query "What did we decide about cloud-only models?" -n 5
-
-# Windows
-.venv\Scripts\python.exe -m src.cli query "What did we decide about cloud-only models?" -n 5
+```text
+Markdown sources
+  -> watcher / CLI ingest / remember()
+  -> chunk_markdown()
+  -> tier classify + entity extraction + injection scan
+  -> embeddings provider
+  -> ChromaDB collections by tier
+  -> hybrid query + RRF + optional recall adjustments
+  -> CLI, MCP, OpenClaw, Hermes, Codex, Cursor
 ```
 
-### Cross-platform paths (Windows users)
+Storage lives under `data/` and is gitignored:
 
-The README shows POSIX paths (`./.venv/bin/python`, `/Users/duckets/...`)
-for brevity. On Windows the equivalent paths are:
+- `data/chroma/` for vector collections.
+- `data/watcher_state.json` for file hashes and chunk IDs.
+- `data/watcher.log` for daemon activity.
+- `data/*.sqlite*` for graph, blocks, and quarantine state.
 
-| POSIX | Windows |
-|---|---|
-| `./.venv/bin/python` | `.venv\Scripts\python.exe` |
-| `nohup ./.venv/bin/python ... &` | `start /B .venv\Scripts\python.exe ...` |
-| `/Users/duckets/Desktop/duckbot-rag-memory` | `C:\Users\<you>\Desktop\duckbot-rag-memory` |
-| `bash scripts/install.sh` | `powershell -File scripts\install.ps1` |
-| `launchd plist` (`scripts/install-macos.sh`) | Task Scheduler entry (`scripts/install.ps1`) |
-| `systemd --user` (`scripts/install-linux.sh`) | Task Scheduler entry (`scripts/install.ps1`) |
+For the full design discussion, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). For research lineage, read [docs/RESEARCH.md](docs/RESEARCH.md).
 
-The `scripts/install.ps1` Windows installer handles venv, dependencies,
-optional LM Studio embedding setup, and Task Scheduler registration.
+## Repository Map
 
-### Example: search verbatim through the MCP server
-
-```bash
-printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_verbatim","arguments":{"needle":"Stop using local models entirely"}}}' \
-  | ./.venv/bin/python -m src.mcp_server
-# Returns the chunk containing the exact phrase, with highlight context.
-```
-
-## Files
-
-```
+```text
 duckbot-rag-memory/
-├── src/
-│   ├── chunk.py          # markdown-aware recursive chunker (512 tok, 15% overlap)
-│   ├── tier.py           # CoALA 4-tier classifier
-│   ├── embeddings.py     # 4 providers + auto-detect chain
-│   ├── store.py          # ChromaDB wrapper, one collection per tier
-│   ├── ingest.py         # batch ingest pipeline
-│   ├── query.py          # hybrid vector + BM25 + RRF
-│   ├── consolidate.py    # episodic → semantic distillation
-│   ├── eval.py           # recall@K, MRR, latency benchmark
-│   ├── memory.py         # ⭐ unified Memory facade (remember/recall/reflect/forget)
-│   ├── watcher.py        # ⭐ real-time file-watcher daemon
-│   ├── mcp_server.py     # ⭐ MCP stdio server
-│   └── cli.py            # CLI entry point
-├── tests/                # 55 unit + integration tests
-├── benchmarks/           # golden.jsonl for eval
-├── scripts/              # install.sh, cron.sh (legacy)
-├── docs/                 # ARCHITECTURE.md, RESEARCH.md
-├── data/                 # gitignored: chroma, logs, watcher state
-└── .env.example          # config template
+|-- src/
+|   |-- chunk.py          # markdown-aware chunking
+|   |-- tier.py           # CoALA tier classifier
+|   |-- embeddings.py     # LM Studio, MiniMax, OpenAI, local providers
+|   |-- store.py          # ChromaDB wrapper
+|   |-- memory.py         # unified Memory facade
+|   |-- query.py          # hybrid retrieval and RRF
+|   |-- consolidate.py    # episodic -> semantic distillation
+|   |-- mcp_server.py     # MCP stdio server
+|   |-- watcher.py        # polling watcher daemon
+|   |-- cli.py            # command-line interface
+|   |-- backends/         # chroma, lancedb, qdrant interfaces
+|   `-- connectors/       # OpenClaw, Active Memory, dreaming, learn
+|-- tests/                # pytest suite, currently 560 tests collected
+|-- benchmarks/           # golden retrieval evals
+|-- scripts/              # install, watcher, MCP launcher, query helpers
+|-- skills/               # OpenClaw skill manifests and plugins
+|-- docs/                 # architecture, integration, research
+|-- data/                 # gitignored runtime state
+|-- .env.example          # local config template
+|-- AGENTS.md             # instructions for coding agents
+|-- CHANGELOG.md          # release history
+|-- CONTRIBUTING.md       # contribution guide
+|-- SECURITY.md           # disclosure and hardening notes
+`-- README.md
 ```
+
+## CLI Reference
+
+```bash
+python -m src.cli ingest <path> [<path> ...]
+python -m src.cli query "question" -n 5
+python -m src.cli stats
+python -m src.cli eval benchmarks/golden.jsonl
+python -m src.cli consolidate 7
+python -m src.cli compact
+python -m src.cli dashboard --json
+python -m src.cli sync --target openclaw|hermes|both
+python -m src.cli doctor
+```
+
+`reset` exists for local development, but it wipes collections and requires `--yes`.
 
 ## Testing
 
 ```bash
-./.venv/bin/pytest -q                   # all tests (419 as of v0.8.0)
-./.venv/bin/pytest tests/test_memory.py # just the Memory facade
-./.venv/bin/pytest -k "watcher"         # watcher tests
-./.venv/bin/pytest -k "chroma"          # Chroma backend + enhancements
+pytest -v
+pytest tests/test_memory.py -v
+pytest -k "watcher" -v
+pytest --collect-only -q
+bash scripts/secret-scan.sh
 ```
 
-## Cross-platform support (macOS / Linux / Windows)
+Current local collection check: **560 tests collected**. The latest changelog entry records **529 passing** for the 0.11.5 audit fixes; the local suite has continued to grow since then.
 
-All Python code uses `pathlib` (no `os.path.join` string concat), so the
-core brain works identically on all three OSes. Two scripts are
-OS-specific:
+## Cross-Platform Notes
 
-| OS | Pre-commit hook script | Install command |
-|---|---|---|
-| macOS / Linux | `scripts/secret-scan.sh` | `ln -sf ../../scripts/secret-scan.sh .git/hooks/pre-commit` (already done in this repo) |
-| Windows 10/11 | `scripts/secret-scan.ps1` | `pwsh scripts/install-pre-commit.ps1` |
+| Task | macOS/Linux | Windows |
+| --- | --- | --- |
+| Python | `./.venv/bin/python` | `.venv\Scripts\python.exe` |
+| Install | `./scripts/install.sh` | `pwsh scripts/install.ps1` |
+| Start watcher | `./scripts/start-watcher.sh` | `pwsh scripts/start-watcher.ps1` |
+| MCP launcher | `scripts/duckbot-memory-mcp.sh` | `scripts\duckbot-memory-mcp.bat` |
+| Secret scan | `bash scripts/secret-scan.sh` | `pwsh scripts/secret-scan.ps1` |
 
-Both scripts have the same patterns, the same exit codes, and the same
-opt-out env var (`DUCKBOT_SKIP_SECRET_SCAN=1`).
+Python 3.12+ is recommended. The Xcode-shipped Python 3.9 on macOS has caused ChromaDB crashes in this project.
 
-### Per-OS install + service integration
+## Project Rules
 
-| OS | Bootstrap | Background watcher | Auto-restart on boot/crash |
-|---|---|---|---|
-| macOS | `./scripts/install.sh` | `./.venv/bin/python -m src.watcher daemon` | `./scripts/install-macos.sh` (launchd plist) |
-| Linux | `./scripts/install.sh` | `./.venv/bin/python -m src.watcher daemon` | `./scripts/install-linux.sh` (systemd user unit) |
-| Windows | `pwsh scripts/install.ps1` | `pwsh scripts/start-watcher.ps1` | `pwsh scripts/install.ps1` (Task Scheduler) |
-
-The `daemon` subcommand is cross-platform: it uses classic double-fork
-on POSIX and `subprocess.Popen` with `DETACHED_PROCESS` on Windows. The
-PID file at `data/watcher.pid` works identically on all three OSes, so
-`watcher status` and `watcher stop` work everywhere.
-
-For service integration (auto-start on boot, auto-restart on crash):
-
-- **macOS** — launchd: copies a `.plist` to `~/Library/LaunchAgents/`
-  and runs `launchctl load -w`. The plist re-launches the watcher on
-  login and on crash.
-- **Linux** — systemd: writes a user unit to
-  `~/.config/systemd/user/duckbot-memory-watcher.service` and runs
-  `systemctl --user enable --now`. Optional
-  `loginctl enable-linger $USER` to keep the watcher running after
-  logout.
-- **Windows** — Task Scheduler: registers a task that runs at logon,
-  with `RestartCount: 5, RestartInterval: 1 minute`. Visible in Task
-  Scheduler UI as `DuckBotMemoryWatcher`.
-
-### Windows quirks
-
-- **Chromadb** ships pre-built wheels for Windows (Python 3.9-3.13). No
-  compiler needed. `pip install chromadb` works out of the box.
-- **`sentence-transformers`** (L7 rerank) also ships Windows wheels.
-- **Long paths**: if your repo lives deep in the filesystem, Windows'
-  260-char path limit can bite. Either move the repo closer to `C:\` or
-  enable long paths in Group Policy.
-- **Hugging Face Hub auth**: if you see a warning about
-  `unauthenticated requests to the HF Hub`, set
-  `HF_TOKEN=<your_token>` in `.env` to silence it. The model downloads
-  work without a token (slower).
-- **PowerShell version**: PowerShell 5.1 (ships with Windows 10) works
-  for `secret-scan.ps1`. PowerShell 7+ is recommended and supports
-  cross-platform pwsh invocation.
-
-### Chroma `compact` (v0.8.0+)
-
-Chroma's SQLite WAL mode grows unboundedly. The new `compact` CLI
-reclaims that space:
-
-```bash
-./.venv/bin/python -m src.cli compact
-# Compacting Chroma store at .../data/chroma...
-#   [working] 90 chunks, no duplicates
-#   [episodic] 3617 chunks, no duplicates
-#   [semantic] 183 chunks, no duplicates
-#   [procedural] 194 chunks, no duplicates
-#   VACUUM'd .../chroma.sqlite3
-# ✓ Compact complete: 0 duplicates removed, 4084 chunks kept
-#   Disk: 70.7 MB → 60.3 MB (saved 10.4 MB)
-```
-
-### Chroma `distance_metric` (v0.8.0+)
-
-HNSW distance metric is now configurable:
-
-```bash
-# Default: cosine (works for any embedding)
-./.venv/bin/python -m src.cli query "..."
-
-# Inner product — faster for pre-normalized vectors (BGE w/ normalize_embeddings=True)
-DUCKBOT_CHROMA_DISTANCE=ip ./.venv/bin/python -m src.cli query "..."
-
-# L2 — Euclidean, for raw (un-normalized) vectors
-DUCKBOT_CHROMA_DISTANCE=l2 ./.venv/bin/python -m src.cli query "..."
-```
-
-**Note**: Chroma's `hnsw:space` only takes effect on collection
-CREATION. Changing the metric on an existing store requires a new
-persist dir or `compact`+reset. See the `DUCKBOT_CHROMA_DISTANCE` env
-var in `src/store.py` for the dispatch.
+- Keep ingest idempotent: same content should produce stable chunk IDs.
+- Keep storage tiered: working memory can age out; procedural memory should not.
+- Keep secrets out of source, MCP config, logs, and docs.
+- Prefer additive changes and migrations over destructive rewrites.
+- Update docs and changelog when behavior changes.
+- Run the secret scan before committing.
 
 ## License
 
-MIT — see LICENSE.
+MIT. See [LICENSE](LICENSE).

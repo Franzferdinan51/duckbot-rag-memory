@@ -66,6 +66,7 @@ class DreamCycleResult:
     distilled_chunks: int = 0
     by_tier: dict = field(default_factory=dict)
     output_files: list = field(default_factory=list)
+    distilled_into_semantic: bool = False
     error: Optional[str] = None
 
     def to_dict(self) -> dict:
@@ -73,6 +74,7 @@ class DreamCycleResult:
             "distilled_chunks": self.distilled_chunks,
             "by_tier": self.by_tier,
             "output_files": self.output_files,
+            "distilled_into_semantic": self.distilled_into_semantic,
             "error": self.error,
         }
 
@@ -307,11 +309,47 @@ class DreamingBridge:
         out_dir = self.dreaming_dir / "deep"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{date_str}.md"
-        # Append-only — don't clobber OpenClaw's own dream entries.
+# Append-only — don't clobber OpenClaw's own dream entries.
         with out_path.open("a", encoding="utf-8") as f:
             f.write("\n".join(lines))
 
         result.output_files.append(str(out_path))
+
+        # Distill a single semantic-tier chunk summarizing this dream cycle.
+        # The previous version only wrote the dream file (the bullet-list
+        # of previews above) — that's a curated preview, not a distilled
+        # rule. Now we ALSO ingest a semantic-tier memory that future
+        # recalls can surface directly, so the brain actually learns from
+        # the cycle rather than just producing a log file.
+        try:
+            distilled_lines = [
+                f"Dream distillation {date_str}:",
+                f"Consolidated {len(keepers)} high-importance chunks.",
+                "Recurring themes:",
+            ]
+            # Pick the top-3 most-important previews as the distilled signal.
+            for c, imp, _ in keepers[:3]:
+                t = getattr(c, "tier", "unknown") or "unknown"
+                preview = c.text[:140].replace("\n", " ")
+                distilled_lines.append(f"- [{t}] {preview}")
+            distilled_text = "\n".join(distilled_lines)
+            await self.memory.remember(
+                distilled_text,
+                source_path=f"<dreaming/distillation>{date_str}",
+                force_tier="semantic",
+                metadata={
+                    "dream_kind": "distillation",
+                    "source_chunk_count": len(keepers),
+                    "dream_date": date_str,
+                },
+            )
+            result.distilled_into_semantic = True
+        except Exception as e:
+            # Non-fatal: dream file was written, but semantic distillation
+            # failed. Log and surface in the result.
+            result.error = (result.error + "; " if result.error else "") + \
+                f"semantic distillation failed: {e}"
+
         self._state["last_cycle"] = now
         self._save_state()
         return result

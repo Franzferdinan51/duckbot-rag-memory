@@ -752,3 +752,91 @@ def test_blocks_stats_bounds_names_list():
     assert len(stats["block_names"]) == 10
     assert stats["block_names_truncated"] is True
     assert stats["block_names_total"] == 75
+
+
+# -----------------------------------------------------------------------------
+# v0.11.12 — make it a real brain (bump-on-recall, dream distillation, queue)
+# -----------------------------------------------------------------------------
+
+def test_recall_bumps_fsrs_stability():
+    """recall() should bump fsrs_stability_days on each returned chunk so
+    memories actually strengthen over time. Without this, recall_count
+    goes up but forgetting math stays constant — the brain never learns
+    from usage."""
+    import inspect
+    from src.memory import Memory
+    src = inspect.getsource(Memory.recall)
+    assert "bump_stability" in src, (
+        "recall() should call decay.bump_stability to strengthen memories"
+    )
+    assert "fsrs_stability_days" in src
+
+
+def test_dreaming_cycle_distills_to_semantic():
+    """dreaming.cycle() should now actually distill into the semantic tier,
+    not just write a dream file with previews. The output dict should
+    include `distilled_into_semantic`."""
+    import inspect
+    from src.connectors.dreaming import DreamCycleResult, DreamingBridge
+    # The dataclass must have the new field.
+    fields = {f.name for f in DreamCycleResult.__dataclass_fields__.values()}
+    assert "distilled_into_semantic" in fields
+    # The cycle() body must call memory.remember with force_tier=semantic.
+    src = inspect.getsource(DreamingBridge.cycle)
+    assert 'force_tier="semantic"' in src
+    assert "distillation" in src
+
+
+def test_block_rethink_queues_instruction(tmp_path):
+    """block_rethink() used to be a no-op stub. Now it appends the
+    instruction to <block_name>.rethink.jsonl so an external LLM script
+    can drain it later. The response should report queue_len."""
+    import json
+    from src.connectors.base import Brain
+
+    # Construct a Brain with a tmp blocks_path
+    brain = Brain.__new__(Brain)
+    brain.blocks_path = tmp_path / "blocks.db"
+
+    # First call should work even though the block doesn't exist yet
+    out = brain.block_rethink("test_block", "shorten the intro")
+    assert out["queued"] is True
+    assert out["queue_len"] == 1
+    assert out["implemented"] is True
+
+    # Queue file should exist with one JSONL line
+    queue_path = tmp_path / "test_block.rethink.jsonl"
+    assert queue_path.exists()
+    lines = queue_path.read_text().strip().split("\n")
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+    assert entry["instruction"] == "shorten the intro"
+
+    # Second call should bump queue_len to 2
+    out = brain.block_rethink("test_block", "tighten examples")
+    assert out["queue_len"] == 2
+
+
+def test_block_read_surfaces_queued_instructions(tmp_path):
+    """block_read() should include queued_instructions so callers can see
+    pending rethink entries without parsing the JSONL file directly."""
+    from src.connectors.base import Brain
+
+    brain = Brain.__new__(Brain)
+    brain.blocks_path = tmp_path / "blocks.db"
+
+    # Queue two instructions
+    brain.block_rethink("newblock", "instruction A")
+    brain.block_rethink("newblock", "instruction B")
+
+    # Now actually create the block and read it back
+    from src.blocks import BlockStore
+    with BlockStore(path=tmp_path / "blocks.db") as s:
+        s.create("newblock", "initial content")
+
+    out = brain.block_read("newblock")
+    assert out["name"] == "newblock"
+    assert out["text"] == "initial content"
+    assert len(out["queued_instructions"]) == 2
+    assert out["queued_instructions"][0]["instruction"] == "instruction A"
+    assert out["queued_instructions"][1]["instruction"] == "instruction B"

@@ -446,13 +446,34 @@ class Brain:
 
     # ------------------------------------------------------------- blocks: CRUD
     def block_read(self, name: str) -> Optional[dict]:
-        """Read a memory block by name. Returns None if it doesn't exist."""
+        """Read a memory block by name. Returns None if it doesn't exist.
+
+        The returned dict also includes `queued_instructions` — the
+        pending entries from `block_rethink()` that an external LLM
+        script should drain next. Empty list if no queue or queue empty.
+        """
         if not self.blocks_path.exists():
             return None
         with BlockStore(path=self.blocks_path) as s:
             b = s.get(name)
             if b is None:
                 return None
+            # Surface pending rethink instructions if a queue exists.
+            queued = []
+            queue_path = self.blocks_path.parent / f"{name}.rethink.jsonl"
+            if queue_path.exists():
+                import json
+                try:
+                    with queue_path.open("r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line:
+                                try:
+                                    queued.append(json.loads(line))
+                                except json.JSONDecodeError:
+                                    continue
+                except OSError:
+                    pass
             return {
                 "name": b.name,
                 "text": b.content,
@@ -460,6 +481,7 @@ class Brain:
                 "char_limit": b.char_limit,
                 "updated_at": b.updated_at,
                 "char_count": len(b.content),
+                "queued_instructions": queued,
             }
 
     def block_write(self, name: str, text: str) -> dict:
@@ -492,34 +514,67 @@ class Brain:
             return {"name": b.name, "updated_at": b.updated_at, "char_count": len(b.content)}
 
     def block_rethink(self, name: str, instruction: str) -> dict:
-        """Atomic re-prompt-and-replace: runs an LLM-driven rethink on a block.
+        """Queue an LLM-driven rethink of a block.
 
-        HONEST NOTE: This is a no-op stub. It does NOT call any LLM and does
-        NOT modify the block. The "self-editing memory blocks" claim in the
-        README is aspirational — the workflow today is:
+        The brain itself does NOT call any LLM (that's a separate concern).
+        Instead, this appends the instruction to the block's "rethink
+        queue" — a JSONL file at `data/blocks/<name>.rethink.jsonl`. An
+        external LLM script (or the dashboard) drains the queue:
 
-          1. read the block via `block_read`
-          2. run an external LLM-driven rethink (your own script or the
-             dashboard)
+          1. read block via `block_read` (returns queued_instructions)
+          2. run the LLM with each queued instruction against the content
           3. write the result via `block_write`
+          4. the script clears the queue after applying
 
-        Surfacing `implemented=False` so MCP clients can detect the stub
-        status programmatically (rather than parsing the human-readable
-        `note` field).
+        This makes block_rethink a real, durable signal the user can act
+        on later — not a silent no-op.
+
+        Args:
+            name: block name (created if missing — the rethink queue can
+                pre-populate a future block).
+            instruction: human-readable prompt to run on the block's content.
+
+        Returns:
+            Dict with `queued: True`, `queue_len` (current queue depth),
+            and `queue_path` (where the external script should look).
         """
-        b = self.block_read(name)
-        if b is None:
-            return {"error": f"block not found: {name}"}
-        return {
+        import json
+        import time
+
+        # Ensure data/blocks/ exists
+        self.blocks_path.parent.mkdir(parents=True, exist_ok=True)
+        queue_path = self.blocks_path.parent / f"{name}.rethink.jsonl"
+
+        # Append the instruction. JSONL keeps the queue append-only and
+        # crash-safe (no partial rewrites if the process dies mid-write).
+        entry = {"ts": time.time(), "instruction": instruction}
+        with queue_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+
+        # Count the new queue depth.
+        queue_len = 0
+        if queue_path.exists():
+            with queue_path.open("r", encoding="utf-8") as f:
+                queue_len = sum(1 for _ in f)
+
+        result = {
             "name": name,
             "instruction": instruction,
-            "implemented": False,
+            "queued": True,
+            "queue_len": queue_len,
+            "queue_path": str(queue_path),
+            "implemented": True,
             "note": (
-                "block_rethink is a stub — use LLM-driven script + block_write. "
-                "See docstring for the current workflow."
+                "Queued. An external LLM script drains the queue: read the "
+                "block, run each queued instruction, then block_write the "
+                "result. See the block_rethink docstring."
             ),
-            "current": b,
         }
+        # Include current block content if it exists, for client convenience.
+        b = self.block_read(name)
+        if b is not None:
+            result["current"] = b
+        return result
 
     def block_delete(self, name: str) -> dict:
         """Delete a memory block by name."""

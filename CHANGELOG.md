@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.11.12 — 2026-06-24 — Make it a real brain
+
+Three wire-ups that turn the storage layer into an actual learning memory.
+
+### Added — memories strengthen when you use them
+
+- **`Memory.recall()` now bumps `fsrs_stability_days` on every returned
+  chunk** via `decay.bump_stability()`. Previously, `recall_count` and
+  `last_recalled_at` were updated but the FSRS forgetting curve stayed
+  constant — so the brain never actually learned from usage patterns.
+  After this change, a chunk that's been recalled 10x is materially
+  harder to forget than a fresh one. This is THE core spaced-repetition
+  loop.
+
+### Added — dreaming actually distills
+
+- **`DreamingBridge.cycle()` now ingests a distilled semantic-tier chunk**
+  in addition to writing the dream file. Previously, `cycle()` produced a
+  bullet-list of previews and called that "distillation"; future recalls
+  never saw the summary. Now a single `Dream distillation YYYY-MM-DD`
+  chunk lands in the semantic tier, so the brain can surface the
+  distilled signal directly. The dream file is still written for
+  OpenClaw's own dreamer to layer on top.
+
+- **`DreamCycleResult` gained `distilled_into_semantic: bool`** so
+  callers can detect distillation failures (non-fatal: dream file is
+  still written even if the semantic remember() fails).
+
+### Added — block_rethink is no longer a no-op
+
+- **`Brain.block_rethink(name, instruction)` now appends the instruction
+  to a JSONL queue** at `data/blocks/<name>.rethink.jsonl`. An external
+  LLM-driven script (or the dashboard) drains the queue:
+
+  1. read the block via `block_read` (returns `queued_instructions`)
+  2. run each queued instruction through the LLM
+  3. write the result via `block_write`
+  4. clear the queue file
+
+  This makes `block_rethink` a real durable signal the user can act on
+  later, not a silent no-op. The response includes `queue_len` and
+  `queue_path` so scripts can monitor the queue without parsing
+  internals.
+
+- **`Brain.block_read(name)` now includes `queued_instructions`** in its
+  output dict so callers see pending rethink entries automatically.
+
+### Tests
+
+- 4 new regression tests in `tests/test_bugfixes_v0_11_3.py` for the
+  bump-on-recall, dream distillation, queue-write, and queue-read paths.
+- Full suite: **564 passing** (was 560 in v0.11.11).
+
 ## 0.11.5 — 2026-06-24 — Audit-driven bug fixes
 
 Correctness bugs surfaced by a focused audit of the connectors, watcher, CLI,
