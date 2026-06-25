@@ -150,8 +150,12 @@ class DuckBotBrainProvider:
         Hermes ABC: should be fast (cached background result preferred).
         We do a tiny recall (k=3, no rerank, no decay) to stay under ~150ms.
         """
-        if not query:
+        # Strip whitespace — a query of just spaces should be treated like
+        # an empty query, otherwise we'd embed meaningless whitespace and
+        # return random matches from the corpus.
+        if not query or not query.strip():
             return ""
+        query = query.strip()
         try:
             brain = self._get_brain()
             results = brain.recall(query, k=3, rerank=False, decay=False)
