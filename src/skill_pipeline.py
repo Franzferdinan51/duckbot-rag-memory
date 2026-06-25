@@ -115,8 +115,10 @@ def list_candidates(
             for API symmetry with stamp/promote).
         include_promoted: if False (default), only return unpromoted
             candidates.
-        k: cap on results.
+        k: cap on results. Must be > 0 (Chroma errors on limit <= 0).
     """
+    if k <= 0:
+        return {"error": "k must be a positive integer"}
     mem = Memory()
     store, _ = _run_async(mem._ensure_initialized())
     coll = store.collection_for(Tier.PROCEDURAL)
