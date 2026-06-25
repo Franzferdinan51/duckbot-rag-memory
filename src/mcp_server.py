@@ -131,6 +131,9 @@ TOOLS = [
                 "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
                 "rerank": {"type": "boolean", "default": False},
                 "decay": {"type": "boolean", "default": False},
+                "tier_priors": {"type": "boolean", "default": False},
+                "tier_priors_overrides": {"type": "object"},
+                "fsrs": {"type": "boolean", "default": False},
             },
             "required": ["query"],
         },
@@ -566,12 +569,18 @@ async def handle_forget(args: dict) -> dict:
 async def handle_recall_verbatim(args: dict) -> dict:
     from src.connectors.base import Brain
     brain = Brain()
+    tpo = args.get("tier_priors_overrides")
+    if tpo is not None and not isinstance(tpo, dict):
+        return {"error": "tier_priors_overrides must be a dict"}
     return {"results": brain.recall_verbatim(
         query=args["query"],
         k=args.get("k", 5),
         tier=args.get("tier"),
         rerank=args.get("rerank"),
         decay=args.get("decay"),
+        tier_priors=args.get("tier_priors"),
+        tier_priors_overrides=tpo,
+        fsrs=args.get("fsrs"),
     )}
 
 
