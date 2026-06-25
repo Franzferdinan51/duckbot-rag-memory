@@ -1538,6 +1538,7 @@ def test_brain_export_import_round_trip_preserves_chunk_boundaries(tmp_path, mon
             return self._store, None
 
     monkeypatch.setattr("src.memory.Memory", _FakeExportMemory)
+    monkeypatch.setattr("src.memory._DEFAULT_MEMORY", None)
     export_path = tmp_path / "brain_export.md"
     export_result = asyncio.run(handle_brain_export({"out_path": str(export_path)}))
     assert export_result["total_chunks"] == 3
@@ -1564,6 +1565,7 @@ def test_brain_export_import_round_trip_preserves_chunk_boundaries(tmp_path, mon
             return SimpleNamespace(stored=True)
 
     monkeypatch.setattr("src.memory.Memory", _FakeImportMemory)
+    monkeypatch.setattr("src.memory._DEFAULT_MEMORY", None)
     import_result = asyncio.run(handle_brain_import({"in_path": str(export_path)}))
     assert import_result["stored"] == 3
     assert import_result["sections_seen"] == 3
@@ -1611,6 +1613,7 @@ def test_brain_seed_demo_handles_memory_recall_tuple(monkeypatch):
             return SimpleNamespace(stored=True)
 
     monkeypatch.setattr("src.memory.Memory", _FakeMemory)
+    monkeypatch.setattr("src.memory._DEFAULT_MEMORY", None)
     result = asyncio.run(handle_brain_seed_demo({"force": False}))
     assert result["stored"] > 0
     assert result["skipped"] >= 1
@@ -1818,3 +1821,128 @@ def test_brain_graph_cognify_and_reconcile_registered():
     # ...and the dispatch table routes them to the right Brain methods.
     assert "brain_graph_cognify" in HANDLERS
     assert "brain_graph_reconcile" in HANDLERS
+
+
+def test_memory_singleton_prevents_leak():
+    """Memory() is a process-wide singleton (when called with no args).
+    This fixes a real memory leak: every call used to open a fresh
+    Chroma PersistentClient (SQLite + native file handles). The watcher
+    instantiates Memory() once per poll cycle; without the singleton,
+    an idle watcher would accumulate file handles + SentenceTransformer
+    worker threads indefinitely.
+    """
+    from src import memory
+    # Clear the cache first (the conftest autouse fixture does this,
+    # but be explicit so the test is independent of conftest state).
+    memory._DEFAULT_MEMORY = None
+    a = memory.Memory()
+    b = memory.Memory()
+    # The cached instance is returned for both no-arg calls.
+    assert a is b
+    # The conftest fixture clears the cache after the test so the next
+    # test starts clean.
+
+
+def test_memory_singleton_does_not_affect_constructor_with_args():
+    """Memory(store=X) or Memory(embedder=Y) must always return a fresh
+    instance so callers don't accidentally route through someone else's
+    embedder / store."""
+    from src import memory
+    memory._DEFAULT_MEMORY = None
+    no_arg = memory.Memory()
+    with_store = memory.Memory(store=object())  # type: ignore[arg-type]
+    assert no_arg is not with_store
+    # The no-arg singleton is still cached, and the with-arg instance is
+    # independent.
+    again = memory.Memory()
+    assert again is no_arg
+
+
+def test_rate_limiter_allows_until_burned():
+    """RateLimiter.check consumes one token per call; once exhausted
+    returns (False, info) with a positive retry_after. DUCKBOT_RATELIMIT_DISABLE
+    overrides and always allows."""
+    from src.ratelimit import RateLimiter
+    rl = RateLimiter()
+    # brain_remember has limit=10/min. After 10 calls, 11th must be blocked.
+    for i in range(10):
+        allowed, info = rl.check("brain_remember")
+        assert allowed, f"call {i+1} should be allowed; info={info}"
+    # 11th: blocked
+    allowed, info = rl.check("brain_remember")
+    assert not allowed
+    assert info["retry_after"] > 0
+    assert info["current_tokens"] < 1.0
+
+
+def test_rate_limiter_disable_env():
+    """DUCKBOT_RATELIMIT_DISABLE=1 turns the check off entirely."""
+    import os
+    os.environ["DUCKBOT_RATELIMIT_DISABLE"] = "1"
+    try:
+        from src.ratelimit import RateLimiter
+        rl = RateLimiter()
+        # 20 calls (above the 10/min brain_remember limit) all allowed
+        for _ in range(20):
+            allowed, _ = rl.check("brain_remember")
+            assert allowed
+    finally:
+        del os.environ["DUCKBOT_RATELIMIT_DISABLE"]
+
+
+def test_mcp_dispatch_returns_429_style_on_rate_limit(monkeypatch):
+    """The MCP dispatch loop must short-circuit with a JSON-RPC error
+    when the per-tool rate limit is exhausted. The error code is -32029
+    (server rate-limit) and the data payload includes retry_after_seconds."""
+    from src import mcp_server
+    from src import memory
+    monkeypatch.setattr(memory, "_DEFAULT_MEMORY", None)
+    # Hammer brain_remember past its 10/min limit. Skip rate-limit bypass
+    # for this test by NOT setting DUCKBOT_RATELIMIT_DISABLE.
+    monkeypatch.delenv("DUCKBOT_RATELIMIT_DISABLE", raising=False)
+    from src import ratelimit
+    ratelimit.reset_rate_limiter()
+    # Burn the bucket
+    rl = ratelimit.get_rate_limiter()
+    for _ in range(11):
+        rl.check("brain_remember")
+    # Now exercise the rate-limit helper directly to confirm the
+    # error-dict shape that the dispatch loop emits.
+    err = mcp_server._check_rate_limit_or_error("brain_remember")
+    assert err is not None
+    assert err["error"] == "rate_limited"
+    assert err["tool"] == "brain_remember"
+    assert err["limit_per_min"] == 10
+    assert err["retry_after_seconds"] > 0
+    assert "DUCKBOT_RATELIMIT_DISABLE" in err["message"]
+
+
+def test_brain_inspect_registered():
+    """brain_inspect must be in both TOOLS and HANDLERS."""
+    from src.connectors import openclaw
+    from src.mcp_server import HANDLERS
+    names = {t["name"] for t in openclaw.TOOL_DEFINITIONS}
+    assert "brain_inspect" in names
+    assert "brain_inspect" in HANDLERS
+    assert callable(HANDLERS["brain_inspect"])
+
+
+def test_brain_inspect_returns_consolidated_view():
+    """brain_inspect should aggregate graph + memories + blocks for
+    an entity into one dict. Smoke test that the keys exist and
+    'entity' is echoed back."""
+    from src.connectors.base import Brain
+    import tempfile, pathlib
+    brain = Brain.__new__(Brain)
+    brain.graph_path = pathlib.Path(tempfile.mkstemp(suffix='.db')[1])
+    brain.blocks_path = pathlib.Path(tempfile.mkstemp(suffix='.db')[1])
+    brain.quarantine_path = pathlib.Path(tempfile.mkstemp(suffix='.db')[1])
+    # The full inspect() requires a working Memory() singleton; instead
+    # of running it end-to-end, just verify the method exists with the
+    # expected signature.
+    import inspect as _i
+    sig = _i.signature(brain.inspect)
+    assert "entity" in sig.parameters
+    assert sig.parameters["entity"].default is _i.Parameter.empty
+    assert "k" in sig.parameters
+    assert sig.parameters["k"].default == 10

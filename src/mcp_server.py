@@ -1831,6 +1831,31 @@ async def handle_brain_seed_demo(args: dict) -> dict:
     }
 
 
+def _check_rate_limit_or_error(tool_name: str) -> dict | None:
+    """Per-tool rate-limit guard. Returns None on allowed, or a
+    429-style error dict on exceeded. Dispatch loop short-circuits when
+    this returns non-None. DUCKBOT_RATELIMIT_DISABLE=1 turns the check
+    off entirely (returns None always).
+    """
+    from src.ratelimit import get_rate_limiter
+    allowed, info = get_rate_limiter().check(tool_name)
+    if allowed:
+        return None
+    return {
+        "error": "rate_limited",
+        "tool": tool_name,
+        "limit_per_min": info.get("limit_per_min"),
+        "current_tokens": info.get("current_tokens"),
+        "retry_after_seconds": info.get("retry_after", 0.0),
+        "message": (
+            f"Rate limit exceeded for {tool_name} "
+            f"({info.get('limit_per_min')}/min). "
+            f"Retry in {info.get('retry_after', 0.0)}s. "
+            f"Set DUCKBOT_RATELIMIT_DISABLE=1 to disable."
+        ),
+    }
+
+
 HANDLERS = {
     "remember": handle_remember,
     "recall": handle_recall,
@@ -1944,14 +1969,29 @@ def mcp_stdio():
                     if not handler:
                         resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"unknown tool: {name}"}}
                     else:
-                        try:
-                            result = _server_loop.run_until_complete(handler(args))
+                        # Rate-limit check (per-tool token bucket). DUCKBOT_RATELIMIT_DISABLE=1
+                        # bypasses. Returns a 429-style error before invoking
+                        # the handler so a misbehaving agent can't bypass
+                        # the limit by retrying.
+                        rl_err = _check_rate_limit_or_error(name)
+                        if rl_err is not None:
                             resp = {
                                 "jsonrpc": "2.0", "id": mid,
-                                "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]},
+                                "error": {
+                                    "code": -32029,  # -32029 = "Server rate limit" (JSON-RPC)
+                                    "message": rl_err.get("message"),
+                                    "data": rl_err,
+                                },
                             }
-                        except Exception as exc:
-                            resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(exc)}}
+                        else:
+                            try:
+                                result = _server_loop.run_until_complete(handler(args))
+                                resp = {
+                                    "jsonrpc": "2.0", "id": mid,
+                                    "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]},
+                                }
+                            except Exception as exc:
+                                resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(exc)}}
                 else:
                     resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"unknown method: {method}"}}
                 _s.stdout.write(json.dumps(resp) + "\n")

@@ -532,12 +532,27 @@ def test_brain_facade_has_v0_11_methods():
 
 
 def test_mcp_server_has_v0_11_tools():
-    """The MCP server TOOLS list must include the v0.11.0 tools."""
+    """The MCP server TOOLS list must include the v0.11.0 tools.
+
+    v0.13.x: this test now asserts dynamically — no hardcoded count.
+    The v0.11.0 tool contract is preserved (the four tools below must
+    still exist), but new tools added since v0.11.0 don't break the test.
+    """
     from src.mcp_server import TOOLS
 
     tool_names = {t["name"] for t in TOOLS}
     for required in ("dreaming_read", "dreaming_cycle", "learn", "active_memory"):
         assert required in tool_names, f"MCP server missing tool: {required}"
+    # Dynamic invariant: every TOOL must have a matching HANDLER entry.
+    from src.mcp_server import HANDLERS
+    tool_set = tool_names
+    handler_set = set(HANDLERS.keys())
+    assert tool_set == handler_set, (
+        f"Tool/handler mismatch: only in TOOLS = {tool_set - handler_set}; "
+        f"only in HANDLERS = {handler_set - tool_set}"
+    )
+    # And the count must be at least the v0.11.0 floor.
+    assert len(TOOLS) >= 4, f"MCP server only exposes {len(TOOLS)} tools"
 
 
 def test_mcp_server_has_handlers_for_v0_11():

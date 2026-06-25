@@ -400,6 +400,16 @@ def cmd_decay(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_inspect(args: argparse.Namespace) -> int:
+    """Consolidated entity view: graph + recent memories + blocks.
+    Returns everything the brain knows about one entity in one dict."""
+    from src.connectors.base import Brain
+    brain = Brain()
+    result = brain.inspect(entity=args.entity, k=args.k)
+    print(json.dumps(result, indent=2, default=str))
+    return 0
+
+
 def cmd_reset(args: argparse.Namespace) -> int:
     if not args.yes:
         print("Refusing to reset without --yes", file=sys.stderr)
@@ -543,10 +553,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     checks.append(("LMSTUDIO_URL", os.environ.get("LMSTUDIO_URL", "http://127.0.0.1:1234/v1"), True))
     # 5. LM Studio reachability
     lm_url = os.environ.get("LMSTUDIO_URL", "http://127.0.0.1:1234/v1")
+    lm_key = (
+        os.environ.get("LMSTUDIO_API_KEY")
+        or os.environ.get("LMSTUDIO_KEY")
+        or os.environ.get("LM_API_TOKEN")
+        or ""
+    )
     try:
         import httpx
+        headers = {"Authorization": f"Bearer {lm_key}"} if lm_key else {}
         with httpx.Client(timeout=2.0) as c:
-            r = c.get(f"{lm_url.rstrip('/v1')}/v1/models")
+            r = c.get(f"{lm_url.rstrip('/v1')}/v1/models", headers=headers)
             lm_ok = r.status_code == 200
             lm_info = f"reachable ({r.status_code})" if lm_ok else f"unreachable ({r.status_code})"
     except Exception as exc:
@@ -748,6 +765,15 @@ def main() -> int:
     p_decay.add_argument("--apply", action="store_true",
                          help="actually delete (default: dry-run — preview only)")
     p_decay.set_defaults(func=cmd_decay)
+
+    # Inspect: consolidated entity view.
+    p_inspect = sub.add_parser(
+        "inspect",
+        help="consolidated entity view: graph + recent memories + blocks",
+    )
+    p_inspect.add_argument("entity", help="entity name to inspect (e.g. 'Duckets', 'OpenClaw')")
+    p_inspect.add_argument("-k", type=int, default=10, help="max memories to recall")
+    p_inspect.set_defaults(func=cmd_inspect)
 
     # Apply FSRS w20: persist the new value.
     p_apply = sub.add_parser(

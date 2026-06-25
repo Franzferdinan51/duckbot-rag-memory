@@ -196,6 +196,18 @@ TOOL_DEFINITIONS: list[dict] = [
             "properties": {},
         },
     },
+    {
+        "name": "brain_inspect",
+        "description": "Consolidated entity view: graph + recent memories + blocks. Given an entity name, returns everything the brain knows about it in one dict. Useful for audit + agent self-inspection: 'what does the brain actually know about X?'",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity": {"type": "string", "description": "entity name (e.g. 'Duckets', 'OpenClaw', 'BATMAN')"},
+                "k": {"type": "integer", "default": 10, "description": "max memories to recall"},
+            },
+            "required": ["entity"],
+        },
+    },
 
     # ----- Memory blocks (Layer 3) -----
     {
@@ -478,6 +490,12 @@ def handle(tool_name: str, args: dict) -> dict:
             return brain.graph_cognify(dry_run=bool(args.get("dry_run", True)))
         if tool_name == "brain_graph_reconcile":
             return brain.graph_reconcile()
+
+        if tool_name == "brain_inspect":
+            entity = args.get("entity")
+            if not entity:
+                return {"error": "entity is required"}
+            return brain.inspect(entity=entity, k=int(args.get("k", 10)))
 
         # Blocks
         if tool_name == "brain_block_read":

@@ -66,6 +66,31 @@ from .tier import Tier, classify, reclassify_for_working
 _DIM_PROBE_CACHE: dict[tuple[str, str], int | None] = {}
 
 
+# Process-wide singleton Memory. Memory() is constructed lazily (the
+# embedder + Chroma PersistentClient are only built on first
+# _ensure_initialized call), so sharing a single instance is safe and
+# fixes a real memory leak: every call used to open a new PersistentClient
+# (SQLite + native file handles + SentenceTransformer workers), and the
+# watcher instantiates Memory() once per poll cycle, so an idle watcher
+# would accumulate file handles + worker threads indefinitely.
+#
+# The cached instance is ONLY used when no args are passed (the common
+# case: `mem = Memory()` in CLI/MCP handlers). When a caller passes
+# store=/embedder=/persist_dir=, a fresh instance is created so we
+# don't accidentally route through someone else's embedder.
+_DEFAULT_MEMORY: "Memory" | None = None  # type: ignore[name-defined]
+
+
+def reset_default_memory() -> None:
+    """Drop the cached singleton Memory. Used by tests that want to
+    inject a fake Memory class — without this, the cached instance from
+    a previous test would be returned and bypass the monkeypatch.
+    Also safe to call at process shutdown as a defense-in-depth cleanup.
+    """
+    global _DEFAULT_MEMORY
+    _DEFAULT_MEMORY = None
+
+
 # -----------------------------------------------------------------------------
 # Result types
 # -----------------------------------------------------------------------------
@@ -114,12 +139,37 @@ class Memory:
         snap = await mem.stats()                # dashboard snapshot
     """
 
+    def __new__(cls, *args, **kwargs):
+        # Singleton fast path: the common case is `Memory()` (no args).
+        # Caching the no-arg instance fixes the watcher leak where
+        # every poll cycle opened a new Chroma PersistentClient.
+        if not args and not kwargs:
+            global _DEFAULT_MEMORY
+            if _DEFAULT_MEMORY is None:
+                _DEFAULT_MEMORY = super().__new__(cls)
+            return _DEFAULT_MEMORY
+        return super().__new__(cls)
+
     def __init__(
         self,
         store: MemoryStore | None = None,
         embedder: EmbeddingProvider | None = None,
         persist_dir: str | None = None,
     ):
+        # If a no-arg call returned the cached singleton, skip re-init
+        # so the lazy embedder + store survive across calls. When the
+        # caller passed args (custom store / embedder / persist_dir),
+        # Python's __new__ always returned a fresh instance — re-init it.
+        global _DEFAULT_MEMORY
+        # Use getattr: when __new__ returns the cached singleton,
+        # __init__ is invoked but the instance attributes haven't been set
+        # yet — accessing self._store would raise AttributeError.
+        if (self is _DEFAULT_MEMORY
+                and (getattr(self, "_store", None) is not None
+                     or getattr(self, "_embedder", None) is not None)):
+            # Cached singleton has already been initialized in a previous
+            # call. Keep the existing state.
+            return
         # Lazy-init: build embedder and store on first use, but if user
         # passed them in, use those.
         self._store = store

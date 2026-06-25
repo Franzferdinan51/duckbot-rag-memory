@@ -636,6 +636,126 @@ class Brain:
                 for r in rels
             ]
 
+    # -- Inspect: consolidated entity view (Honcho-style) -------------------
+
+    def inspect(self, entity: str, k: int = 10) -> dict:
+        """Consolidated entity view: graph + recent memories + blocks.
+
+        Given an entity name (e.g. "Duckets", "OpenClaw", "BATMAN"),
+        return everything the brain knows about it in one dict:
+          - graph: matching entity + its aliases + active relationships
+            + recent history (last 20)
+          - memories: top-k recall results mentioning this entity,
+            with tier, importance, source, last_recalled_at
+          - blocks: any block whose text contains this entity
+          - meta: the entity's own kind + recall_count + created_at
+
+        Useful for the agent's audit and self-inspection: "what does the
+        brain actually know about X?" without manually joining the graph
+        + recall + blocks subsystems.
+
+        Public-domain graph walk + recall; no LLM call.
+        """
+        from src.tier import Tier
+        from src.graph import Graph
+        from src.memory import Memory
+        from src.blocks import BlockStore
+        result: dict = {
+            "entity": entity,
+            "graph": {"entity": None, "aliases": [], "active_relationships": [],
+                       "recent_history": []},
+            "memories": [],
+            "blocks": [],
+            "meta": {},
+        }
+        # 1. Graph: find the entity + its aliases + active relationships
+        if self.graph_path.exists():
+            try:
+                with Graph(path=self.graph_path) as g:
+                    ent = g.find_entity(entity)
+                    if ent is not None:
+                        result["graph"]["entity"] = {
+                            "id": ent.id, "name": ent.name, "kind": ent.kind,
+                        }
+                        result["graph"]["aliases"] = list(ent.aliases or [])
+                        # Active relationships
+                        active_rels = g.query_active(
+                            entity_id=ent.id, at=None, label=None
+                        )
+                        result["graph"]["active_relationships"] = [
+                            {
+                                "id": r.id,
+                                "label": r.label,
+                                "source_id": r.source_id,
+                                "target_id": r.target_id,
+                                "valid_from": r.valid_from,
+                            }
+                            for r in active_rels[:20]
+                        ]
+                        # Recent history (last 20)
+                        history = g.history(ent.id)
+                        result["graph"]["recent_history"] = [
+                            {
+                                "label": r.label,
+                                "valid_from": r.valid_from,
+                                "valid_until": r.valid_until,
+                                "is_active": r.is_active,
+                            }
+                            for r in history[-20:]
+                        ]
+                        result["meta"]["kind"] = ent.kind
+            except Exception:
+                pass
+        # 2. Memories: top-k recall mentioning this entity. Use the
+        #    existing _run_async bridge to drive the async pipeline from
+        #    sync code without leaking event loops.
+        try:
+            from src.query import hybrid_query
+            from src.embeddings import auto_detect_provider
+            from src.memory import Memory
+
+            async def _recall():
+                mem = Memory()
+                store, _ = await mem._ensure_initialized()
+                embedder = await auto_detect_provider()
+                results, _ = await hybrid_query(
+                    entity, store, lambda *a, **kw: embedder.embed(*a, **kw),
+                    n_results=k, tier=None,
+                )
+                return results
+
+            results = _run_async(_recall())
+            for r in results:
+                md = r.metadata or {}
+                result["memories"].append({
+                    "chunk_id": r.chunk_id,
+                    "text": (r.text or "")[:300],
+                    "tier": r.tier,
+                    "importance": float(md.get("importance", 0.0) or 0.0),
+                    "source_path": md.get("source_path", ""),
+                    "last_recalled_at": float(md.get("last_recalled_at", 0.0) or 0.0),
+                    "recall_count": int(md.get("recall_count", 0) or 0),
+                })
+        except Exception as e:
+            result["memories_error"] = str(e)
+        # 3. Blocks: scan all blocks for the entity string
+        if self.blocks_path.exists():
+            try:
+                with BlockStore(path=self.blocks_path) as bs:
+                    for n in bs.names():
+                        b = bs.get(n)
+                        if b is not None and entity.lower() in b.content.lower():
+                            result["blocks"].append({
+                                "name": b.name,
+                                "preview": b.content[:300],
+                                "char_count": len(b.content),
+                                "queued_instructions": b.queued_instructions
+                                if hasattr(b, "queued_instructions") else [],
+                            })
+            except Exception:
+                pass
+        return result
+
     # ------------------------------------------------------------- blocks: CRUD
     def block_read(self, name: str) -> Optional[dict]:
         """Read a memory block by name. Returns None if it doesn't exist.
