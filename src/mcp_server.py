@@ -467,10 +467,25 @@ def _register_connector_tools() -> None:
         from src.connectors.openclaw import TOOL_DEFINITIONS, handle as _handle
         TOOLS.extend(TOOL_DEFINITIONS)
         for t in TOOL_DEFINITIONS:
-            HANDLERS[t["name"]] = (lambda args, h=_handle, n=t["name"]: h(n, args))
+            # The MCP main loop calls `run_until_complete(handler(args))`,
+            # so the handler must return a coroutine / awaitable. The
+            # legacy connector's `handle()` is SYNC — wrap it so the
+            # returned lambda IS awaitable. Without this wrap, every
+            # connector tool (brain_block_*, brain_graph_*, etc.) raised
+            # "object dict can't be used in 'await' expression" when called
+            # via tools/call.
+            HANDLERS[t["name"]] = (
+                lambda args, h=_handle, n=t["name"]: _wrap_sync(h, n, args)
+            )
     except Exception as _e:
         import sys as _s
         print(f"[mcp_server] connector tools not loaded: {_e}", file=_s.stderr)
+
+
+async def _wrap_sync(handler, name: str, args: dict) -> dict:
+    """Adapter: wrap a sync connector handler in an async coroutine so
+    the MCP main loop's `run_until_complete()` can await it."""
+    return handler(name, args)
 
 
 # -----------------------------------------------------------------------------
