@@ -67,6 +67,9 @@ TOOLS = [
                 "min_importance": {"type": "number", "description": "filter by importance threshold (0..1)"},
                 "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank with BAAI/bge-reranker-base (MIT, local). No paid API. Off by default; pass true to opt in."},
                 "decay": {"type": "boolean", "default": False, "description": "Layer 8: apply Ebbinghaus retention weighting. Public-domain math (1885), no LLM call. Off by default; pass true to opt in."},
+                "tier_priors": {"type": "boolean", "default": False, "description": "Layer 11: apply per-tier multiplicative weights"},
+                "tier_priors_overrides": {"type": "object", "description": "per-tier weight overrides, e.g. {\"procedural\": 2.0}"},
+                "fsrs": {"type": "boolean", "default": False, "description": "Layer 9: use FSRS-6 power-law forgetting instead of Ebbinghaus"},
             },
             "required": ["query"],
         },
@@ -522,6 +525,9 @@ async def handle_remember(args: dict) -> dict:
 
 async def handle_recall(args: dict) -> dict:
     mem = Memory()
+    tpo = args.get("tier_priors_overrides")
+    if tpo is not None and not isinstance(tpo, dict):
+        return {"error": "tier_priors_overrides must be a dict"}
     results, stats = await mem.recall(
         args["query"],
         k=args.get("k", 5),
@@ -529,6 +535,9 @@ async def handle_recall(args: dict) -> dict:
         min_importance=args.get("min_importance"),
         rerank=args.get("rerank"),
         decay=args.get("decay"),
+        tier_priors=args.get("tier_priors"),
+        tier_priors_overrides=tpo,
+        fsrs=args.get("fsrs"),
     )
     return {
         "results": [r.to_dict() for r in results],
@@ -1689,7 +1698,10 @@ async def handle_brain_import(args: dict) -> dict:
     from pathlib import Path
     from src.memory import Memory
     import re
-    in_path = Path(args["in_path"])
+    in_path_str = args.get("in_path")
+    if not in_path_str:
+        return {"error": "in_path is required"}
+    in_path = Path(in_path_str)
     if not in_path.exists():
         return {"error": f"file not found: {in_path}"}
     source_path = args.get("source_path") or in_path.name

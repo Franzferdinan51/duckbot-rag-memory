@@ -298,7 +298,9 @@ def test_handle_tool_call_brain_recall(provider, fake_brain):
     assert "results" in data
     assert len(data["results"]) == 2
     fake_brain.recall.assert_called_once_with(
-        query="test", k=2, tier=None, min_importance=None, rerank=True, decay=False,
+        query="test", k=2, tier=None, min_importance=None,
+        rerank=True, decay=False,
+        tier_priors=False, tier_priors_overrides=None, fsrs=False,
     )
 
 

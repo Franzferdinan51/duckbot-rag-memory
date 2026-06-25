@@ -177,7 +177,9 @@ def test_dispatch_brain_recall_delegates(fake_brain):
     assert "results" in out
     assert out["results"][0]["chunk_id"] == "c1"
     fake_brain.recall.assert_called_once_with(
-        query="q", k=3, tier=None, min_importance=None, rerank=False, decay=False,
+        query="q", k=3, tier=None, min_importance=None,
+        rerank=False, decay=False,
+        tier_priors=False, tier_priors_overrides=None, fsrs=False,
     )
 
 
@@ -371,3 +373,36 @@ def test_dispatch_brain_remember_rejects_empty_skill_candidate(fake_brain):
     assert "error" in out
     # stamp_skill_candidate should NOT have been called
     fake_brain.remember.assert_not_called()
+
+
+def test_dispatch_brain_recall_passes_tier_priors_and_fsrs(fake_brain):
+    """tier_priors / tier_priors_overrides / fsrs must reach Brain.recall().
+    Previously these params were in Brain.recall() but the dispatch
+    silently dropped them — agents calling brain_recall(tier_priors=true)
+    got default recall behavior with no error."""
+    fake_brain.recall.return_value = []
+    surface._BRAIN = fake_brain
+    out = surface.dispatch("brain_recall", {
+        "query": "q",
+        "tier_priors": True,
+        "tier_priors_overrides": {"procedural": 2.0},
+        "fsrs": True,
+    })
+    fake_brain.recall.assert_called_once_with(
+        query="q", k=5, tier=None, min_importance=None,
+        rerank=False, decay=False,
+        tier_priors=True, tier_priors_overrides={"procedural": 2.0}, fsrs=True,
+    )
+
+
+def test_dispatch_brain_recall_rejects_non_dict_overrides(fake_brain):
+    """tier_priors_overrides must be a dict (or absent) — other types
+    would crash inside Brain.recall() with a confusing error."""
+    surface._BRAIN = fake_brain
+    out = surface.dispatch("brain_recall", {
+        "query": "q",
+        "tier_priors_overrides": "not a dict",
+    })
+    assert "error" in out
+    assert "must be a dict" in out["error"]
+    fake_brain.recall.assert_not_called()

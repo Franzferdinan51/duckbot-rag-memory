@@ -68,7 +68,9 @@ TOOLS: list[dict] = [
         "description": (
             "Hybrid retrieval (vector + BM25 + RRF). Returns top-k chunks "
             "with tier, source, importance, score. Optional rerank=true for "
-            "cross-encoder boost, decay=true for Ebbinghaus retention weighting."
+            "cross-encoder boost, decay=true for Ebbinghaus retention weighting, "
+            "tier_priors=true for per-tier multiplicative weighting (Layer 11), "
+            "fsrs=true for FSRS-6 power-law forgetting (Layer 9)."
         ),
         "inputSchema": {
             "type": "object",
@@ -79,6 +81,9 @@ TOOLS: list[dict] = [
                 "min_importance": {"type": "number"},
                 "rerank": {"type": "boolean", "default": False},
                 "decay": {"type": "boolean", "default": False},
+                "tier_priors": {"type": "boolean", "default": False, "description": "Layer 11: apply per-tier multiplicative weights (procedural=1.5, semantic=1.2, episodic=1.0, working=0.8)"},
+                "tier_priors_overrides": {"type": "object", "description": "per-tier weight overrides, e.g. {\"procedural\": 2.0}"},
+                "fsrs": {"type": "boolean", "default": False, "description": "Layer 9: use FSRS-6 power-law forgetting instead of Ebbinghaus"},
             },
             "required": ["query"],
         },
@@ -97,6 +102,9 @@ TOOLS: list[dict] = [
                 "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
                 "rerank": {"type": "boolean", "default": False},
                 "decay": {"type": "boolean", "default": False},
+                "tier_priors": {"type": "boolean", "default": False},
+                "tier_priors_overrides": {"type": "object"},
+                "fsrs": {"type": "boolean", "default": False},
             },
             "required": ["query"],
         },
@@ -364,6 +372,10 @@ def dispatch(name: str, args: dict) -> dict:
             )
 
         if name == "brain_recall":
+            # Validate tier_priors_overrides is a dict (or None) before passing through.
+            tpo = args.get("tier_priors_overrides")
+            if tpo is not None and not isinstance(tpo, dict):
+                return {"error": "tier_priors_overrides must be a dict"}
             results = brain.recall(
                 query=args["query"],
                 k=args.get("k", 5),
@@ -371,16 +383,25 @@ def dispatch(name: str, args: dict) -> dict:
                 min_importance=args.get("min_importance"),
                 rerank=bool(args.get("rerank") or False),
                 decay=bool(args.get("decay") or False),
+                tier_priors=bool(args.get("tier_priors") or False),
+                tier_priors_overrides=tpo,
+                fsrs=bool(args.get("fsrs") or False),
             )
             return {"results": _serialize_recall(results)}
 
         if name == "brain_recall_verbatim":
+            tpo = args.get("tier_priors_overrides")
+            if tpo is not None and not isinstance(tpo, dict):
+                return {"error": "tier_priors_overrides must be a dict"}
             results = brain.recall_verbatim(
                 query=args["query"],
                 k=args.get("k", 5),
                 tier=args.get("tier"),
                 rerank=bool(args.get("rerank") or False),
                 decay=bool(args.get("decay") or False),
+                tier_priors=bool(args.get("tier_priors") or False),
+                tier_priors_overrides=tpo,
+                fsrs=bool(args.get("fsrs") or False),
             )
             return {"results": results}
 

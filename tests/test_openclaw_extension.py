@@ -90,7 +90,9 @@ def test_call_tool_brain_recall_delegates_to_brain():
     result = adapter._call_tool("brain_recall", {"query": "q", "k": 3, "rerank": True})
     assert result["isError"] is False
     fake_brain.recall.assert_called_once_with(
-        query="q", k=3, tier=None, min_importance=None, rerank=True, decay=False,
+        query="q", k=3, tier=None, min_importance=None,
+        rerank=True, decay=False,
+        tier_priors=False, tier_priors_overrides=None, fsrs=False,
     )
     # Content block is JSON-encoded text. v0.14.0: dispatch returns
     # {"results": [...]} (matches MCP server + Hermes plugin shape),
@@ -117,7 +119,9 @@ def test_call_tool_brain_recall_delegates_to_brain():
     result = adapter._call_tool("brain_recall", {"query": "q", "k": 3, "rerank": True})
     assert result["isError"] is False
     fake_brain.recall.assert_called_once_with(
-        query="q", k=3, tier=None, min_importance=None, rerank=True, decay=False,
+        query="q", k=3, tier=None, min_importance=None,
+        rerank=True, decay=False,
+        tier_priors=False, tier_priors_overrides=None, fsrs=False,
     )
     # Content block is JSON-encoded text.
     text_block = result["content"][0]["text"]
