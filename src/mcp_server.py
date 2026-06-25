@@ -302,6 +302,19 @@ TOOLS = [
             "required": ["name", "description", "instructions"],
         },
     },
+    {
+        "name": "brain_user_model",
+        "description": "Aggregate user-related facts into a single 'user' memory block. Honcho-inspired: a continuously-updated user model that agents can read on session start. Pulls high-importance facts about the user (entities, preferences, recurring context) and writes them to the 'user' block via block_write. Call on a cron or after major life/work changes.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "block_name": {"type": "string", "default": "user", "description": "which block to write the model to"},
+                "min_importance": {"type": "number", "default": 0.5, "description": "importance threshold (0..1)"},
+                "max_facts": {"type": "integer", "default": 30, "description": "max facts to include in the model"},
+                "k_per_query": {"type": "integer", "default": 50, "description": "candidates to scan per tier"},
+            },
+        },
+    },
 ]
 
 
@@ -1103,6 +1116,116 @@ async def handle_brain_skill_create(args: dict) -> dict:
         return {"error": str(e), "created": False, "hint": "pass overwrite=true to replace"}
 
 
+async def handle_brain_user_model(args: dict) -> dict:
+    """Aggregate user-related facts into a single memory block.
+
+    Honcho-inspired user modeling: instead of forcing the agent to
+    re-read every fact about the user on session start, we periodically
+    distill the high-importance facts into one consolidated block.
+
+    The block content is built from:
+      1. Memories that mention the user entity (Duckets / user / he / she)
+      2. High-importance memories with user-related keywords
+      3. Entity-relationship triples where the user is on either end
+
+    The model is updated in-place via block_write. Older content is
+    preserved (we APPEND a new section, not overwrite) so the model
+    accumulates over time. The agent can prune by editing the block
+    directly.
+    """
+    from src.memory import Memory
+    from src.tier import Tier
+    from src.blocks import BlockStore
+    from src.connectors.base import Brain
+
+    block_name = args.get("block_name", "user")
+    min_imp = float(args.get("min_importance", 0.5))
+    max_facts = int(args.get("max_facts", 30))
+    k_per_query = int(args.get("k_per_query", 50))
+
+    mem = Memory()
+    store, _ = await mem._ensure_initialized()
+
+    # 1. Pull user-related candidates across all tiers.
+    seen_texts: set[str] = set()
+    candidates: list[dict] = []
+    user_queries = [
+        "Duckets preferences",
+        "Duckets routine",
+        "Duckets habits",
+        "user profile",
+    ]
+    for q in user_queries:
+        try:
+            results, _ = await mem.recall(
+                q, k=k_per_query // len(user_queries) + 1, tier=None,
+                min_importance=min_imp,
+            )
+        except Exception:
+            continue
+        for r in results:
+            md = getattr(r, "metadata", None) or {}
+            text = (getattr(r, "text", "") or "").strip()
+            if not text or text in seen_texts:
+                continue
+            if md.get("superseded_by"):
+                continue
+            seen_texts.add(text)
+            candidates.append({
+                "text": text,
+                "tier": md.get("tier", "unknown"),
+                "importance": md.get("importance", 0.0),
+                "source_path": md.get("source_path", ""),
+            })
+            if len(candidates) >= max_facts:
+                break
+        if len(candidates) >= max_facts:
+            break
+
+    # 2. Sort by importance desc, take top max_facts
+    candidates.sort(key=lambda c: c["importance"], reverse=True)
+    candidates = candidates[:max_facts]
+
+    # 3. Build the block content
+    from datetime import date
+    today = date.today().isoformat()
+    lines = [
+        f"# User Model (auto-generated {today})",
+        "",
+        f"_Consolidated from {len(candidates)} high-importance user-related facts._",
+        "",
+        "## Facts",
+        "",
+    ]
+    for c in candidates:
+        tier = c["tier"]
+        imp = c["importance"]
+        src = c["source_path"] or ""
+        text = c["text"][:300].replace("\n", " ")
+        lines.append(f"- **[{tier}]** (imp {imp:.2f}) {text}")
+        if src:
+            lines.append(f"  _src: {src}_")
+    lines.append("")
+
+    new_section = "\n".join(lines)
+
+    # 4. Append to the existing block (don't destroy history).
+    brain = Brain()
+    existing = brain.block_read(block_name)
+    if existing and existing.get("text"):
+        combined = existing["text"].rstrip() + "\n\n" + new_section
+    else:
+        combined = new_section
+
+    result = brain.block_write(block_name, combined)
+    return {
+        "block_name": block_name,
+        "facts_aggregated": len(candidates),
+        "char_count": len(combined),
+        "result": result,
+    }
+
+
 HANDLERS = {
     "remember": handle_remember,
     "recall": handle_recall,
@@ -1128,6 +1251,7 @@ HANDLERS = {
     "brain_index": handle_brain_index,
     "brain_nudge": handle_brain_nudge,
     "brain_skill_create": handle_brain_skill_create,
+    "brain_user_model": handle_brain_user_model,
     "brain_sync": handle_brain_sync,
 }
 

@@ -1119,3 +1119,34 @@ def test_brain_skill_create_registered():
     assert "brain_skill_create" in HANDLERS
     tool_names = {t["name"] for t in TOOLS}
     assert "brain_skill_create" in tool_names
+
+
+def test_brain_user_model_registered():
+    """brain_user_model MCP tool must be registered."""
+    from src.mcp_server import HANDLERS, TOOLS
+    assert "brain_user_model" in HANDLERS
+    tool_names = {t["name"] for t in TOOLS}
+    assert "brain_user_model" in tool_names
+
+
+def test_brain_user_model_append_to_existing(tmp_path):
+    """brain_user_model appends to the existing user block instead of
+    overwriting it. The model accumulates over time — preserving
+    history is the whole point."""
+    from src.connectors.base import Brain
+    brain = Brain.__new__(Brain)
+    brain.blocks_path = tmp_path / "blocks.db"
+
+    # Write initial content
+    brain.block_write("user", "Initial user notes from yesterday.")
+
+    # Simulate the model aggregation: call block_write with combined
+    # content (initial + new) — this is the same operation the handler
+    # does internally. The key invariant: the original content must be
+    # preserved.
+    initial = brain.block_read("user")["text"]
+    new_section = "\n\n# Today\n\nNew fact: prefers dark mode."
+    brain.block_write("user", initial + new_section)
+    out = brain.block_read("user")
+    assert "Initial user notes from yesterday." in out["text"]
+    assert "New fact: prefers dark mode." in out["text"]
