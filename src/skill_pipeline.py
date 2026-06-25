@@ -274,8 +274,36 @@ def promote_candidate(
         }
 
     # 2. Write the SKILL.md (pure template, no LLM).
+    # If the chunk was previously promoted and overwrite=True, recover the
+    # original human-readable title from the existing SKILL.md so the skill
+    # identity (slug + title) is preserved across re-promotions. The slug
+    # is deterministic from the title via _slugify, so the path stays the
+    # same and the old file is overwritten in place (no orphan).
+    effective_name = name
+    if already_promoted:
+        old_slug = md.get("promoted_skill_slug", "")
+        if old_slug:
+            existing_path = (
+                (Path(__file__).resolve().parent.parent / "skills" / old_slug / "SKILL.md")
+                if skills_dir is None
+                else (Path(skills_dir) / old_slug / "SKILL.md")
+            )
+            if existing_path.exists():
+                try:
+                    text = existing_path.read_text(encoding="utf-8")
+                    parts = text.split("---", 2)
+                    if len(parts) >= 3:
+                        for line in parts[2].splitlines():
+                            if line.startswith("# "):
+                                recovered = line[2:].strip()
+                                if recovered:
+                                    effective_name = recovered
+                                break
+                except Exception:
+                    pass
+
     body = render_from_memory(
-        name=name,
+        name=effective_name,
         description=description,
         instructions=instructions,
         example=example,
@@ -287,7 +315,7 @@ def promote_candidate(
     try:
         path = write_skill(
             skills_dir=skills_dir,
-            name=name,
+            name=effective_name,
             description=description,
             body_markdown=body,
             emoji=emoji,

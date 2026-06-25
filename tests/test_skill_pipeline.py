@@ -537,3 +537,164 @@ def test_system_prompt_describes_agent_driven_pipeline():
     assert "skill_candidate" in prompt
     assert "brain_skills_promote" in prompt
     assert "agent-driven" in prompt.lower()
+
+
+# -----------------------------------------------------------------------------
+# Regression tests for re-promote preserving skill identity
+# -----------------------------------------------------------------------------
+
+class _PreservePathStore:
+    """Fake store where promote_candidate's re-promote uses the existing slug."""
+
+    def __init__(self):
+        self._procedural = {}
+
+    def collection_for(self, tier):
+        # tier is a Tier enum or string
+        key = tier.value if hasattr(tier, "value") else str(tier)
+        if key == "procedural":
+            return _PreservePathCollection(self._procedural)
+        raise ValueError(f"unexpected tier {tier}")
+
+
+class _PreservePathCollection:
+    def __init__(self, store):
+        self._store = store
+        self._updates = []
+
+    def get(self, ids=None, where=None, limit=None, include=None):
+        if ids is not None:
+            rows = [(i, self._store[i]) for i in ids if i in self._store]
+        else:
+            rows = list(self._store.items())
+        if not rows:
+            return {"ids": [], "documents": [], "metadatas": []}
+        return {
+            "ids": [r[0] for r in rows],
+            "documents": [r[1]["document"] for r in rows],
+            "metadatas": [r[1]["metadata"] for r in rows],
+        }
+
+    def update(self, ids, metadatas):
+        for cid, md in zip(ids, metadatas):
+            self._updates.append((cid, dict(md)))
+            if cid in self._store:
+                self._store[cid]["metadata"].update(md)
+
+
+def test_repromote_preserves_existing_slug(tmp_path, reset_singletons):
+    """Re-promoting with a different name MUST reuse the existing slug
+    so the SKILL.md is overwritten in place — not orphaned at a new path."""
+    fake_store = _PreservePathStore()
+    fake_store._procedural["c1"] = {
+        "document": "test doc",
+        "metadata": {
+            "kind": "skill_candidate",
+            "promoted": False,
+            "source_path": "agent://x",
+            "importance": 0.6,
+            "candidate_summary": "test",
+        },
+    }
+    skills_dir = tmp_path / "skills"
+
+    with patch("src.skill_pipeline.Memory") as MockMem, \
+         patch("src.skill_pipeline._run_async") as mock_run:
+        mock_run.return_value = (fake_store, MagicMock())
+        MockMem.return_value = MagicMock()
+
+        # First promote
+        out1 = pipeline.promote_candidate(
+            chunk_id="c1",
+            name="Original Name",
+            description="v1",
+            instructions=["step 1"],
+            skills_dir=skills_dir,
+        )
+        assert out1["slug"] == "original-name"
+        assert out1["previously_promoted"] is False
+
+        # Mark the chunk as promoted (simulate post-first-promote state)
+        fake_store._procedural["c1"]["metadata"]["promoted"] = True
+        fake_store._procedural["c1"]["metadata"]["promoted_skill_slug"] = "original-name"
+        fake_store._procedural["c1"]["metadata"]["promoted_at"] = 1234567890.0
+
+        # Re-promote with a DIFFERENT name + overwrite=True
+        out2 = pipeline.promote_candidate(
+            chunk_id="c1",
+            name="Completely Different Name",
+            description="v2",
+            instructions=["step 1", "step 2"],
+            skills_dir=skills_dir,
+            overwrite=True,
+        )
+
+    # CRITICAL: slug must be the SAME as the first promote
+    assert out2["slug"] == "original-name", (
+        f"re-promote created a new slug {out2['slug']!r}, "
+        f"orphaning the original 'original-name' skill"
+    )
+    assert out2["previously_promoted"] is True
+
+    # The file at the original path was overwritten (not duplicated)
+    original_skill = skills_dir / "original-name" / "SKILL.md"
+    assert original_skill.exists(), "original skill file should still exist after re-promote"
+    content = original_skill.read_text()
+    # The new description lands in the body
+    assert "v2" in content
+    # The new instructions land in the body
+    assert "step 1" in content and "step 2" in content
+
+    # No orphan at the new path
+    orphan = skills_dir / "completely-different-name" / "SKILL.md"
+    assert not orphan.exists(), "re-promote should NOT create a new skill file at a new path"
+
+
+def test_repromote_preserves_human_readable_title(tmp_path, reset_singletons):
+    """If the existing SKILL.md has a human-readable # Title, the re-promote
+    preserves that title (so the agent's original naming intent survives).
+    Realistic setup: the chunk's stored slug matches the slug derived from
+    the title (which is what skillgen normally produces)."""
+    # Title -> slug is deterministic: "Restart BATMAN Container" -> "restart-batman-container"
+    title = "Restart BATMAN Container"
+    expected_slug = "restart-batman-container"
+    fake_store = _PreservePathStore()
+    fake_store._procedural["c1"] = {
+        "document": "test doc",
+        "metadata": {
+            "kind": "skill_candidate",
+            "promoted": True,
+            "promoted_skill_slug": expected_slug,
+            "source_path": "agent://x",
+            "importance": 0.6,
+            "candidate_summary": "test",
+        },
+    }
+    skills_dir = tmp_path / "skills"
+    existing = skills_dir / expected_slug / "SKILL.md"
+    existing.parent.mkdir(parents=True)
+    existing.write_text(
+        f"---\nname: {expected_slug}\ndescription: old\n---\n\n"
+        f"# {title}\n\nOld body.\n",
+        encoding="utf-8",
+    )
+
+    with patch("src.skill_pipeline.Memory") as MockMem, \
+         patch("src.skill_pipeline._run_async") as mock_run:
+        mock_run.return_value = (fake_store, MagicMock())
+        MockMem.return_value = MagicMock()
+
+        out = pipeline.promote_candidate(
+            chunk_id="c1",
+            name="Brand New Name",  # Different name on purpose
+            description="updated description",
+            instructions=["step 1"],
+            skills_dir=skills_dir,
+            overwrite=True,
+        )
+
+    # Slug and title both preserved from the existing skill file
+    assert out["slug"] == expected_slug
+    content = (skills_dir / expected_slug / "SKILL.md").read_text()
+    assert f"# {title}" in content
+    assert "updated description" in content
