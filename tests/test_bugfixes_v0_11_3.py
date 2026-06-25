@@ -1278,3 +1278,66 @@ def test_palace_index_from_store():
     drawers = pi.walk("duckbot", room="2026-06-22")
     assert len(drawers) == 1
     assert drawers[0].room == "2026-06-22"
+
+
+def test_fsrs_optimizer_fits_synthetic_data():
+    """fit_w20 should find a w20 that predicts the data well.
+    Constructed scenario: every chunk is freshly recalled (label=1)
+    with low stability — best w20 should be very low (flat curve)
+    so R is high for short elapsed times."""
+    from src.fsrs_optimizer import fit_w20
+    now = 1700000000.0
+    # 10 chunks, all just recalled with low stability.
+    chunks = [
+        {"stability_days": 1.0, "last_recalled_at": now, "recall_count": 1}
+        for _ in range(10)
+    ]
+    r = fit_w20(chunks, default_w20=0.9, now=now)
+    assert r.n_chunks == 10
+    assert r.n_remembered == 10
+    # All-recalled + all-stable: flat curve wins. w20 should be very low.
+    assert r.best_w20 < 0.5
+    # fit_w20 returns a value within the default search range
+    # (w20_lo=0.05, w20_hi=3.0).
+    assert 0.05 <= r.best_w20 <= 3.0
+
+
+def test_fsrs_optimizer_handles_forgotten_chunks():
+    """Chunks with recall_count=0 (forgotten) should pull the fit toward
+    a steeper curve. The w20 that best explains the data should be
+    higher than the all-remembered scenario above."""
+    from src.fsrs_optimizer import fit_w20
+    now = 1700000000.0
+    day = 86400.0
+    # 10 chunks, never recalled (forgotten). Various ages.
+    chunks = [
+        {"stability_days": 7.0, "last_recalled_at": 0,
+         "recall_count": 0, "ingested_at": now - 30 * day}
+        for _ in range(10)
+    ]
+    r = fit_w20(chunks, default_w20=0.9, now=now)
+    assert r.n_chunks == 10
+    assert r.n_forgotten == 10
+    assert r.n_remembered == 0
+    # All-forgotten: fit prefers a higher w20 than the all-remembered
+    # scenario, to make R low for 30-day-old chunks.
+    assert r.best_w20 > 0.5, f"expected w20 > 0.5, got {r.best_w20}"
+
+
+def test_fsrs_optimizer_empty_input():
+    """Empty chunk list returns a valid FitResult without crashing."""
+    from src.fsrs_optimizer import fit_w20, FitResult
+    r = fit_w20([])
+    assert isinstance(r, FitResult)
+    assert r.best_w20 == 0.9  # falls back to default
+    assert r.n_chunks == 0
+
+
+def test_brain_optimize_fsrs_registered():
+    """brain_optimize_fsrs + brain_apply_fsrs_w20 MCP tools must exist."""
+    from src.mcp_server import HANDLERS, TOOLS
+    assert "brain_optimize_fsrs" in HANDLERS
+    assert "brain_apply_fsrs_w20" in HANDLERS
+    tool_names = {t["name"] for t in TOOLS}
+    assert "brain_optimize_fsrs" in tool_names
+    assert "brain_apply_fsrs_w20" in tool_names

@@ -328,6 +328,30 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "brain_optimize_fsrs",
+        "description": "Self-tune the FSRS-6 forgetting-curve exponent (w20) from the brain's recall history. Grid-searches w20 over the live chunk set, minimizing MSE between predicted R(t, S) and observed 'remembered' (recall_count>0) vs 'forgotten' (never recalled) labels. Returns the proposed w20 + improvement vs the current default. Does NOT auto-apply — call brain_apply_fsrs_w20 to commit. Run on a weekly cron.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "default_w20": {"type": "number", "default": 0.9, "description": "comparison baseline (typically the shipped 0.9)"},
+                "w20_lo": {"type": "number", "default": 0.05, "description": "search grid low"},
+                "w20_hi": {"type": "number", "default": 3.0, "description": "search grid high"},
+                "w20_step": {"type": "number", "default": 0.05, "description": "search grid step"},
+            },
+        },
+    },
+    {
+        "name": "brain_apply_fsrs_w20",
+        "description": "Apply a chosen w20 to the brain's fsrs.DEFAULT_W20. Call this after brain_optimize_fsrs returns a better w20. The change is in-process only — restart the server to persist, or set DUCKBOT_FSRS_W20=... env var for persistence.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "w20": {"type": "number", "description": "the new w20 to use"},
+            },
+            "required": ["w20"],
+        },
+    },
 ]
 
 
@@ -1277,6 +1301,57 @@ async def handle_brain_palace(args: dict) -> dict:
     }
 
 
+async def handle_brain_optimize_fsrs(args: dict) -> dict:
+    """Self-tune the FSRS-6 w20 (forgetting exponent) from recall history.
+
+    Grid-searches w20 ∈ [w20_lo, w20_hi] at w20_step granularity,
+    minimizing MSE between predicted R(t, S) and observed
+    'remembered'/'forgotten' labels derived from recall_count.
+
+    Returns the proposed w20 + the full sweep so the caller can see
+    the loss landscape. Does NOT auto-apply — call
+    brain_apply_fsrs_w20 to commit.
+    """
+    from src.fsrs_optimizer import fit_and_apply
+    from src.memory import Memory
+    mem = Memory()
+    store, _ = await mem._ensure_initialized()
+    result = fit_and_apply(
+        store,
+        default_w20=float(args.get("default_w20", 0.9)),
+        w20_lo=float(args.get("w20_lo", 0.05)),
+        w20_hi=float(args.get("w20_hi", 3.0)),
+        w20_step=float(args.get("w20_step", 0.05)),
+    )
+    return result.to_dict()
+
+
+async def handle_brain_apply_fsrs_w20(args: dict) -> dict:
+    """Apply a chosen w20 to the brain's fsrs.DEFAULT_W20.
+
+    In-process only — restart the server (or set the env var
+    DUCKBOT_FSRS_W20=<value>) to persist across restarts.
+    """
+    from src import fsrs
+    w20 = args.get("w20")
+    if w20 is None:
+        return {"error": "w20 is required"}
+    try:
+        w20 = float(w20)
+    except (TypeError, ValueError):
+        return {"error": f"w20 must be a number, got {w20!r}"}
+    if w20 <= 0:
+        return {"error": f"w20 must be > 0, got {w20}"}
+    old = fsrs.DEFAULT_W20
+    fsrs.DEFAULT_W20 = w20
+    return {
+        "old_w20": old,
+        "new_w20": w20,
+        "persisted": False,
+        "note": "In-process only. Set DUCKBOT_FSRS_W20 env var to persist across restarts.",
+    }
+
+
 HANDLERS = {
     "remember": handle_remember,
     "recall": handle_recall,
@@ -1304,6 +1379,8 @@ HANDLERS = {
     "brain_skill_create": handle_brain_skill_create,
     "brain_user_model": handle_brain_user_model,
     "brain_palace": handle_brain_palace,
+    "brain_optimize_fsrs": handle_brain_optimize_fsrs,
+    "brain_apply_fsrs_w20": handle_brain_apply_fsrs_w20,
     "brain_sync": handle_brain_sync,
 }
 
