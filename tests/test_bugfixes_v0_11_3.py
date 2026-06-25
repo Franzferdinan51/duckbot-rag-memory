@@ -1150,3 +1150,46 @@ def test_brain_user_model_append_to_existing(tmp_path):
     out = brain.block_read("user")
     assert "Initial user notes from yesterday." in out["text"]
     assert "New fact: prefers dark mode." in out["text"]
+
+
+def test_spellcheck_fixes_common_typos():
+    """Lightweight spellcheck should fix the most common typos but
+    leave proper nouns and unknown words alone."""
+    from src.spellcheck import fix_text, fix_word
+    # Direct fixes
+    assert fix_text("I recieved your mesage yestarday") == "I received your message yesterday"
+    assert fix_text("teh adn") == "the and"
+    assert fix_text("occured") == "occurred"
+    assert fix_text("definately") == "definitely"
+    # Case preservation
+    assert fix_text("Recieved") == "Received"
+    assert fix_text("Recieve") == "Receive"
+    # Unknown words pass through
+    assert fix_text("hello world") == "hello world"
+    # Proper nouns protected
+    assert fix_word("Duckets") == "Duckets"
+    assert fix_word("Hermes") == "Hermes"
+    # Edge cases
+    assert fix_text("") == ""
+    assert fix_text("a b c") == "a b c"
+
+
+def test_spellcheck_handles_camelcase_properly():
+    """Capitalized common typos ARE fixed (we override the proper-noun
+    heuristic when the word is a known typo). 'Teh' -> 'The'."""
+    from src.spellcheck import fix_text
+    # "Teh" is a known typo regardless of capitalization.
+    assert fix_text("Teh") == "The"
+    assert fix_text("Teh teh") == "The the"
+
+
+def test_spellcheck_list_typos():
+    """list_typos returns a sorted (typo, fix) list."""
+    from src.spellcheck import list_typos
+    rows = list_typos()
+    assert isinstance(rows, list)
+    assert rows == sorted(rows)  # sorted by typo
+    # All values are non-empty strings
+    for typo, fix in rows:
+        assert isinstance(typo, str) and len(typo) > 0
+        assert isinstance(fix, str) and len(fix) > 0

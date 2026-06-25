@@ -206,6 +206,15 @@ class Memory:
 
         # 1. Chunk (markdown-aware, but for short single-shot input we just
         #    produce a single chunk)
+        # 0. Spellcheck (MemPalace-inspired, opt-in via DUCKBOT_SPELLCHECK).
+        #    Default ON for short single-shot input; OFF for long markdown
+        #    since markdown has lots of code blocks / proper nouns that
+        #    we don't want to mangle.
+        spellcheck_enabled = os.environ.get("DUCKBOT_SPELLCHECK", "1") not in ("0", "false", "no")
+        if spellcheck_enabled and len(text) < 2000 and "\n" not in text.strip():
+            from .spellcheck import fix_text
+            text = fix_text(text)
+
         if len(text) < 2000 and "\n" not in text.strip():
             chunks = [Chunk(
                 text=text,
