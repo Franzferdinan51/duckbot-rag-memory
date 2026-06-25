@@ -207,6 +207,10 @@ def cmd_wake_up(args: argparse.Namespace) -> int:
     ready to paste into an agent's context. Designed for use as a
     Hermes / OpenClaw session-start hook — `scripts/hermes-preflight.sh`
     shells out to this.
+
+    With --json: prints the full wake_up() result as JSON (one line)
+    for programmatic consumers (e.g. agent runtimes that pipe the
+    output into a parser).
     """
     from src.connectors.base import Brain
     brain = Brain()
@@ -217,6 +221,10 @@ def cmd_wake_up(args: argparse.Namespace) -> int:
         include_graph=getattr(args, "include_graph", True),
         include_fsrs_review=getattr(args, "include_fsrs_review", True),
     )
+    if getattr(args, "json", False):
+        import json
+        print(json.dumps(result, indent=2, default=str))
+        return 0
     # Pretty-print as a markdown block so agents can paste it into context.
     lines = ["# 🧠 Brain Wake-Up", ""]
     memories = result.get("memories") or []
@@ -539,6 +547,8 @@ def main() -> int:
     p_wakeup.add_argument("--no-blocks", action="store_false", dest="include_blocks")
     p_wakeup.add_argument("--no-graph", action="store_false", dest="include_graph")
     p_wakeup.add_argument("--no-fsrs-review", action="store_false", dest="include_fsrs_review")
+    p_wakeup.add_argument("--json", action="store_true",
+                          help="output as JSON (default: markdown block)")
     p_wakeup.set_defaults(
         func=cmd_wake_up,
         include_blocks=True,

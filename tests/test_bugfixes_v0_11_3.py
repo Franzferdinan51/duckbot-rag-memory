@@ -1422,3 +1422,21 @@ def test_brain_palace_includes_user_model_cross_ref():
     # Must read the 'user' block to do the cross-reference.
     assert "block_read" in src
     assert '"user"' in src or "'user'" in src
+
+
+def test_cli_wake_up_json_flag():
+    """CLI wake-up --json must output valid JSON parseable by json.loads."""
+    import json
+    import subprocess
+    import sys
+    r = subprocess.run(
+        [sys.executable, "-m", "src.cli", "wake-up", "--json", "-k", "1"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert r.returncode == 0, f"wake-up --json failed: {r.stderr}"
+    data = json.loads(r.stdout)
+    assert isinstance(data, dict)
+    assert "memories" in data
+    # The default --md path emits a '# ' markdown line first; the --json
+    # path never should.
+    assert not r.stdout.startswith("# "), "--json output should not be markdown"
