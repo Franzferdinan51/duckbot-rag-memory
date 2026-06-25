@@ -324,7 +324,13 @@ class DuckBotBrainProvider:
             content = (m.get("content") or m.get("text") or "").strip()
             if role != "user" or not content:
                 continue
-            if durable_patterns.search(content) and 30 <= len(content) <= 600:
+            # Length window: 12..800 chars. The pattern (always/never/
+            # must/should/prefer/want/don't) already filters most noise;
+            # the length floor catches ultra-short fragments like "yes always"
+            # which are usually mid-conversation acknowledgements rather than
+            # durable rules. Previously 30 — too aggressive, dropped real
+            # preferences like "I always use dark mode" (25 chars).
+            if durable_patterns.search(content) and 12 <= len(content) <= 800:
                 durable.append(content)
 
         if not durable:

@@ -465,3 +465,38 @@ def test_plugin_init_uses_expected_imports():
     )
     content = init.read_text()
     assert "from src.connectors.base import Brain" in content
+
+
+def test_on_session_end_captures_short_preferences(provider, fake_brain):
+    """Short durable preferences (12-30 chars) MUST be captured — the
+    old 30-char floor rejected real preferences like 'I always prefer dark mode'."""
+    provider.initialize("s1", agent_context="primary")
+    provider._brain = fake_brain
+    fake_executor = MagicMock()
+    provider._executor = fake_executor
+
+    messages = [
+        {"role": "user", "content": "I always prefer dark mode"},  # 25 chars
+        {"role": "user", "content": "I never use tabs"},            # 16 chars
+    ]
+    out = provider.on_session_end(messages)
+    assert out is not None, "short preferences must not be silently dropped"
+    assert out["persisted"] == 2
+    fake_executor.submit.assert_called_once()
+
+
+def test_on_session_end_rejects_ultra_short_noise(provider, fake_brain):
+    """Ultra-short fragments (< 12 chars) like 'ok always' are noise
+    (mid-conversation acks), not durable rules — must still be rejected."""
+    provider.initialize("s1", agent_context="primary")
+    provider._brain = fake_brain
+    fake_executor = MagicMock()
+    provider._executor = fake_executor
+
+    messages = [
+        {"role": "user", "content": "ok always"},   # 9 chars
+        {"role": "user", "content": "yes never"},   # 9 chars
+    ]
+    out = provider.on_session_end(messages)
+    assert out is None
+    fake_executor.submit.assert_not_called()
