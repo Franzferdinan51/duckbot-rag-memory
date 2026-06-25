@@ -1861,7 +1861,15 @@ def test_memory_singleton_does_not_affect_constructor_with_args():
 def test_rate_limiter_allows_until_burned():
     """RateLimiter.check consumes one token per call; once exhausted
     returns (False, info) with a positive retry_after. DUCKBOT_RATELIMIT_DISABLE
-    overrides and always allows."""
+    overrides and always allows.
+
+    v0.14.0: explicit reset + DUCKBOT_RATELIMIT_DISABLE cleared at the
+    top so the test isn't order-dependent in the full suite."""
+    # Reset the env override + bucket singleton so the test is hermetic.
+    import os
+    os.environ.pop("DUCKBOT_RATELIMIT_DISABLE", None)
+    from src import ratelimit
+    ratelimit.reset_rate_limiter()
     from src.ratelimit import RateLimiter
     rl = RateLimiter()
     # brain_remember has limit=10/min. After 10 calls, 11th must be blocked.
@@ -1893,15 +1901,20 @@ def test_rate_limiter_disable_env():
 def test_mcp_dispatch_returns_429_style_on_rate_limit(monkeypatch):
     """The MCP dispatch loop must short-circuit with a JSON-RPC error
     when the per-tool rate limit is exhausted. The error code is -32029
-    (server rate-limit) and the data payload includes retry_after_seconds."""
+    (server rate-limit) and the data payload includes retry_after_seconds.
+
+    v0.14.0: explicitly uses the string form `monkeypatch.setattr` so
+    we don't depend on a module reference that may have been rebound
+    by a prior test. Also resets the rate limiter singleton first."""
     from src import mcp_server
-    from src import memory
-    monkeypatch.setattr(memory, "_DEFAULT_MEMORY", None)
-    # Hammer brain_remember past its 10/min limit. Skip rate-limit bypass
-    # for this test by NOT setting DUCKBOT_RATELIMIT_DISABLE.
-    monkeypatch.delenv("DUCKBOT_RATELIMIT_DISABLE", raising=False)
     from src import ratelimit
+    # Order matters: clear the env override BEFORE resetting the
+    # limiter, so the limiter starts in enabled state.
+    monkeypatch.delenv("DUCKBOT_RATELIMIT_DISABLE", raising=False)
     ratelimit.reset_rate_limiter()
+    # Reset the Memory singleton so any prior test's _DEFAULT_MEMORY
+    # doesn't bleed into this test.
+    monkeypatch.setattr("src.memory._DEFAULT_MEMORY", None)
     # Burn the bucket
     rl = ratelimit.get_rate_limiter()
     for _ in range(11):

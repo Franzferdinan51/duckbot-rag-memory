@@ -4,8 +4,9 @@ Speaks JSON-RPC over stdio so OpenClaw (or any MCP-compatible client)
 can drive the brain as a memory provider.
 
 This is the Python sibling of the Hermes plugin at
-src/plugins/memory/duckbot_brain/__init__.py — both implement the same
-Brain API; only the protocol differs.
+src/plugins/memory/duckbot_brain/__init__.py — both delegate to the
+shared tool surface at `src.extensions.tools` so they advertise the
+same 9 tools (incl. `brain_wake_up`, the canonical session-start call).
 
 Pattern sources:
   - OpenClaw active-memory extension (extensions/active-memory/index.ts)
@@ -30,7 +31,10 @@ _REPO_ROOT = _THIS.parents[3]  # src/extensions/duckbot_brain/adapter.py → rep
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from src.connectors.base import Brain  # noqa: E402
+# Shared core surface — same tool list as the Hermes plugin, the MCP
+# server (subset), and any future adapter. See src/extensions/tools.py
+# for the full contract.
+from src.extensions import tools as _tools  # noqa: E402
 
 logger = logging.getLogger("duckbot-brain-extension")
 
@@ -46,18 +50,27 @@ _ENABLE_DECAY = os.environ.get("DUCKBOT_BRAIN_DECAY", "0") == "1"
 
 
 # -----------------------------------------------------------------------------
-# Brain singleton
+# Back-compat shim: tests + older callers reference _BRAIN directly
+# (`adapter._BRAIN = fake_brain` then expect _call_tool to use it).
+# The new tools module owns the canonical singleton; this attribute
+# is a per-adapter override that wins over the shared singleton.
 # -----------------------------------------------------------------------------
 
 
-_BRAIN: Optional[Brain] = None
+_BRAIN: Optional[Any] = None  # Any = Brain; lazy-imported to avoid cycle
 
 
-def _get_brain() -> Brain:
+def _get_brain():  # type: ignore[no-untyped-def]
+    """Per-adapter override first, then shared singleton."""
+    if _BRAIN is not None:
+        return _BRAIN
+    return _tools._get_brain()
+
+
+def _resolve_brain_override(brain: Any) -> None:
+    """Test helper: pass an explicit brain (or None to clear)."""
     global _BRAIN
-    if _BRAIN is None:
-        _BRAIN = Brain()
-    return _BRAIN
+    _BRAIN = brain
 
 
 # -----------------------------------------------------------------------------
@@ -105,205 +118,61 @@ def _err(req_id: Any, code: int, message: str) -> Dict[str, Any]:
 
 
 def _tool_schemas() -> Dict[str, Any]:
-    """MCP-style tool list response."""
-    return {
-        "tools": [
-            {
-                "name": "brain_recall",
-                "description": "Hybrid retrieval (vector + BM25 + RRF). Optionally rerank=true for cross-encoder boost, decay=true for Ebbinghaus retention weighting.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string"},
-                        "k": {"type": "integer", "default": _DEFAULT_K},
-                        "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
-                        "min_importance": {"type": "number"},
-                        "rerank": {"type": "boolean", "default": _ENABLE_RERANK},
-                        "decay": {"type": "boolean", "default": _ENABLE_DECAY},
-                    },
-                    "required": ["query"],
-                },
-            },
-            {
-                "name": "brain_recall_verbatim",
-                "description": "Returns the original (pre-overlap, pre-prefix) source text.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string"},
-                        "k": {"type": "integer", "default": _DEFAULT_K},
-                        "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
-                        "rerank": {"type": "boolean", "default": False},
-                        "decay": {"type": "boolean", "default": False},
-                    },
-                    "required": ["query"],
-                },
-            },
-            {
-                "name": "brain_remember",
-                "description": "Persist text to the brain. Non-blocking; the watcher will pick it up if needed.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "text": {"type": "string"},
-                        "source": {"type": "string"},
-                        "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
-                    },
-                    "required": ["text"],
-                },
-            },
-            {
-                "name": "brain_stats",
-                "description": "Return brain stats.",
-                "inputSchema": {"type": "object", "properties": {}},
-            },
-            {
-                "name": "brain_fsrs_review",
-                "description": "Return chunks due for FSRS-6 spaced-repetition review (R(t,S) < 0.9). Public-domain math, no LLM.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
-                        "k": {"type": "integer", "default": 10},
-                    },
-                },
-            },
-            {
-                "name": "brain_decay_status",
-                "description": "Return Ebbinghaus decay status (R = e^(-t/S)) for recent chunks, grouped by tier. Public-domain math, no LLM.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
-                        "k": {"type": "integer", "default": 50},
-                    },
-                },
-            },
-            {
-                "name": "brain_forget_by_query",
-                "description": "Delete the top-k chunks matching a query. Use when you want to forget a topic, not just one chunk.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string"},
-                        "k": {"type": "integer", "default": 5},
-                        "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
-                    },
-                    "required": ["query"],
-                },
-            },
-            {
-                "name": "brain_search_verbatim",
-                "description": "Exact substring match against the verbatim (pre-overlap) text. Useful when you remember a phrase verbatim.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "needle": {"type": "string"},
-                        "k": {"type": "integer", "default": 5},
-                    },
-                    "required": ["needle"],
-                },
-            },
-        ]
-    }
+    """MCP-style tool list response.
+
+    Delegates to the shared core surface in `src.extensions.tools` so
+    the OpenClaw extension, Hermes plugin, and any future adapter stay
+    in lock-step. v0.14.0 (was 8, now 9: added `brain_wake_up` so the
+    skill files' "call brain_wake_up at session start" instruction
+    actually works).
+    """
+    tools = _tools.tool_schemas()
+    # Apply the per-process default-rerank/decay overrides from env
+    # (configurable via openclaw.plugin.json `enableRerank` / `enableDecay`).
+    for t in tools:
+        if t["name"] == "brain_recall":
+            schema = t["inputSchema"]
+            if "properties" in schema and "k" in schema["properties"]:
+                schema["properties"]["k"]["default"] = _DEFAULT_K
+            if "properties" in schema and "rerank" in schema["properties"]:
+                schema["properties"]["rerank"]["default"] = _ENABLE_RERANK
+            if "properties" in schema and "decay" in schema["properties"]:
+                schema["properties"]["decay"]["default"] = _ENABLE_DECAY
+    return {"tools": tools}
 
 
 def _call_tool(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute one tool call and return MCP-style content blocks."""
+    """Execute one tool call and return MCP-style content blocks.
+
+    v0.14.0: delegates to the shared dispatch in `src.extensions.tools`.
+    Per-tool rate limit is enforced before dispatch (matches the MCP
+    server's behavior so a misbehaving OpenClaw agent can't bypass the
+    limit by retrying). DUCKBOT_RATELIMIT_DISABLE=1 turns this off.
+    """
+    # Per-tool rate limit (same shape as mcp_server._check_rate_limit_or_error).
+    rl_err = _tools.check_rate_limit(name)
+    if rl_err is not None:
+        return _content(rl_err, is_error=True)
+
     brain = _get_brain()
-    if name == "brain_recall":
-        results = brain.recall(
-            query=args["query"],
-            k=args.get("k", _DEFAULT_K),
-            tier=args.get("tier"),
-            min_importance=args.get("min_importance"),
-            rerank=args.get("rerank") or False,
-            decay=args.get("decay") or False,
-        )
-        return _content(_serialize_recall(results))
-    if name == "brain_recall_verbatim":
-        results = brain.recall_verbatim(
-            query=args["query"],
-            k=args.get("k", _DEFAULT_K),
-            tier=args.get("tier"),
-            rerank=args.get("rerank") or False,
-            decay=args.get("decay") or False,
-        )
-        return _content(results)
-    if name == "brain_remember":
-        # Non-blocking — return immediately, the actual ingest runs in the
-        # background. The caller does not need to wait.
-        import asyncio
-        text = args["text"]
-        source = args.get("source") or "openclaw-extension://ad-hoc"
+    # If a per-adapter _BRAIN override is set (test fixture), thread it
+    # into dispatch via a thread-local. Simplest: monkeypatch the
+    # shared _tools._get_brain temporarily.
+    if _BRAIN is not None:
+        original = _tools._BRAIN
+        _tools._BRAIN = _BRAIN
         try:
-            # Spin off the remember; we do not await.
-            import threading
-            def _do():
-                try:
-                    asyncio.run(brain.remember(text=text, source_path=source))
-                except Exception as e:
-                    logger.warning("background remember failed: %s", e)
-            threading.Thread(target=_do, daemon=True).start()
-            return _content({"status": "queued", "source": source})
-        except Exception as e:
-            return _content({"error": str(e)})
-    if name == "brain_stats":
-        s = brain.stats()
-        return _content({
-            "vector_chunks": s.vector_chunks,
-            "vector_by_tier": s.vector_by_tier,
-            "graph_entities": s.graph_entities,
-            "graph_relationships": s.graph_relationships,
-            "graph_active_relationships": s.graph_active_relationships,
-            "blocks": s.blocks,
-            "quarantine_total": s.quarantine_total,
-            "quarantine_pending": s.quarantine_pending,
-            "quarantine_approved": s.quarantine_approved,
-            "quarantine_rejected": s.quarantine_rejected,
-            "generated_at": s.generated_at,
-        })
-    if name == "brain_fsrs_review":
-        return _content(brain.fsrs_review_queue(
-            tier=args.get("tier"),
-            k=args.get("k", 10),
-        ))
-    if name == "brain_decay_status":
-        return _content(brain.decay_status(
-            tier=args.get("tier"),
-            k=args.get("k", 50),
-        ))
-    if name == "brain_forget_by_query":
-        return _content(brain.forget_by_query(
-            query=args["query"],
-            k=args.get("k", 5),
-            tier=args.get("tier"),
-        ))
-    if name == "brain_search_verbatim":
-        return _content(brain.search_verbatim(
-            needle=args["needle"],
-            k=args.get("k", 5),
-        ))
-    return _content({"error": f"unknown tool: {name}"})
+            result = _tools.dispatch(name, args)
+        finally:
+            _tools._BRAIN = original
+    else:
+        result = _tools.dispatch(name, args)
+    is_error = bool(isinstance(result, dict) and result.get("error"))
+    return _content(result, is_error=is_error)
 
 
-def _serialize_recall(results) -> list:
-    return [
-        {
-            "chunk_id": r.chunk_id,
-            "text": r.text,
-            "tier": r.tier,
-            "importance": r.importance,
-            "score": r.score,
-            "source_path": r.source_path,
-            "metadata": r.metadata,
-        }
-        for r in results
-    ]
-
-
-def _content(payload: Any) -> Dict[str, Any]:
-    """MCP-style content blocks."""
+def _content(payload: Any, is_error: bool = False) -> Dict[str, Any]:
+    """MCP-style content blocks. v0.14.0: accepts is_error flag."""
     return {
         "content": [
             {
@@ -311,7 +180,7 @@ def _content(payload: Any) -> Dict[str, Any]:
                 "text": json.dumps(payload, default=str, indent=2),
             }
         ],
-        "isError": False,
+        "isError": is_error,
     }
 
 

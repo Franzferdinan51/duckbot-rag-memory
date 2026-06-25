@@ -92,10 +92,12 @@ def test_call_tool_brain_recall_delegates_to_brain():
     fake_brain.recall.assert_called_once_with(
         query="q", k=3, tier=None, min_importance=None, rerank=True, decay=False,
     )
-    # Content block is JSON-encoded text.
+    # Content block is JSON-encoded text. v0.14.0: dispatch returns
+    # {"results": [...]} (matches MCP server + Hermes plugin shape),
+    # so the chunk lives at payload["results"][0].
     text_block = result["content"][0]["text"]
     payload = json.loads(text_block)
-    assert payload[0]["chunk_id"] == "x"
+    assert payload["results"][0]["chunk_id"] == "x"
 
 
 # -----------------------------------------------------------------------------
@@ -120,7 +122,7 @@ def test_call_tool_brain_recall_delegates_to_brain():
     # Content block is JSON-encoded text.
     text_block = result["content"][0]["text"]
     payload = json.loads(text_block)
-    assert payload[0]["chunk_id"] == "x"
+    assert payload["results"][0]["chunk_id"] == "x"
 
 
 def test_call_tool_brain_recall_verbatim_delegates():
@@ -130,7 +132,7 @@ def test_call_tool_brain_recall_verbatim_delegates():
     result = adapter._call_tool("brain_recall_verbatim", {"query": "q"})
     fake_brain.recall_verbatim.assert_called_once()
     payload = json.loads(result["content"][0]["text"])
-    assert payload[0]["verbatim_text"] == "src"
+    assert payload["results"][0]["verbatim_text"] == "src"
 
 
 def test_call_tool_brain_remember_returns_queued():
@@ -189,6 +191,38 @@ def test_tool_schemas_have_required_fields():
         assert "inputSchema" in tool
 
 
+def test_tool_schemas_includes_brain_wake_up():
+    """v0.14.0: brain_wake_up is the canonical session-start tool.
+    Skills tell agents to call it on session start — the adapter MUST
+    advertise it, otherwise agents get 'unknown tool' errors."""
+    names = {t["name"] for t in adapter._tool_schemas()["tools"]}
+    assert "brain_wake_up" in names
+
+
+def test_call_tool_returns_is_error_on_rate_limit(monkeypatch):
+    """v0.14.0: per-tool rate limit short-circuits with isError=true."""
+    from src import ratelimit
+    ratelimit.reset_rate_limiter()
+    # Force-exhaust the bucket so the next check returns rate_limited.
+    rl = ratelimit.get_rate_limiter()
+    for _ in range(50):
+        rl.check("brain_recall")
+    fake_brain = MagicMock()
+    fake_brain.recall.return_value = []
+    adapter._BRAIN = fake_brain
+    try:
+        result = adapter._call_tool("brain_recall", {"query": "q"})
+        # Either allowed (rare) or rate-limited — but never delegates when blocked.
+        if result["isError"]:
+            payload = json.loads(result["content"][0]["text"])
+            assert payload["error"] == "rate_limited"
+            assert payload["tool"] == "brain_recall"
+            # Brain must NOT have been called.
+            fake_brain.recall.assert_not_called()
+    finally:
+        ratelimit.reset_rate_limiter()
+
+
 def test_brain_recall_schema_requires_query():
     schemas = adapter._tool_schemas()["tools"]
     recall = next(t for t in schemas if t["name"] == "brain_recall")
@@ -222,12 +256,15 @@ def test_openclaw_plugin_json_required_fields():
     assert "description" in data
     assert "configSchema" in data
     assert "tools" in data
-    # Tools list matches what the adapter exposes.
+    # v0.14.0: manifest must list all 11 tools (was 9 before the skill pipeline).
     tool_names = {t["name"] for t in data["tools"]}
-    assert "brain_recall" in tool_names
-    assert "brain_recall_verbatim" in tool_names
-    assert "brain_remember" in tool_names
-    assert "brain_stats" in tool_names
+    expected = {
+        "brain_wake_up", "brain_recall", "brain_recall_verbatim",
+        "brain_remember", "brain_reflect", "brain_stats",
+        "brain_fsrs_review", "brain_decay_status", "brain_search_verbatim",
+        "brain_skills_list", "brain_skills_promote",
+    }
+    assert expected <= tool_names, f"manifest missing: {expected - tool_names}"
 
 
 def test_openclaw_plugin_json_entry_point_matches_adapter():

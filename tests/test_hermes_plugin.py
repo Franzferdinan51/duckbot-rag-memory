@@ -245,12 +245,34 @@ def test_sync_turn_blocking_calls_remember(provider, fake_brain):
 # -----------------------------------------------------------------------------
 
 
-def test_get_tool_schemas_returns_three_tools():
+def test_get_tool_schemas_returns_eleven_tools():
+    """v0.14.0: surface expanded to 11 tools (incl. brain_wake_up +
+    brain_skills_list/promote for the agent-driven skill pipeline).
+    Same list as the OpenClaw extension adapter."""
     p = DuckBotBrainProvider()
     schemas = p.get_tool_schemas()
-    assert len(schemas) == 3
+    assert len(schemas) == 11
     names = {s["function"]["name"] for s in schemas}
-    assert names == {"brain_recall", "brain_recall_verbatim", "brain_reflect"}
+    expected = {
+        "brain_wake_up", "brain_recall", "brain_recall_verbatim",
+        "brain_remember", "brain_reflect", "brain_stats",
+        "brain_fsrs_review", "brain_decay_status", "brain_search_verbatim",
+        "brain_skills_list", "brain_skills_promote",
+    }
+    assert names == expected
+
+
+def test_brain_wake_up_schema_includes_session_start_args():
+    """brain_wake_up must take query/k/include_blocks/etc."""
+    p = DuckBotBrainProvider()
+    schemas = p.get_tool_schemas()
+    wake = next(s for s in schemas if s["function"]["name"] == "brain_wake_up")
+    props = wake["function"]["parameters"]["properties"]
+    assert "query" in props
+    assert "k" in props
+    assert "include_blocks" in props
+    assert "include_graph" in props
+    assert "include_fsrs_review" in props
 
 
 def test_brain_recall_schema_includes_rerank_and_decay():
@@ -292,11 +314,24 @@ def test_handle_tool_call_brain_recall_verbatim(provider, fake_brain):
 
 
 def test_handle_tool_call_brain_reflect(provider, fake_brain):
+    """v0.14.0: brain_reflect now delegates to the real Memory.reflect()
+    pipeline (sleep-time episodic → semantic consolidation). The shape
+    is the consolidation summary, not a snippets wrap."""
     provider._brain = fake_brain
-    out = provider.handle_tool_call("brain_reflect", {"query": "test"})
+    # Memory.reflect is async; the dispatch layer calls it via _run_async
+    # which itself spawns a worker thread. We mock the path so the test
+    # doesn't hit Chroma.
+    fake_consolidation = {
+        "scanned": 200, "extracted": 64,
+        "after_dedup": 47, "promoted": 47,
+    }
+    import src.extensions.tools as tools_mod
+    with patch.object(tools_mod, "dispatch", return_value=fake_consolidation) as mock_disp:
+        out = provider.handle_tool_call("brain_reflect", {"query": "test"})
     data = json.loads(out)
-    assert "snippets" in data
-    assert "note" in data  # tells caller this is pre-LLM synthesis
+    assert "scanned" in data
+    assert "promoted" in data
+    mock_disp.assert_called_once_with("brain_reflect", {"query": "test"})
 
 
 def test_handle_tool_call_unknown_tool(provider, fake_brain):
@@ -331,13 +366,95 @@ def test_plugin_yaml_present():
 
 
 def test_plugin_init_contains_required_hooks():
-    """plugin.yaml must list the hooks we implement."""
+    """plugin.yaml must list the hooks we implement.
+
+    v0.14.0: both on_session_start AND on_session_end. The previous
+    version only listed on_session_end (a no-op stub)."""
     yaml_file = (
         Path(__file__).resolve().parent.parent
         / "src" / "plugins" / "memory" / "duckbot_brain" / "plugin.yaml"
     )
     content = yaml_file.read_text()
     assert "on_session_end" in content
+    assert "on_session_start" in content
+
+
+def test_on_session_end_no_messages_returns_none(provider):
+    """No messages → nothing to consolidate → return None."""
+    assert provider.on_session_end([]) is None
+    assert provider.on_session_end(None) is None
+
+
+def test_on_session_end_skips_non_primary_context(provider):
+    """Per Hermes ABC: skip the procedural write for cron/subagent/flush."""
+    provider.initialize("s1", agent_context="cron")
+    messages = [{"role": "user", "content": "I always want compact output"}]
+    out = provider.on_session_end(messages)
+    assert out == {"skipped": "non-primary context"}
+
+
+def test_on_session_end_persists_durable_user_rules(provider, fake_brain):
+    """Durable-shaped user statements (always/never/prefer/...) get
+    collected and queued for remember() as one procedural chunk."""
+    provider.initialize("s1", agent_context="primary", platform="cli")
+    provider._brain = fake_brain
+    # Replace the executor with a mock so we can inspect the submission
+    # without actually running it.
+    fake_executor = MagicMock()
+    provider._executor = fake_executor
+
+    messages = [
+        {"role": "user", "content": "I always want compact output for crons."},
+        {"role": "user", "content": "Don't ask the wallet — read the file directly."},
+        {"role": "assistant", "content": "Got it, switching to compact format."},
+        {"role": "user", "content": "what's the weather?"},  # not durable-shaped
+    ]
+    out = provider.on_session_end(messages)
+    assert out is not None
+    assert out["persisted"] >= 2
+    assert out["tier"] == "procedural"
+    assert "hermes://session-end/" in out["source"]
+    fake_executor.submit.assert_called_once()
+    # Args: (callable, text, source, tier)
+    args = fake_executor.submit.call_args[0]
+    assert args[3] == "procedural"
+    assert "hermes://session-end/" in args[2]
+    # The procedural chunk text contains the durable rules.
+    assert "always want compact output" in args[1]
+    assert "Don't ask the wallet" in args[1]
+
+
+def test_on_session_end_no_durable_statements_returns_none(provider, fake_brain):
+    """Session with no durable-shaped user statements → return None,
+    no executor submit."""
+    provider.initialize("s1", agent_context="primary")
+    provider._brain = fake_brain
+    fake_executor = MagicMock()
+    provider._executor = fake_executor
+
+    messages = [
+        {"role": "user", "content": "what's 2+2?"},
+        {"role": "assistant", "content": "4"},
+        {"role": "user", "content": "ok thanks"},
+    ]
+    out = provider.on_session_end(messages)
+    assert out is None
+    fake_executor.submit.assert_not_called()
+
+
+def test_on_session_start_returns_wake_up_shape(provider, fake_brain):
+    """on_session_start returns the brain_wake_up dict (memories +
+    blocks + graph + fsrs queue + stats) so callers can pre-load
+    context without an extra MCP round-trip."""
+    fake_brain.wake_up.return_value = {
+        "memories": [], "blocks": [],
+        "graph_summary": {}, "fsrs_review_queue": [], "stats": {},
+    }
+    provider._brain = fake_brain
+    out = provider.on_session_start()
+    assert out is not None
+    assert "memories" in out
+    fake_brain.wake_up.assert_called_once()
 
 
 def test_plugin_init_uses_expected_imports():

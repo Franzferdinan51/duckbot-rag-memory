@@ -72,22 +72,48 @@ echo "→ Step 3/5: Inflating consolidated context (MEMORY.md, USER.md, SOUL.md)
 echo
 echo "✓ Bootstrap complete."
 echo
-echo "Next: register the brain as an MCP server with OpenClaw:"
+
+# Auto-install the duckbot-brain skill into the OpenClaw workspace so
+# agents discover it on next session start. Idempotent: re-running on an
+# existing symlink is a no-op.
+SKILL_DST_DIR="$HOME/.openclaw/workspace/skills/duckbot-brain"
+SKILL_SRC="$REPO_ROOT/skills/duckbot-brain/SKILL.md"
+if [ -f "$SKILL_SRC" ]; then
+    mkdir -p "$SKILL_DST_DIR"
+    if ln -sf "$SKILL_SRC" "$SKILL_DST_DIR/SKILL.md" 2>/dev/null; then
+        echo "✓ Skill installed: $SKILL_DST_DIR/SKILL.md → $SKILL_SRC"
+    else
+        # Fallback: copy if symlinks aren't supported (some Windows mounts).
+        cp "$SKILL_SRC" "$SKILL_DST_DIR/SKILL.md" && \
+            echo "✓ Skill copied: $SKILL_DST_DIR/SKILL.md"
+    fi
+fi
+
 echo
-echo "    Edit ~/.openclaw/openclaw.json and add under mcp.servers:"
-echo "    {"
-echo "      \"duckbot-brain\": {"
-echo "        \"command\": \"$PY\","
-echo "        \"args\": [\"-m\", \"src.mcp_server\"]"
-echo "      }"
-echo "    }"
+echo "Next: register the brain as a memory provider with OpenClaw."
+echo "Two equivalent options — pick one:"
 echo
-echo "    Or use the helper script:"
-echo "    $REPO_ROOT/scripts/duckbot-memory-mcp.sh"
+echo "  (A) Extension adapter (stdio JSON-RPC, 9-tool core agent surface):"
+echo "      Edit ~/.openclaw/openclaw.json and add under plugins.entries:"
+echo '      {'
+echo '        "duckbot-brain": {'
+echo '          "enabled": true,'
+echo "          \"config\": { \"repoPath\": \"$REPO_ROOT\" }"
+echo '        }'
+echo '      }'
+echo
+echo "  (B) Canonical MCP server (56-tool full surface):"
+echo "      Edit ~/.openclaw/openclaw.json and add under mcp.servers:"
+echo '      {'
+echo '        "duckbot-brain": {'
+echo "          \"command\": \"$PY\","
+echo '          "args": ["-m", "src.mcp_server"]'
+echo '        }'
+echo '      }'
 echo
 echo "Then in OpenClaw, call brain_wake_up at session start to load"
 echo "the full corpus (memories + blocks + graph + FSRS review queue)"
-echo "in one MCP call. See README § Enhanced Brain for details."
+echo "in one call. See docs/PLUGIN_SURFACE.md for the full comparison."
 
 # 4. Install the pre-commit secret-scan hook (defense in depth: catches
 #    accidental .env / API key commits).

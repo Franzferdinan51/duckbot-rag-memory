@@ -1,5 +1,11 @@
 name: duckbot-brain
-version: 0.1.0
+version: 0.3.0
 description: "DuckBot brain — local hybrid RAG with cross-encoder rerank (Layer 7), Ebbinghaus decay (Layer 8), and verbatim-first storage (Layer 13). MIT, zero paid APIs."
+# v0.14.0: surface expanded to 11 tools (incl. brain_wake_up as the
+# canonical session-start call + brain_skills_list/promote for the
+# agent-driven skill pipeline) so the skill files' instructions
+# actually work. The tool list is delegated to src.extensions.tools so
+# the OpenClaw extension and Hermes plugin stay in lock-step.
 hooks:
-  - on_session_end
+  - on_session_start  # optional — returns brain_wake_up shape
+  - on_session_end    # consolidates durable user rules into the procedural tier

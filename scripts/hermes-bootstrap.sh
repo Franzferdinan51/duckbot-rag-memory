@@ -64,6 +64,23 @@ echo "→ Step 3/5: Inflating consolidated context (MEMORY.md, USER.md, SOUL.md)
 echo
 echo "✓ Bootstrap complete."
 echo
+
+# Auto-install the Hermes plugin symlink so Hermes's plugin loader finds
+# us on next session start. Idempotent: re-running is a no-op.
+HERMES_PLUGINS_DIR="${HERMES_HOME%/memories}/plugins/memory/duckbot_brain"
+PLUGIN_SRC_INIT="$REPO_ROOT/src/plugins/memory/duckbot_brain/__init__.py"
+PLUGIN_SRC_YAML="$REPO_ROOT/src/plugins/memory/duckbot_brain/plugin.yaml"
+if [ -f "$PLUGIN_SRC_INIT" ]; then
+    mkdir -p "$HERMES_PLUGINS_DIR"
+    # Copy (not symlink) the Python module so the plugin loader's import
+    # machinery picks it up — Hermes imports plugin packages, it doesn't
+    # follow symlinks in all configurations.
+    cp "$PLUGIN_SRC_INIT" "$HERMES_PLUGINS_DIR/__init__.py" 2>/dev/null && \
+        cp "$PLUGIN_SRC_YAML" "$HERMES_PLUGINS_DIR/plugin.yaml" 2>/dev/null && \
+        echo "✓ Plugin installed: $HERMES_PLUGINS_DIR/"
+fi
+
+echo
 echo "Next: register the brain as an MCP server with Hermes:"
 echo
 echo "    hermes mcp add duckbot-memory \\"

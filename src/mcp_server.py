@@ -40,7 +40,7 @@ from src.tier import Tier
 TOOLS = [
     {
         "name": "remember",
-        "description": "Save a memory. Auto-chunks, classifies tier, extracts entities, embeds, stores. Returns chunk_id, tier, importance.",
+        "description": "Save a memory. Auto-chunks, classifies tier, extracts entities, embeds, stores. Returns chunk_id, tier, importance. Pass kind='skill_candidate' to stamp a lightweight skill candidate (agent-driven pipeline, no LLM, stored in procedural tier with metadata.kind='skill_candidate').",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -48,6 +48,9 @@ TOOLS = [
                 "source_path": {"type": "string", "description": "where this came from (e.g. file path, conversation id)", "default": "<remember>"},
                 "metadata": {"type": "object", "description": "arbitrary metadata to attach"},
                 "force_tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "override auto tier"},
+                "kind": {"type": "string", "enum": ["skill_candidate"], "description": "special mode: stamp a skill candidate chunk (no LLM, stored in procedural tier for later promotion via brain_skills_promote)"},
+                "summary": {"type": "string", "description": "short label for skill candidates"},
+                "importance": {"type": "number", "default": 0.6, "description": "0..1 ranking score for skill candidates"},
             },
             "required": ["text"],
         },
@@ -318,6 +321,34 @@ TOOLS = [
         },
     },
     {
+        "name": "brain_skills_list",
+        "description": "List unpromoted skill-candidate chunks (agent-driven pipeline). Returns candidates stamped via remember(kind='skill_candidate'), sorted by recency then importance. The AGENT reads this list and decides which to promote — the brain does no LLM work. Pass include_promoted=true to also see already-promoted candidates.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "include_promoted": {"type": "boolean", "default": False},
+                "k": {"type": "integer", "default": 50},
+            },
+        },
+    },
+    {
+        "name": "brain_skills_promote",
+        "description": "Promote a skill candidate to a full agentskills.io SKILL.md. The AGENT authors name/description/instructions using its own LLM context — the brain is pure storage + template (no LLM). Writes skills/<slug>/SKILL.md and marks the candidate chunk as promoted. Pass overwrite=true to re-promote or replace an existing skill file.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chunk_id": {"type": "string", "description": "the candidate chunk to promote"},
+                "name": {"type": "string", "description": "human-readable skill name (agent-authored)"},
+                "description": {"type": "string", "description": "one-line trigger phrase (agent-authored)"},
+                "instructions": {"type": "array", "items": {"type": "string"}, "description": "step-by-step (agent-authored)"},
+                "example": {"type": "string", "description": "optional worked example"},
+                "emoji": {"type": "string", "description": "optional emoji override"},
+                "overwrite": {"type": "boolean", "default": False},
+            },
+            "required": ["chunk_id", "name", "description", "instructions"],
+        },
+    },
+    {
         "name": "brain_user_model",
         "description": "Aggregate user-related facts into a single 'user' memory block. Honcho-inspired: a continuously-updated user model that agents can read on session start. Pulls high-importance facts about the user (entities, preferences, recurring context) and writes them to the 'user' block via block_write. Call on a cron or after major life/work changes.",
         "inputSchema": {
@@ -440,8 +471,27 @@ def _register_connector_tools() -> None:
 # -----------------------------------------------------------------------------
 
 async def handle_remember(args: dict) -> dict:
-    mem = Memory()
     from src.tier import Tier
+
+    # Agent-driven skill pipeline: stamp a candidate (no LLM).
+    if args.get("kind") == "skill_candidate":
+        from src.skill_pipeline import stamp_skill_candidate
+        from src.connectors.base import Brain
+        result = stamp_skill_candidate(
+            text=args["text"],
+            source=args.get("source_path", "agent://skill-candidate"),
+            summary=args.get("summary", ""),
+            importance=float(args.get("importance", 0.6)),
+            brain=Brain(),
+        )
+        return {
+            "chunk_id": result.chunk_id,
+            "tier": result.tier,
+            "kind": "skill_candidate",
+            "stored": result.stored,
+        }
+
+    mem = Memory()
     ft = args.get("force_tier")
     force = Tier(ft) if ft else None
     r = await mem.remember(
@@ -1231,6 +1281,39 @@ async def handle_brain_skill_create(args: dict) -> dict:
         return {"error": str(e), "created": False, "hint": "pass overwrite=true to replace"}
 
 
+async def handle_brain_skills_list(args: dict) -> dict:
+    """List skill-candidate chunks (agent-driven pipeline).
+
+    Pure metadata scan over the procedural tier — no LLM call. Returns
+    candidates sorted by recency then importance. The AGENT reads this
+    list and decides which to promote via brain_skills_promote.
+    """
+    from src.skill_pipeline import list_candidates
+    return {"candidates": list_candidates(
+        include_promoted=bool(args.get("include_promoted", False)),
+        k=int(args.get("k", 50)),
+    )}
+
+
+async def handle_brain_skills_promote(args: dict) -> dict:
+    """Promote a skill candidate to a full SKILL.md (agent-driven).
+
+    The AGENT authors name/description/instructions using its own LLM
+    context — the brain is pure storage + template (no LLM). Writes
+    skills/<slug>/SKILL.md and marks the candidate chunk as promoted.
+    """
+    from src.skill_pipeline import promote_candidate
+    return promote_candidate(
+        chunk_id=args["chunk_id"],
+        name=args["name"],
+        description=args["description"],
+        instructions=args["instructions"],
+        example=args.get("example", ""),
+        emoji=args.get("emoji"),
+        overwrite=bool(args.get("overwrite", False)),
+    )
+
+
 async def handle_brain_user_model(args: dict) -> dict:
     """Aggregate user-related facts into a single memory block.
 
@@ -1882,6 +1965,8 @@ HANDLERS = {
     "brain_index": handle_brain_index,
     "brain_nudge": handle_brain_nudge,
     "brain_skill_create": handle_brain_skill_create,
+    "brain_skills_list": handle_brain_skills_list,
+    "brain_skills_promote": handle_brain_skills_promote,
     "brain_user_model": handle_brain_user_model,
     "brain_palace": handle_brain_palace,
     "brain_optimize_fsrs": handle_brain_optimize_fsrs,

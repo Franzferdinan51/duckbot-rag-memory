@@ -615,6 +615,13 @@ def cmd_hermes(args: argparse.Namespace) -> int:
     return hermes.main(args.verb + [args.remainder] if hasattr(args, "remainder") and args.remainder else args.verb)
 
 
+def cmd_openclaw(args: argparse.Namespace) -> int:
+    """OpenClaw CLI shim: 'python -m src.cli openclaw <verb> [args...]' delegates to the shared 9-tool surface."""
+    from .connectors import openclaw_shim
+    rest = args.verb + ([args.remainder] if hasattr(args, "remainder") and args.remainder else [])
+    return openclaw_shim.main(rest)
+
+
 async def _run_brain_sync(target: str, memory_k: int, user_k: int) -> dict:
     """Run brain_sync without needing the MCP stdio transport."""
     from .mcp_server import handle_brain_sync
@@ -817,6 +824,10 @@ def main() -> int:
     p_hermes = sub.add_parser("hermes", help="Hermes agent CLI shim: hermes <verb> [args...]")
     p_hermes.add_argument("verb", nargs="+", help="verb (remember, recall, stats, etc.) + args")
     p_hermes.set_defaults(func=cmd_hermes)
+
+    p_openclaw = sub.add_parser("openclaw", help="OpenClaw agent CLI shim: openclaw <verb> [args...]")
+    p_openclaw.add_argument("verb", nargs="+", help="verb (wake-up, recall, remember, stats, tools, call, etc.) + args")
+    p_openclaw.set_defaults(func=cmd_openclaw)
 
     p_dash = sub.add_parser("dashboard", help="brain observability dashboard")
     p_dash.add_argument("--json", action="store_true", help="output as JSON")

@@ -1,7 +1,16 @@
 """
 connectors/openclaw.py - OpenClaw integration for the DuckBot brain.
 
-Two pieces:
+.. deprecated:: v0.14.0
+    Prefer `src.extensions.duckbot_brain.adapter` (the stdio JSON-RPC
+    OpenClaw extension, 9-tool core agent surface) or
+    `src.connectors.openclaw_shim` (the shell CLI shim). This module is
+    retained for backwards compatibility with deployments that wired up
+    `python -m src.connectors.openclaw` directly. It will not be removed
+    (per the project's "No deletions" rule in AGENTS.md), but new code
+    should not import from here.
+
+Two pieces (legacy):
 
   1. TOOL_DEFINITIONS - the MCP tool schema (name, description, inputSchema)
      that OpenClaw's MCP client will surface to the model. Covers all 5 layers:

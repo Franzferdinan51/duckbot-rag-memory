@@ -1,5 +1,165 @@
 # Changelog
 
+## Unreleased — v0.14.0 — Agent plugin parity + wake-up wiring
+
+The four skill files (`skills/duckbot-brain/`, `skills/openclaw-imports/`,
+`skills/codex-imports/`, `skills/cursor-imports/`) all tell agents to call
+`brain_wake_up` on session start, but until this release the OpenClaw
+extension adapter and the Hermes MemoryProvider plugin didn't actually
+expose that tool — agents got "unknown tool" errors. v0.14.0 consolidates
+the agent-facing surface so every thin entry point advertises the same
+9 tools, and the OpenClaw adapter gets the same per-tool rate limiting
+the canonical MCP server already had.
+
+### Added — Shared agent surface
+
+- **`src/extensions/tools.py`** — single source of truth for the 9 core
+  tools every agent entry point exposes. Both the OpenClaw stdio adapter
+  (`src/extensions/duckbot_brain/adapter.py`) and the Hermes
+  MemoryProvider plugin (`src/plugins/memory/duckbot_brain/__init__.py`)
+  delegate to this. The full 56-tool MCP surface is still available via
+  `python -m src.mcp_server` for admin / CLI use.
+
+- **`brain_wake_up` exposed in OpenClaw + Hermes** — was previously
+  missing from both thin entry points (skill instructions were lying).
+  Now an agent on either platform can call `brain_wake_up` on session
+  start and get the same shape: recent memories (superseded filtered),
+  active memory blocks, graph summary, FSRS review queue, stats.
+
+- **`on_session_start` hook on the Hermes plugin** — returns the
+  `brain_wake_up` shape directly so the plugin loader can pre-load
+  context without an extra MCP round-trip. Listed in `plugin.yaml`.
+
+- **`on_session_end` consolidation** — was a `return None` stub that
+  the manifest advertised as a hook. Now actually walks session
+  messages, extracts durable-shaped user statements (always / never /
+  prefer / want / don't), and queues a procedural-tier chunk for
+  `brain_remember`. Skips non-primary contexts (cron / subagent /
+  flush) per the Hermes ABC.
+
+- **Per-tool rate limiting on the OpenClaw adapter** — reuses the
+  existing `src.ratelimit` module so a runaway agent can't fill the
+  disk with `brain_remember` calls. `DUCKBOT_RATELIMIT_DISABLE=1`
+  turns it off, same env var as the MCP server.
+
+### Fixed
+
+- **OpenClaw extension manifest (`openclaw.plugin.json`) listed only 4
+  of 8 tools** — clients that read the manifest before connecting got
+  a smaller surface than the adapter actually implemented. Manifest
+  now lists all 9 (was 4 → 9; `version` bumped to `0.2.0`).
+
+- **`test_rate_limiter_allows_until_burned` and
+  `test_mcp_dispatch_returns_429_style_on_rate_limit` flaked in the
+  full suite** — root cause: the `src.ratelimit._RATE_LIMITER` singleton
+  wasn't reset between tests, and the rate-limit-disable env var from a
+  previous test bled into the next. Both tests now explicitly reset the
+  singleton and clear the env var at the top.
+
+- **OpenClaw adapter returned bare lists for `brain_recall` /
+  `brain_recall_verbatim`** — inconsistent with the MCP server and the
+  Hermes plugin, which both return `{"results": [...]}`. Adapter now
+  matches.
+
+### Changed
+
+- **Hermes MemoryProvider plugin exposes 9 tools instead of 3** — was
+  just `brain_recall`, `brain_recall_verbatim`, `brain_reflect`. Now
+  matches the OpenClaw adapter's 9-tool surface (incl. `brain_wake_up`).
+
+- **Test counts**:
+  - New: `tests/test_extensions_tools.py` (26 tests),
+    `tests/test_openclaw_shim.py` (25 tests),
+    `tests/test_openclaw_extension_e2e.py` (7 end-to-end subprocess tests).
+  - Updated: `tests/test_openclaw_extension.py` (+2 assertions),
+    `tests/test_hermes_plugin.py` (+6 tests, 2 updated),
+    `tests/test_mcp_tools_extension.py` (assertion updated to match
+    the 9-tool core agent surface — `brain_forget_by_query` is
+    intentionally excluded; it's destructive admin-tier).
+  - Full suite: **687 passing** (was 617, +70 tests).
+
+### Added — round 2: shell access + skill consistency
+
+- **`python -m src.cli openclaw <verb>` CLI shim** — parallel to the
+  existing `hermes` shim, but delegates to the shared 9-tool core
+  agent surface. Supports `wake-up`, `recall`, `remember`, `stats`,
+  `tools`, and a generic `call <tool> '<json>'` escape hatch. Exits
+  non-zero on dispatch errors so cron jobs / shell pipelines can
+  detect failure without parsing JSON. (`src/connectors/openclaw_shim.py`)
+
+- **`skills/duckbot-brain/SKILL.md` rewritten** to feature
+  `brain_wake_up` as the canonical session-start call (matches the
+  other 3 skill files which already did). Adds the 3 install paths
+  (extension adapter, symlinked skill, canonical MCP server) and a
+  pointer to `docs/PLUGIN_SURFACE.md`.
+
+- **Bootstrap scripts auto-install the skills/plugins** —
+  `scripts/openclaw-bootstrap.sh` now symlinks
+  `skills/duckbot-brain/SKILL.md` into
+  `~/.openclaw/workspace/skills/duckbot-brain/` on run (was: just
+  printed instructions). `scripts/hermes-bootstrap.sh` copies the
+  plugin package into `~/.hermes/plugins/memory/duckbot_brain/` so
+  the Hermes plugin loader discovers it on next session start.
+
+- **End-to-end smoke test** — `tests/test_openclaw_extension_e2e.py`
+  spawns the adapter as a real subprocess and exercises the stdio
+  JSON-RPC loop (initialize, tools/list, tools/call, malformed-JSON
+  recovery, multi-request sessions). Catches issues that the
+  unit-level adapter tests miss.
+
+- **Deprecation note** on the legacy `src/connectors/openclaw.py`
+  module — points new code at `src/extensions/duckbot_brain.adapter`
+  and `src/connectors/openclaw_shim`. Module is retained (per the
+  project's "No deletions" rule).
+
+### Added — Round 3: agent-driven skill pipeline (zero VRAM)
+
+The brain never calls a generative LLM — only the embedding model runs.
+The agent (OpenClaw / Hermes / any MCP client) authors skill content
+using its own LLM context; the brain is pure storage + template.
+
+- **`src/skill_pipeline.py`** — storage-only candidate/list/promote
+  logic. No LLM anywhere. Three entry points:
+  - `stamp_skill_candidate()` — stores a procedural-tier chunk with
+    `metadata.kind="skill_candidate"`, `promoted=False`. Returns
+    `chunk_id` immediately (blocking, so the agent can promote it later).
+  - `list_candidates()` — scans the procedural tier for candidates,
+    filters out promoted (or includes them), sorts by recency then
+    importance. Pure metadata scan.
+  - `promote_candidate()` — writes `skills/<slug>/SKILL.md` via the
+    existing `skillgen.write_skill` (pure template), then marks the
+    chunk as `promoted=True` + `promoted_at` + `promoted_skill_slug`.
+  - Also `suggest_candidates()` (semantic top-N) + `candidate_stats()`
+    (count summary).
+
+- **`kind="skill_candidate"` remember mode** — added to both the shared
+  surface (`src/extensions/tools.py`) and the MCP server
+  (`src/mcp_server.py handle_remember`). When `kind="skill_candidate"`,
+  the brain stamps a candidate (blocking, returns chunk_id) instead of
+  the fire-and-forget queue path. No LLM call.
+
+- **`brain_skills_list` + `brain_skills_promote` tools** — added to:
+  - The shared 11-tool core agent surface (`src/extensions/tools.py`)
+  - The canonical MCP server (`src/mcp_server.py` TOOLS + HANDLERS)
+  - The OpenClaw plugin manifest (`openclaw.plugin.json`, 9 → 11 tools,
+    `version` bumped to `0.3.0`)
+  - The Hermes plugin manifest (`plugin.yaml`, `version` bumped to `0.3.0`)
+
+- **`tests/test_skill_pipeline.py`** (25 tests) — covers stamp → list →
+  promote end-to-end, dispatch routing, tool schema presence, and the
+  system-prompt description of the agent-driven flow.
+
+- **Full suite: 712 passing** (was 687, +25 tests).
+
+### Migration
+
+No breaking changes for end users. If you have scripts that import
+`src.extensions.duckbot_brain.adapter` and call `_call_tool` or
+`_tool_schemas` directly, they'll keep working — the function
+signatures didn't change. If you wrote a custom dispatcher that
+expected the bare-list shape from `brain_recall`, update to
+`payload["results"][...]` (matches the MCP server + Hermes plugin).
+
 ## 0.13.0 — 2026-06-24 — Tier 2 + Tier 3 borrowed features
 
 Round of porting from upstream projects (MemPalace, mem0, mem0-style

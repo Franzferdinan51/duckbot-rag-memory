@@ -250,13 +250,30 @@ def test_openclaw_connector_dispatches_new_tools():
 
 
 def test_openclaw_extension_adapter_registers_new_tools():
-    """src.extensions.duckbot_brain.adapter must include the new v0.10.0 tools."""
+    """src.extensions.duckbot_brain.adapter exposes the v0.14.0 "core agent
+    surface" — the 11 tools shared with the Hermes MemoryProvider plugin.
+
+    v0.14.0 redesign: the OpenClaw extension and the Hermes plugin now
+    delegate to the same shared surface (`src.extensions.tools`), which
+    intentionally excludes `brain_forget_by_query` (destructive admin
+    tool, not an agent surface tool — available via the full 56-tool
+    MCP server and the CLI)."""
     from src.extensions.duckbot_brain import adapter
     schemas = adapter._tool_schemas()
     names = {t["name"] for t in schemas["tools"]}
-    expected = {"brain_fsrs_review", "brain_decay_status", "brain_forget_by_query", "brain_search_verbatim"}
+    expected = {
+        "brain_wake_up", "brain_recall", "brain_recall_verbatim",
+        "brain_remember", "brain_reflect", "brain_stats",
+        "brain_fsrs_review", "brain_decay_status", "brain_search_verbatim",
+        "brain_skills_list", "brain_skills_promote",
+    }
     missing = expected - names
     assert not missing, f"Missing tools in adapter: {missing}"
+    # And the destructive tool is intentionally NOT in the agent surface.
+    assert "brain_forget_by_query" not in names, (
+        "brain_forget_by_query is admin-tier (destructive) and must stay "
+        "out of the agent surface; available via full MCP server + CLI."
+    )
 
 
 def test_openclaw_extension_adapter_brain_stats_uses_real_attrs(monkeypatch, brain):
