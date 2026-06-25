@@ -223,7 +223,10 @@ class DuckBotBrainProvider:
                 f"**Assistant:** {assistant_content}\n"
             )
             source = f"hermes://{self._platform}/{self._session_id}"
-            asyncio.run(brain.remember(text=entry, source_path=source))
+            # Brain.remember() is SYNC — no asyncio.run wrapper needed.
+            # asyncio.run on a non-coroutine raises "a coroutine was expected"
+            # which silently dropped every sync_turn.
+            brain.remember(text=entry, source_path=source)
         except Exception as e:
             logger.warning("sync_turn failed: %s", e)
 
@@ -364,12 +367,11 @@ class DuckBotBrainProvider:
         try:
             brain = self._get_brain()
             from src.tier import Tier
-            asyncio.run(
-                brain.remember(
-                    text=text,
-                    source_path=source,
-                    force_tier=Tier(tier),
-                )
+            # Brain.remember() is SYNC — no asyncio.run wrapper needed.
+            brain.remember(
+                text=text,
+                source_path=source,
+                force_tier=Tier(tier),
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("background remember failed: %s", e)

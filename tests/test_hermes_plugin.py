@@ -228,16 +228,18 @@ def test_sync_turn_queues_background_executor(provider):
 
 
 def test_sync_turn_blocking_calls_remember(provider, fake_brain):
-    """The blocking version actually invokes brain.remember()."""
-    import asyncio
+    """The blocking version actually invokes brain.remember() (sync, no
+    asyncio.run — Brain.remember() is sync, not a coroutine)."""
     provider.initialize("s1", agent_context="primary", platform="telegram")
     provider._brain = fake_brain
-    # Bypass asyncio.run since MagicMock.remember is sync; the plugin
-    # calls asyncio.run(brain.remember(...)). Patch asyncio to avoid
-    # event-loop issues in test.
-    with patch("asyncio.run") as mock_run:
-        provider._sync_turn_blocking("hi", "hello")
-        mock_run.assert_called_once()
+    provider._sync_turn_blocking("hi", "hello")
+    # brain.remember called with text wrapping the user+assistant turn.
+    fake_brain.remember.assert_called_once()
+    call_kwargs = fake_brain.remember.call_args.kwargs
+    assert "Turn @" in call_kwargs["text"]
+    assert "User:** hi" in call_kwargs["text"]
+    assert "Assistant:** hello" in call_kwargs["text"]
+    assert call_kwargs["source_path"].startswith("hermes://telegram/")
 
 
 # -----------------------------------------------------------------------------
