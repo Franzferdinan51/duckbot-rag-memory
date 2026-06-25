@@ -71,8 +71,15 @@ class Relationship:
     source_id: str
     target_id: str
     label: str              # e.g. "works_on", "created", "located_in", "depends_on"
-    valid_from: float       # unix epoch seconds
+    valid_from: float       # unix epoch seconds — when the relationship became true (world time)
     valid_until: Optional[float] = None   # None = still true
+    # Bi-temporal: when WE knew about it (separate from when it was true).
+    # E.g. "Kai joined project Orion in 2024" (valid_from=2024) but we
+    # only learned that fact in 2026 (recorded_from=2026). Lets us answer
+    # "what did the graph look like at time X" without conflating the two
+    # timelines. Graphiti-inspired.
+    recorded_from: float = field(default_factory=time.time)
+    recorded_until: Optional[float] = None   # None = still believed
     confidence: float = 1.0
     source: Optional[str] = None          # which chunk/file the fact came from
     created_at: float = field(default_factory=time.time)
@@ -127,6 +134,9 @@ CREATE TABLE IF NOT EXISTS relationships (
     label       TEXT NOT NULL,
     valid_from  REAL NOT NULL,
     valid_until REAL,
+    -- Bi-temporal: when WE learned the fact (separate from when it was true).
+    recorded_from  REAL NOT NULL DEFAULT 0,
+    recorded_until REAL,
     confidence  REAL NOT NULL DEFAULT 1.0,
     source      TEXT,
     created_at  REAL NOT NULL,
@@ -137,6 +147,7 @@ CREATE INDEX IF NOT EXISTS idx_rel_source ON relationships(source_id);
 CREATE INDEX IF NOT EXISTS idx_rel_target ON relationships(target_id);
 CREATE INDEX IF NOT EXISTS idx_rel_label  ON relationships(label);
 CREATE INDEX IF NOT EXISTS idx_rel_window ON relationships(valid_from, valid_until);
+CREATE INDEX IF NOT EXISTS idx_rel_recorded ON relationships(recorded_from, recorded_until);
 
 -- Normalized alias lookup table. The JSON `aliases` column on entities
 -- is fine for storage but unsearchable by index. Storing each alias as
@@ -166,6 +177,18 @@ class Graph:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.executescript(SCHEMA)
+        # Idempotent migration: add bi-temporal columns to existing DBs.
+        # SQLite's ALTER TABLE ADD COLUMN is safe to retry; we just ignore
+        # the "duplicate column" error.
+        for stmt in (
+            "ALTER TABLE relationships ADD COLUMN recorded_from REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE relationships ADD COLUMN recorded_until REAL",
+        ):
+            try:
+                self._conn.execute(stmt)
+            except sqlite3.OperationalError as e:
+                if "duplicate column" not in str(e).lower():
+                    raise
         self._conn.commit()
 
     # -- Entity ops ---------------------------------------------------------
@@ -249,6 +272,8 @@ class Graph:
     def add_relationship(self, source_id: str, target_id: str, label: str,
                           valid_from: Optional[float] = None,
                           valid_until: Optional[float] = None,
+                          recorded_from: Optional[float] = None,
+                          recorded_until: Optional[float] = None,
                           confidence: float = 1.0,
                           source: Optional[str] = None,
                           relationship_id: Optional[str] = None) -> Relationship:
@@ -259,9 +284,17 @@ class Graph:
         For "create a new edge at a specific timestamp, ending any old one",
         use supersede() — it explicitly ends the old edge before calling
         add_relationship().
+
+        Bi-temporal params: `recorded_from` is when WE learned the fact
+        (defaults to now). Separate from `valid_from` which is when the
+        fact was true in the world. E.g. "Kai joined project Orion in
+        2024" might be valid_from=2024 but recorded_from=2026 (when we
+        ingested the fact).
         """
         if valid_from is None:
             valid_from = time.time()
+        if recorded_from is None:
+            recorded_from = time.time()
         # Dedupe: if there's already an active edge with the same endpoints+label,
         # reuse it. supersede() bypasses this by ending the old edge first.
         existing = self._conn.execute(
@@ -279,14 +312,18 @@ class Graph:
             label=label,
             valid_from=valid_from,
             valid_until=valid_until,
+            recorded_from=recorded_from,
+            recorded_until=recorded_until,
             confidence=confidence,
             source=source,
         )
         self._conn.execute(
             "INSERT INTO relationships (id, source_id, target_id, label, valid_from, "
-            "valid_until, confidence, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "valid_until, recorded_from, recorded_until, confidence, source, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (rel.id, rel.source_id, rel.target_id, rel.label, rel.valid_from,
-             rel.valid_until, rel.confidence, rel.source, rel.created_at),
+             rel.valid_until, rel.recorded_from, rel.recorded_until,
+             rel.confidence, rel.source, rel.created_at),
         )
         self._conn.commit()
         return rel
@@ -344,6 +381,39 @@ class Graph:
                 "WHERE valid_from <= ? AND (valid_until IS NULL OR valid_until > ?) "
                 + ("AND label = ? " if label else "")
                 + "ORDER BY valid_from DESC",
+                (at, at) + ((label,) if label else ()),
+            ).fetchall()
+        return [self._row_to_relationship(r) for r in rows]
+
+    def query_known_at(self, at: Optional[float] = None,
+                       entity_id: Optional[str] = None,
+                       label: Optional[str] = None) -> list[Relationship]:
+        """Return relationships that WE KNEW about at time `at` (default: now).
+
+        Different from query_active() which asks "what was TRUE then?" —
+        this asks "what did the brain know then?" Useful for:
+          - "Show me what the agent believed on Tuesday before the
+            supersede happened"
+          - Audit trail: which facts have been re-evaluated?
+          - Reverting a faulty ingest: roll back to a prior known state
+        """
+        if at is None:
+            at = time.time()
+        if entity_id is not None:
+            rows = self._conn.execute(
+                "SELECT * FROM relationships "
+                "WHERE (source_id = ? OR target_id = ?) "
+                "AND recorded_from <= ? AND (recorded_until IS NULL OR recorded_until > ?) "
+                + ("AND label = ? " if label else "")
+                + "ORDER BY recorded_from DESC",
+                (entity_id, entity_id, at, at) + ((label,) if label else ()),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM relationships "
+                "WHERE recorded_from <= ? AND (recorded_until IS NULL OR recorded_until > ?) "
+                + ("AND label = ? " if label else "")
+                + "ORDER BY recorded_from DESC",
                 (at, at) + ((label,) if label else ()),
             ).fetchall()
         return [self._row_to_relationship(r) for r in rows]
@@ -426,6 +496,11 @@ class Graph:
             label=row["label"],
             valid_from=row["valid_from"],
             valid_until=row["valid_until"],
+            # Bi-temporal: recorded_from may be missing on rows from
+            # pre-v0.12.0 DBs (default 0 = "we never recorded when we
+            # learned this"). Fall back gracefully.
+            recorded_from=row["recorded_from"] or 0.0,
+            recorded_until=row["recorded_until"],
             confidence=row["confidence"],
             source=row["source"],
             created_at=row["created_at"],

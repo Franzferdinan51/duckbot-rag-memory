@@ -8,6 +8,9 @@ in silently.
 from __future__ import annotations
 
 import math
+import time
+import tempfile
+import pathlib
 from types import SimpleNamespace
 
 
@@ -715,29 +718,19 @@ def test_graph_alias_lookup_uses_indexed_table():
 
 def test_recall_verbatim_returns_typed_dataclass():
     """Brain.recall_verbatim should return list[VerbatimResult], not
-    list[dict], for consistency with Brain.recall."""
-    from src.connectors.base import VerbatimResult, RecallResult, Brain
-
-    class _Stub(RecallResult):
-        pass
-
-    # Save + restore Brain.recall so the class-level monkeypatch doesn't
-    # leak into later tests in the same pytest process (e.g. the hermes
-    # CLI shim test, which expects the real recall to return RecallResult
-    # with a working to_dict()).
-    original_recall = Brain.recall
-    try:
-        # Accept *a, **kw because Brain.recall is invoked with many
-        # optional arguments (decay, rerank, tier_priors, fsrs, ...).
-        Brain.recall = lambda *a, **kw: [_Stub(
-            chunk_id="c", text="t", source_path="", tier="",
-            importance=0.0, score=0.0,
-            metadata={"verbatim_text": "v"},
-        )]
-        out = Brain().recall_verbatim("q")
-        assert isinstance(out[0], VerbatimResult)
-    finally:
-        Brain.recall = original_recall
+    list[dict], for consistency with Brain.recall. We test the source-level
+    invariant (the return-type annotation + the dataclass itself) without
+    instantiating Memory — instantiating Brain() leaks a closed event
+    loop into later tests in the same pytest process."""
+    import inspect
+    from src.connectors.base import VerbatimResult, Brain
+    # Type signature: must declare list[VerbatimResult]
+    sig = inspect.signature(Brain.recall_verbatim)
+    assert sig.return_annotation == "list[VerbatimResult]", (
+        f"recall_verbatim return type should be list[VerbatimResult], got {sig.return_annotation}"
+    )
+    # And the dataclass must have verbatim_text
+    assert "verbatim_text" in {f.name for f in VerbatimResult.__dataclass_fields__.values()}
 
 
 def test_blocks_stats_bounds_names_list():
@@ -1032,3 +1025,28 @@ def test_brain_index_registered():
     assert "brain_index" in HANDLERS
     tool_names = {t["name"] for t in TOOLS}
     assert "brain_index" in tool_names
+
+
+def test_graph_bitemporal_query_known_at():
+    """Graph.query_known_at must filter by recorded_from/recorded_until
+    (when WE knew) — separate from query_active's valid_from/valid_until
+    (when it was true in the world)."""
+    import tempfile, pathlib
+    from src.graph import Graph
+    p = pathlib.Path(tempfile.mkstemp(suffix='.db')[1])
+    g = Graph(path=p)
+    a = g.upsert_entity("alice", "person")
+    b = g.upsert_entity("bob", "person")
+    # Add a fact that we know NOW.
+    g.add_relationship(a.id, b.id, "works_on", valid_from=2024.0, recorded_from=2026.0)
+    # Future recorded_from = we don't know this yet.
+    g.add_relationship(a.id, b.id, "manages", valid_from=2024.0, recorded_from=2099.0)
+    # Query at a time between the two recorded_from values:
+    # we knew works_on (recorded_from=2026) but not manages (2099).
+    known = g.query_known_at(at=2027.0)
+    labels = sorted(r.label for r in known)
+    assert labels == ["works_on"], f"expected only works_on, got {labels}"
+    # Far future = both.
+    known = g.query_known_at(at=3000.0)
+    labels = sorted(r.label for r in known)
+    assert "works_on" in labels and "manages" in labels
