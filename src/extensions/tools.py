@@ -29,7 +29,6 @@ No LLM, no paid APIs. Local stdlib + the Brain facade only.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import threading
 from typing import Any

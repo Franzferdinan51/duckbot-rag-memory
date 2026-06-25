@@ -295,3 +295,111 @@ def test_dispatch_error_returns_exit_code_2(capsys):
     _surface._BRAIN = fake_brain
     rc = openclaw_shim.main(["recall", "x"])
     assert rc == 2
+
+
+# -----------------------------------------------------------------------------
+# remember-skill-candidate verb (agent-driven pipeline)
+# -----------------------------------------------------------------------------
+
+def test_remember_skill_candidate_requires_text():
+    rc = openclaw_shim.main(["remember-skill-candidate"])
+    assert rc == 2
+
+
+def test_remember_skill_candidate_dispatches_with_kind():
+    """`remember-skill-candidate <text>` sets kind='skill_candidate' in the dispatch."""
+    with patch.object(_surface, "dispatch", return_value={"status": "stored", "kind": "skill_candidate", "chunk_id": "c1"}) as mock_disp:
+        rc = openclaw_shim.main(["remember-skill-candidate", "Restarted BATMAN via docker"])
+    assert rc == 0
+    args = mock_disp.call_args.args[1]
+    assert args["kind"] == "skill_candidate"
+    assert "BATMAN" in args["text"]
+    assert "skill-candidate" in args["source"]
+
+
+def test_remember_skill_candidate_accepts_underscore_form():
+    with patch.object(_surface, "dispatch", return_value={"status": "stored"}) as mock_disp:
+        rc = openclaw_shim.main(["remember_skill_candidate", "learned to grep logs"])
+    assert rc == 0
+    assert mock_disp.call_args.args[1]["kind"] == "skill_candidate"
+
+
+# -----------------------------------------------------------------------------
+# skills-list verb
+# -----------------------------------------------------------------------------
+
+def test_skills_list_default():
+    with patch.object(_surface, "dispatch", return_value={"candidates": []}) as mock_disp:
+        rc = openclaw_shim.main(["skills-list"])
+    assert rc == 0
+    args = mock_disp.call_args.args[1]
+    assert args == {} or "include_promoted" not in args
+
+
+def test_skills_list_with_include_promoted_flag():
+    with patch.object(_surface, "dispatch", return_value={"candidates": []}) as mock_disp:
+        rc = openclaw_shim.main(["skills-list", "--include-promoted"])
+    assert rc == 0
+    assert mock_disp.call_args.args[1].get("include_promoted") is True
+
+
+def test_skills_list_with_k():
+    with patch.object(_surface, "dispatch", return_value={"candidates": []}) as mock_disp:
+        rc = openclaw_shim.main(["skills-list", "-k", "5"])
+    assert rc == 0
+    assert mock_disp.call_args.args[1]["k"] == 5
+
+
+# -----------------------------------------------------------------------------
+# skills-promote verb
+# -----------------------------------------------------------------------------
+
+def test_skills_promote_requires_args():
+    rc = openclaw_shim.main(["skills-promote"])
+    assert rc == 2
+
+
+def test_skills_promote_positional_form():
+    with patch.object(_surface, "dispatch", return_value={"promoted": True, "slug": "x"}) as mock_disp:
+        rc = openclaw_shim.main(["skills-promote", "c1", "My Skill", "Use when X", "step one", "step two"])
+    assert rc == 0
+    args = mock_disp.call_args.args[1]
+    assert args["chunk_id"] == "c1"
+    assert args["name"] == "My Skill"
+    assert args["description"] == "Use when X"
+    assert args["instructions"] == ["step one", "step two"]
+
+
+def test_skills_promote_json_form():
+    """`skills-promote <chunk_id> --json '<json>'` for scripted use."""
+    with patch.object(_surface, "dispatch", return_value={"promoted": True}) as mock_disp:
+        rc = openclaw_shim.main(["skills-promote", "c1", "--json", '{"name":"X","description":"d","instructions":["s1"]}'])
+    assert rc == 0
+    args = mock_disp.call_args.args[1]
+    assert args["chunk_id"] == "c1"
+    assert args["name"] == "X"
+    assert args["instructions"] == ["s1"]
+
+
+def test_skills_promote_positional_requires_at_least_4_args(capsys):
+    """chunk_id + name + description + at least one instruction."""
+    rc = openclaw_shim.main(["skills-promote", "c1", "name", "desc"])
+    assert rc == 2
+    data = json.loads(capsys.readouterr().out)
+    assert "instructions" in data["error"] or "requires" in data["error"]
+
+
+def test_skills_promote_invalid_json_returns_error():
+    rc = openclaw_shim.main(["skills-promote", "c1", "--json", "{bad"])
+    assert rc == 2
+
+
+def test_skills_promote_non_object_json_returns_error():
+    rc = openclaw_shim.main(["skills-promote", "c1", "--json", "[1,2]"])
+    assert rc == 2
+
+
+def test_skills_promote_accepts_underscore_form():
+    with patch.object(_surface, "dispatch", return_value={"promoted": True}) as mock_disp:
+        rc = openclaw_shim.main(["skills_promote", "c1", "n", "d", "step"])
+    assert rc == 0

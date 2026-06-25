@@ -2,19 +2,21 @@
 
 Local hybrid RAG memory for OpenClaw. **MIT, zero paid APIs.**
 
-This extension connects the DuckBot brain project (`~/Desktop/duckbot-rag-memory`) to OpenClaw as a memory provider. OpenClaw gets 9 core tools that operate on the same brain:
+This extension connects the DuckBot brain project (`~/Desktop/duckbot-rag-memory`) to OpenClaw as a memory provider. OpenClaw gets 11 core tools that operate on the same brain:
 
 - **`brain_wake_up`** — one-call session-start context load. **Call this first on every session start.** Returns recent memories (superseded filtered), active blocks, graph summary, FSRS review queue, and stats in one MCP call.
 - `brain_recall` — hybrid vector + BM25 + RRF retrieval, with optional cross-encoder rerank and Ebbinghaus decay.
 - `brain_recall_verbatim` — returns source bytes (never paraphrased).
-- `brain_remember` — non-blocking ingest (rate-limited 10/min).
+- `brain_remember` — non-blocking ingest (rate-limited 10/min). Pass `kind="skill_candidate"` to stamp a lightweight skill candidate for the agent-driven skill pipeline (no LLM).
 - `brain_reflect` — sleep-time episodic → semantic consolidation.
 - `brain_stats` — chunk counts, graph entities, blocks, quarantine.
 - `brain_fsrs_review` — chunks due for spaced-repetition review.
 - `brain_decay_status` — retention scoring for recent chunks.
 - `brain_search_verbatim` — exact substring match.
+- `brain_skills_list` — list unpromoted skill candidates (agent-driven pipeline).
+- `brain_skills_promote` — promote a candidate to a full SKILL.md. The AGENT authors the name/description/instructions; the brain is pure storage + template (no LLM).
 
-The 9 tools are the **core agent surface** — same list exposed by the Hermes MemoryProvider plugin (`src/plugins/memory/duckbot_brain/`) so an agent author can rely on the same tool names regardless of which platform they're on. The full 56-tool MCP surface is still available via `python -m src.mcp_server` for admin / CLI use; this thin JSON-RPC adapter is the lightweight path for runtime agent calls.
+The 11 tools are the **core agent surface** — same list exposed by the Hermes MemoryProvider plugin (`src/plugins/memory/duckbot_brain/`) so an agent author can rely on the same tool names regardless of which platform they're on. The full 63-tool MCP surface is still available via `python -m src.mcp_server` for admin / CLI use; this thin JSON-RPC adapter is the lightweight path for runtime agent calls.
 
 Pattern sources:
 - OpenClaw's [active-memory extension](https://github.com/openclaw/openclaw/tree/main/extensions/active-memory) (TypeScript, MIT).
