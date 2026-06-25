@@ -247,6 +247,20 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "brain_wake_up",
+        "description": "One-call session-startup context load. Returns top-k recent memories (filtered to drop superseded ones), active memory blocks, a graph summary, the FSRS review queue, and brief stats — everything an agent needs to continue a previous conversation without N round-trips. Use on session start (MemPalace-inspired wake-up command). Query-less mode returns the most-recent episodic + procedural chunks.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "optional anchor — if provided, recall runs with this query; otherwise pulls most-recent episodic chunks"},
+                "k": {"type": "integer", "default": 8, "description": "max memories to return"},
+                "include_blocks": {"type": "boolean", "default": True, "description": "include active memory blocks"},
+                "include_graph": {"type": "boolean", "default": True, "description": "include graph summary (top entities)"},
+                "include_fsrs_review": {"type": "boolean", "default": True, "description": "include FSRS review queue"},
+            },
+        },
+    },
 ]
 
 
@@ -772,6 +786,29 @@ async def handle_brain_sync(args: dict) -> dict:
     }
 
 
+async def handle_brain_wake_up(args: dict) -> dict:
+    """One-call session-startup context load. MemPalace-inspired.
+
+    Returns a single dict with:
+      - memories: top-k recent recall results (dropped superseded chunks)
+      - blocks: active memory blocks (preview only — char-bounded)
+      - graph_summary: top-10 entities + total count
+      - fsrs_review_queue: chunks due for review (max 5)
+      - stats: brief store counts per tier
+
+    Drop-in for agents that want a single MCP call on session start
+    instead of N round-trips. Query-less mode = "what was I doing recently?"
+    """
+    brain = Brain()
+    return brain.wake_up(
+        query=args.get("query"),
+        k=args.get("k", 8),
+        include_blocks=args.get("include_blocks", True),
+        include_graph=args.get("include_graph", True),
+        include_fsrs_review=args.get("include_fsrs_review", True),
+    )
+
+
 HANDLERS = {
     "remember": handle_remember,
     "recall": handle_recall,
@@ -793,6 +830,7 @@ HANDLERS = {
     "active_memory": handle_active_memory,
     # v0.11.2 — Enhanced Brain: context inflation
     "brain_inflate": handle_brain_inflate,
+    "brain_wake_up": handle_brain_wake_up,
     "brain_sync": handle_brain_sync,
 }
 

@@ -257,6 +257,41 @@ class Memory:
                 # Fallback: try with query_embedder, or skip
                 raise
 
+            # 5.5 Conflict detection (mem0-inspired, Apache 2.0).
+            #
+            # If a near-duplicate (cosine > 0.92) already exists in the same
+            # tier, we DON'T blindly upsert. Instead, mark the existing chunk
+            # as `superseded_by` pointing at the new chunk_id, and stamp the
+            # new chunk with `supersedes` pointing back. This preserves the
+            # audit trail — old recall results still resolve, but new queries
+            # prefer the fresh fact.
+            #
+            # Cheap: one vector query against the same tier. Cost = one
+            # embedding (already computed above) + one Chroma call.
+            try:
+                tier_coll_pre = store.collection_for(tier)
+                existing = tier_coll_pre.query(
+                    query_embeddings=[vecs[0]],
+                    n_results=1,
+                    include=["metadatas", "distances"],
+                )
+                if existing and existing.get("ids") and existing["ids"][0]:
+                    eid = existing["ids"][0][0]
+                    edist = existing["distances"][0][0]
+                    emeta = (existing.get("metadatas") or [[{}]])[0][0] or {}
+                    # Chroma returns cosine DISTANCE; 0 = identical, 2 = opposite.
+                    # 0.08 distance ≈ 0.92 similarity — the standard near-dup bar.
+                    already_superseded = bool(emeta.get("superseded_by"))
+                    if edist < 0.08 and not already_superseded and eid != chunk.id:
+                        # Mark old as superseded; new chunk stores the backref.
+                        emeta["superseded_by"] = chunk.id
+                        emeta["superseded_at"] = time.time()
+                        tier_coll_pre.update(ids=[eid], metadatas=[emeta])
+                        chunk_meta["supersedes"] = eid
+            except Exception:
+                # Non-fatal — conflict detection is best-effort.
+                pass
+
             # 6. Store
             chunk_meta = dict(meta)
             chunk_meta.update({

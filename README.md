@@ -155,7 +155,7 @@ The current MCP server exposes 45 tools:
 | --- | --- |
 | Core memory | `remember`, `recall`, `reflect`, `forget`, `stats`, `watch`, `doctor` |
 | Retrieval maintenance | `recall_verbatim`, `search_verbatim`, `fsrs_review`, `decay_status`, `forget_by_query` |
-| Enhanced brain | `brain_inflate`, `brain_sync`, `brain_recall`, `brain_remember`, `brain_reflect`, `brain_stats` |
+| Enhanced brain | `brain_wake_up`, `brain_inflate`, `brain_sync`, `brain_recall`, `brain_remember`, `brain_reflect`, `brain_stats` |
 | Graph | `brain_graph_entity`, `brain_graph_relate`, `brain_graph_query`, `brain_graph_relationships`, `brain_graph_history` |
 | Blocks | `brain_block_read`, `brain_block_write`, `brain_block_append`, `brain_block_delete`, `brain_block_list`, `brain_seed_blocks` |
 | Safety | `brain_injection_scan`, `brain_quarantine_list`, `brain_quarantine_review` |
@@ -175,7 +175,7 @@ python -m src.cli sync --target both
 python -m src.cli sync --dry-run
 ```
 
-`brain_inflate` recalls relevant memories and formats them as a markdown context block for an agent. `brain_sync` writes distilled context back to OpenClaw and Hermes memory files, respecting each platform's format and size limits.
+`brain_wake_up` is the one-call session-start context load: top-k recent memories, active memory blocks, graph summary, and FSRS review queue. Designed for Hermes pre-flight + OpenClaw session-start hooks. `brain_inflate` recalls relevant memories and formats them as a markdown context block for an agent. `brain_sync` writes distilled context back to OpenClaw and Hermes memory files, respecting each platform's format and size limits.
 
 ## Architecture
 

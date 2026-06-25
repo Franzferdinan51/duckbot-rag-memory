@@ -158,6 +158,43 @@ async def hybrid_query(
         if by_id[cid].bm25_hits is None or hit.get("bm25_hits", 0) > by_id[cid].bm25_hits:
             by_id[cid].bm25_hits = hit.get("bm25_hits")
 
+    # Phase 4.5: hybrid v4 boosts (MemPalace-inspired, zero-API-cost path).
+    #
+    # (a) Keyword boost: chunks that contain the query's exact keywords
+    #     (not just BM25-ranked) get a small flat bonus. Improves precision
+    #     for proper nouns, IDs, and exact-match queries.
+    #
+    # (b) Temporal-proximity boost: chunks closer in time to "now" get a
+    #     small boost. Recency matters for "what did we just decide" style
+    #     queries. Falls off smoothly so old procedural knowledge isn't
+    #     penalized into oblivion.
+    #
+    # Both boosts are additive on top of RRF and gated behind env flags so
+    # they're opt-in (DUCKBOT_KEYWORD_BOOST=1, DUCKBOT_TEMPORAL_BOOST=1).
+    # Defaults: ON, since they cost nothing.
+    import os
+    import time as _time
+    keyword_boost_enabled = os.environ.get("DUCKBOT_KEYWORD_BOOST", "1") not in ("0", "false", "no")
+    temporal_boost_enabled = os.environ.get("DUCKBOT_TEMPORAL_BOOST", "1") not in ("0", "false", "no")
+    if keyword_boost_enabled or temporal_boost_enabled:
+        query_terms = [w for w in query_text.lower().split() if len(w) > 2]
+        now_ts = _time.time()
+        for r in by_id.values():
+            bonus = 0.0
+            if keyword_boost_enabled and query_terms:
+                text_lower = (r.text or "").lower()
+                hits = sum(1 for t in query_terms if t in text_lower)
+                # 0.005 per exact-keyword hit, capped at 0.03 (6 terms).
+                bonus += min(0.03, hits * 0.005)
+            if temporal_boost_enabled:
+                ts = float((r.metadata or {}).get("ingested_at") or 0)
+                if ts > 0:
+                    age_days = max(0.0, (now_ts - ts) / 86400.0)
+                    # Half-life of 30 days. Today = +0.02, 30d ago = +0.01,
+                    # 60d ago = +0.005, asymptotes to 0. Never negative.
+                    bonus += 0.02 * (0.5 ** (age_days / 30.0))
+            r.rrf_score += bonus
+
     # Phase 5: sort by RRF desc over the OVER-FETCHED set. Truncation to
     # n_results happens AFTER the optional phases below so decay / rerank /
     # tier_priors / fsrs can promote a candidate that ranked outside the

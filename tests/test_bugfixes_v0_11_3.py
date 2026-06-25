@@ -840,3 +840,110 @@ def test_block_read_surfaces_queued_instructions(tmp_path):
     assert len(out["queued_instructions"]) == 2
     assert out["queued_instructions"][0]["instruction"] == "instruction A"
     assert out["queued_instructions"][1]["instruction"] == "instruction B"
+
+
+# -----------------------------------------------------------------------------
+# v0.12.0 — MemPalace + mem0 inspired real-brain upgrades
+# -----------------------------------------------------------------------------
+
+def test_query_has_keyword_boost_phase():
+    """query.py hybrid_query should add a keyword boost (Phase 4.5)
+    when DUCKBOT_KEYWORD_BOOST is on. Exact keyword matches get a flat
+    bonus on top of RRF."""
+    import inspect
+    from src import query as q
+    src = inspect.getsource(q.hybrid_query)
+    assert "DUCKBOT_KEYWORD_BOOST" in src
+    assert "keyword_boost_enabled" in src
+
+
+def test_query_has_temporal_boost_phase():
+    """query.py hybrid_query should add a temporal-proximity boost (Phase 4.5)
+    so recently-ingested memories score higher."""
+    import inspect
+    from src import query as q
+    src = inspect.getsource(q.hybrid_query)
+    assert "DUCKBOT_TEMPORAL_BOOST" in src
+    assert "temporal_boost_enabled" in src
+
+
+def test_remember_detects_conflicts():
+    """Memory.remember should mark near-duplicate existing chunks as
+    superseded when a new one is stored (mem0-inspired)."""
+    import inspect
+    from src.memory import Memory
+    src = inspect.getsource(Memory.remember)
+    assert "superseded_by" in src, (
+        "Memory.remember should detect near-duplicate conflicts and mark "
+        "the old chunk as superseded_by the new one"
+    )
+    assert "supersedes" in src
+
+
+def test_brain_wake_up_method_exists():
+    """Brain.wake_up() should exist and be a sync facade method."""
+    from src.connectors.base import Brain
+    assert hasattr(Brain, "wake_up"), "Brain.wake_up must exist for session-start hook"
+
+
+def test_brain_wake_up_drops_superseded():
+    """Brain.wake_up() should filter out chunks with superseded_by metadata
+    so old/replaced facts don't pollute the context."""
+    import inspect
+    from src.connectors.base import Brain
+    src = inspect.getsource(Brain.wake_up)
+    assert "superseded_by" in src, (
+        "Brain.wake_up must drop superseded chunks from the memories list"
+    )
+
+
+def test_mcp_brain_wake_up_registered():
+    """The mcp_server should register brain_wake_up as an MCP tool with a
+    matching handler. One-call session-start hook for Hermes/OpenClaw."""
+    from src.mcp_server import HANDLERS, TOOLS
+    assert "brain_wake_up" in HANDLERS, "brain_wake_up must be in HANDLERS"
+    tool_names = {t["name"] for t in TOOLS}
+    assert "brain_wake_up" in tool_names, "brain_wake_up must be in TOOLS"
+
+
+def test_cli_wake_up_subcommand_exists():
+    """The CLI should expose a wake-up subcommand (hermes-preflight shell
+    script depends on it)."""
+    import subprocess
+    import sys
+    r = subprocess.run(
+        [sys.executable, "-m", "src.cli", "wake-up", "--help"],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert r.returncode == 0, f"wake-up --help failed: {r.stderr}"
+    assert "wake-up" in r.stdout
+    # The help text describes the subcommand's purpose.
+    assert "context" in r.stdout.lower() or "memories" in r.stdout.lower()
+
+
+def test_cli_reflect_subcommand_exists():
+    """The CLI should expose a reflect subcommand (hermes-postflight shell
+    script depends on it)."""
+    import subprocess
+    import sys
+    r = subprocess.run(
+        [sys.executable, "-m", "src.cli", "reflect", "--help"],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert r.returncode == 0, f"reflect --help failed: {r.stderr}"
+    assert "reflect" in r.stdout
+    assert "lookback" in r.stdout.lower() or "consolidat" in r.stdout.lower()
+
+
+def test_hermes_hook_scripts_exist_and_executable():
+    """hermes-preflight.sh + hermes-postflight.sh must exist and be runnable."""
+    import os
+    import stat
+    for name in ("hermes-preflight.sh", "hermes-postflight.sh"):
+        p = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "scripts", name,
+        )
+        assert os.path.exists(p), f"{name} missing"
+        mode = os.stat(p).st_mode
+        assert mode & stat.S_IXUSR, f"{name} not executable"

@@ -341,6 +341,116 @@ class Brain:
             ))
         return out
 
+    # ----------------------------------------------------------------- wake up
+    def wake_up(
+        self,
+        query: Optional[str] = None,
+        k: int = 8,
+        include_blocks: bool = True,
+        include_graph: bool = True,
+        include_fsrs_review: bool = True,
+    ) -> dict:
+        """One-call "load context for a new session" — MemPalace-inspired.
+
+        Returns a single dict with:
+          - `memories`: top-k recalled chunks (filtered to drop superseded ones)
+          - `blocks`: active memory blocks (char-bounded, from block_read)
+          - `graph_summary`: high-degree entities + recent relationships
+          - `fsrs_review_queue`: chunks due for review
+          - `stats`: brief store stats (counts per tier)
+
+        Designed for the agent-startup hook path: Hermes agent opens a
+        session, calls `brain_wake_up` once, and has everything it needs
+        to continue a previous conversation without N round-trips.
+
+        Args:
+          query: optional anchor — if provided, recall is run with this
+            query; otherwise recall uses the most-recent episodic chunks.
+            The query-less path is the "what was I doing recently?" wake-up.
+          k: how many memories to recall (default 8).
+          include_blocks: include active memory blocks.
+          include_graph: include graph summary.
+          include_fsrs_review: include FSRS review queue.
+        """
+        out: dict = {"memories": [], "blocks": [], "graph_summary": {},
+                     "fsrs_review_queue": [], "stats": {}}
+
+        # Memories — filter out superseded chunks (those with `superseded_by`).
+        try:
+            if query:
+                raw = self.recall(query=query, k=k * 2, rerank=True)
+            else:
+                # Query-less wake-up: pull most-recent episodic + procedural.
+                from src.connectors.base import RecallResult  # local; cheap
+                raw = self.recall(query="recent memory", k=k * 2, rerank=False)
+            kept = []
+            for r in raw:
+                md = r.metadata or {}
+                if md.get("superseded_by"):
+                    continue
+                kept.append(r.to_dict() if hasattr(r, "to_dict") else {
+                    "chunk_id": r.chunk_id, "text": r.text, "tier": r.tier,
+                    "importance": getattr(r, "importance", 0.0),
+                    "score": getattr(r, "score", 0.0),
+                    "source_path": getattr(r, "source_path", ""),
+                })
+                if len(kept) >= k:
+                    break
+            out["memories"] = kept
+        except Exception as e:
+            out["memories_error"] = str(e)
+
+        # Blocks — pull every active block's name + first 200 chars.
+        if include_blocks:
+            try:
+                from src.blocks import BlockStore
+                if self.blocks_path.exists():
+                    with BlockStore(path=self.blocks_path) as bs:
+                        names = bs.names()
+                        for n in names[:20]:  # cap at 20 for wake_up speed
+                            b = bs.get(n)
+                            if b is not None:
+                                out["blocks"].append({
+                                    "name": b.name,
+                                    "preview": b.content[:200],
+                                    "char_count": len(b.content),
+                                })
+            except Exception as e:
+                out["blocks_error"] = str(e)
+
+        # Graph summary — top entities by relationship count + recent edges.
+        if include_graph:
+            try:
+                with Graph(path=self.graph_path) as g:
+                    # Cheap: just pull counts + recent activity.
+                    ents = g.query(kind=None, limit=20)
+                    out["graph_summary"] = {
+                        "entity_count": len(ents),
+                        "top_entities": [
+                            {"name": e.name, "kind": e.kind}
+                            for e in ents[:10]
+                        ],
+                    }
+            except Exception as e:
+                out["graph_error"] = str(e)
+
+        # FSRS review queue — small (k=5) so we don't blow the context budget.
+        if include_fsrs_review:
+            try:
+                q = self.fsrs_review_queue(k=5)
+                out["fsrs_review_queue"] = q
+            except Exception as e:
+                out["fsrs_review_error"] = str(e)
+
+        # Stats
+        try:
+            s = self.stats()
+            out["stats"] = s if isinstance(s, dict) else getattr(s, "to_dict", lambda: {})()
+        except Exception:
+            pass
+
+        return out
+
     # -------------------------------------------------------------- graph: nodes
     def graph_upsert_entity(
         self, name: str, kind: str = "concept", properties: Optional[dict] = None

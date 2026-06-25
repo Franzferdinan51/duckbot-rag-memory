@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.12.0 — 2026-06-24 — MemPalace + mem0 inspired upgrades
+
+Borrowing the highest-value open-source patterns from MemPalace
+(verbatim-first, 96.6% R@5 on LongMemEval) and mem0 (production-tested
+memory layer) — all local-first, no new paid deps.
+
+### Added
+
+- **`brain_wake_up` MCP tool** — one-call session-start context load.
+  Returns top-k recent memories (filtered to drop superseded chunks),
+  active memory blocks, graph summary, FSRS review queue, and stats.
+  MemPalace-inspired design: agents on session start do ONE call instead
+  of N round-trips. Wired as the canonical pre-flight for Hermes +
+  OpenClaw session hooks.
+
+- **`scripts/hermes-preflight.sh` + `scripts/hermes-postflight.sh`** —
+  Hermes session-start/-end hook scripts that call `wake-up` and
+  `reflect` respectively. Drop them into `~/.hermesrc` or as
+  `SessionStart`/`SessionEnd` hooks in any MCP-compatible agent.
+
+- **MemPalace-style hybrid v4 retrieval boosts** in `query.py`:
+  - **Keyword boost**: chunks whose text contains the query's exact
+    terms (not just BM25-ranked) get a small flat bonus (0.005/hit,
+    capped at 0.03). Improves precision for proper nouns and IDs.
+  - **Temporal-proximity boost**: recently-ingested memories score
+    higher (half-life of 30 days, +0.02 today, asymptotes to 0).
+    Improves "what did we just decide" recall.
+  Both are opt-in via `DUCKBOT_KEYWORD_BOOST` / `DUCKBOT_TEMPORAL_BOOST`
+  env vars (default ON). Zero new deps, zero API cost.
+
+- **mem0-style conflict detection** in `Memory.remember()` — when a new
+  chunk is within cosine distance 0.08 of an existing one in the same
+  tier, the old chunk is marked `superseded_by` (with timestamp) and the
+  new chunk gets a `supersedes` backref. Preserves audit trail; old
+  recall results still resolve but new queries prefer the fresh fact.
+  `brain_wake_up` automatically drops superseded chunks from its output.
+
+- **`CLI wake-up` and `CLI reflect` subcommands** — `python -m src.cli
+  wake-up` prints a markdown context block ready to paste into any
+  agent's context window; `python -m src.cli reflect --days 7` runs
+  consolidation.
+
+- **OpenClaw skill manifest** at `skills/openclaw-imports/duckbot-rag-memory/SKILL.md`
+  — describes the full tool surface for the OpenClaw agent platform.
+
+### Tests
+
+- 11 new regression tests in `tests/test_bugfixes_v0_11_3.py` for the
+  keyword/temporal boost phases, conflict detection, brain_wake_up
+  method, MCP tool registration, CLI subcommands, and hook scripts.
+- Full suite: **573 passing** (was 564 in v0.11.12).
+
 ## 0.11.12 — 2026-06-24 — Make it a real brain
 
 Three wire-ups that turn the storage layer into an actual learning memory.

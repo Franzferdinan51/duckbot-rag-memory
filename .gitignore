@@ -2,6 +2,10 @@
 data/chroma/
 data/ingest_history.jsonl
 data/eval_history.jsonl
+data/graph.db
+data/graph.db-*
+data/blocks.db
+data/blocks.db-*
 
 # Env
 .env

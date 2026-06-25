@@ -200,6 +200,67 @@ def cmd_consolidate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_wake_up(args: argparse.Namespace) -> int:
+    """One-call session-start context load (MemPalace-inspired).
+
+    Delegates to Brain.wake_up() and prints a formatted markdown block
+    ready to paste into an agent's context. Designed for use as a
+    Hermes / OpenClaw session-start hook — `scripts/hermes-preflight.sh`
+    shells out to this.
+    """
+    from src.connectors.base import Brain
+    brain = Brain()
+    result = brain.wake_up(
+        query=getattr(args, "query", None),
+        k=getattr(args, "k", 8),
+        include_blocks=getattr(args, "include_blocks", True),
+        include_graph=getattr(args, "include_graph", True),
+        include_fsrs_review=getattr(args, "include_fsrs_review", True),
+    )
+    # Pretty-print as a markdown block so agents can paste it into context.
+    lines = ["# 🧠 Brain Wake-Up", ""]
+    memories = result.get("memories") or []
+    if memories:
+        lines.append(f"## Recent Memories ({len(memories)})")
+        lines.append("")
+        for m in memories[:8]:
+            text = (m.get("text") or "")[:280].replace("\n", " ")
+            tier = m.get("tier", "?")
+            lines.append(f"- **[{tier}]** {text}")
+        lines.append("")
+    blocks = result.get("blocks") or []
+    if blocks:
+        lines.append(f"## Active Memory Blocks ({len(blocks)})")
+        lines.append("")
+        for b in blocks:
+            lines.append(f"- **{b.get('name','')}** ({b.get('char_count',0)} chars): {b.get('preview','')}")
+        lines.append("")
+    graph = result.get("graph_summary") or {}
+    if graph.get("top_entities"):
+        lines.append(f"## Graph ({graph.get('entity_count',0)} entities)")
+        for e in graph["top_entities"][:5]:
+            lines.append(f"- {e.get('name','?')} ({e.get('kind','?')})")
+        lines.append("")
+    queue = result.get("fsrs_review_queue") or []
+    if queue:
+        lines.append(f"## FSRS Review Queue ({len(queue)} due)")
+        for q in queue[:5]:
+            lines.append(f"- {q.get('chunk_id','?')} R={q.get('retrievability',0):.2f}")
+        lines.append("")
+    print("\n".join(lines))
+    return 0
+
+
+def cmd_reflect(args: argparse.Namespace) -> int:
+    """Sleep-time consolidation. Wrapper around Memory.reflect()."""
+    async def run():
+        from src.memory import Memory
+        return await Memory().reflect(lookback_days=args.days, max_chunks=args.max_chunks)
+    result = asyncio.run(run())
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def cmd_reset(args: argparse.Namespace) -> int:
     if not args.yes:
         print("Refusing to reset without --yes", file=sys.stderr)
@@ -467,6 +528,32 @@ def main() -> int:
 
     p_doc = sub.add_parser("doctor", help="check env + deps")
     p_doc.set_defaults(func=cmd_doctor)
+
+    # Wake-up: session-start context load (Hermes pre-flight / OpenClaw init).
+    p_wakeup = sub.add_parser(
+        "wake-up",
+        help="one-call session-start context load (memories + blocks + graph + FSRS queue)",
+    )
+    p_wakeup.add_argument("--query", help="optional anchor query for recall")
+    p_wakeup.add_argument("-k", type=int, default=8, help="max memories")
+    p_wakeup.add_argument("--no-blocks", action="store_false", dest="include_blocks")
+    p_wakeup.add_argument("--no-graph", action="store_false", dest="include_graph")
+    p_wakeup.add_argument("--no-fsrs-review", action="store_false", dest="include_fsrs_review")
+    p_wakeup.set_defaults(
+        func=cmd_wake_up,
+        include_blocks=True,
+        include_graph=True,
+        include_fsrs_review=True,
+    )
+
+    # Reflect: sleep-time consolidation (Hermes post-flight).
+    p_reflect = sub.add_parser(
+        "reflect",
+        help="sleep-time consolidation (episodic → semantic distillation)",
+    )
+    p_reflect.add_argument("--days", type=int, default=7, help="lookback days")
+    p_reflect.add_argument("--max-chunks", type=int, default=200, help="max episodic chunks to scan")
+    p_reflect.set_defaults(func=cmd_reflect)
 
     p_hermes = sub.add_parser("hermes", help="Hermes agent CLI shim: hermes <verb> [args...]")
     p_hermes.add_argument("verb", nargs="+", help="verb (remember, recall, stats, etc.) + args")
