@@ -430,6 +430,11 @@ def handle(tool_name: str, args: dict) -> dict:
         if tool_name == "brain_stats":
             return _serialize(brain.stats())
         if tool_name == "brain_remember":
+            # Validate required args — previously raised KeyError on empty/missing.
+            # (The canonical `remember` handler in src/mcp_server.py has richer
+            # validation + skill_candidate support; this is a back-compat alias.)
+            if not args.get("text") or not str(args["text"]).strip():
+                return {"error": "text must be a non-empty string", "tool": tool_name}
             r = brain.remember(
                 text=args["text"],
                 source_path=args.get("source_path", "<openclaw>"),
@@ -438,6 +443,8 @@ def handle(tool_name: str, args: dict) -> dict:
             )
             return _serialize(r)
         if tool_name == "brain_recall_verbatim":
+            if not args.get("query"):
+                return {"error": "query is required", "tool": tool_name}
             results = brain.recall_verbatim(
                 query=args["query"],
                 k=args.get("k", 5),
@@ -451,6 +458,8 @@ def handle(tool_name: str, args: dict) -> dict:
             )
             return {"results": results}
         if tool_name == "brain_recall":
+            if not args.get("query"):
+                return {"error": "query is required", "tool": tool_name}
             results = brain.recall(
                 query=args["query"],
                 k=args.get("k", 5),

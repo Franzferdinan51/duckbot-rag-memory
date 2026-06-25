@@ -465,18 +465,29 @@ TOOLS = [
 def _register_connector_tools() -> None:
     try:
         from src.connectors.openclaw import TOOL_DEFINITIONS, handle as _handle
-        TOOLS.extend(TOOL_DEFINITIONS)
+        # Add the tool schemas ONLY for tools that aren't already in the
+        # canonical TOOLS list (e.g. brain_block_*, brain_graph_*,
+        # brain_seed_blocks). For tools that already have a native
+        # MCP handler (brain_remember, brain_recall, brain_recall_verbatim,
+        # etc.), the canonical handler wins so the v0.14.0+
+        # validation + skill-candidate support is honored.
         for t in TOOL_DEFINITIONS:
-            # The MCP main loop calls `run_until_complete(handler(args))`,
-            # so the handler must return a coroutine / awaitable. The
-            # legacy connector's `handle()` is SYNC — wrap it so the
-            # returned lambda IS awaitable. Without this wrap, every
-            # connector tool (brain_block_*, brain_graph_*, etc.) raised
-            # "object dict can't be used in 'await' expression" when called
-            # via tools/call.
-            HANDLERS[t["name"]] = (
-                lambda args, h=_handle, n=t["name"]: _wrap_sync(h, n, args)
-            )
+            if t["name"] not in {existing["name"] for existing in TOOLS}:
+                TOOLS.append(t)
+            # Always register the connector handler if we don't already
+            # have a native one — otherwise the legacy (often-invalidating)
+            # handler shadows the new validation-aware handler.
+            if t["name"] not in HANDLERS:
+                # The MCP main loop calls `run_until_complete(handler(args))`,
+                # so the handler must return a coroutine / awaitable.
+                # The legacy connector's `handle()` is SYNC — wrap it so
+                # the returned lambda IS awaitable. Without this wrap,
+                # every connector tool raised
+                # "object dict can't be used in 'await' expression" when
+                # called via tools/call.
+                HANDLERS[t["name"]] = (
+                    lambda args, h=_handle, n=t["name"]: _wrap_sync(h, n, args)
+                )
     except Exception as _e:
         import sys as _s
         print(f"[mcp_server] connector tools not loaded: {_e}", file=_s.stderr)
