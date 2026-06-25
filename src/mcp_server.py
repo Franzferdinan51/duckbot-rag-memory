@@ -1321,10 +1321,19 @@ async def handle_brain_skills_list(args: dict) -> dict:
     list and decides which to promote via brain_skills_promote.
     """
     from src.skill_pipeline import list_candidates
-    return {"candidates": list_candidates(
+    k = int(args.get("k", 50))
+    if k <= 0:
+        return {"error": "k must be a positive integer"}
+    result = list_candidates(
         include_promoted=bool(args.get("include_promoted", False)),
-        k=int(args.get("k", 50)),
-    )}
+        k=k,
+    )
+    # If list_candidates returned an error dict (e.g. k <= 0 from the
+    # inner check), surface it as a top-level error rather than wrapping
+    # in {"candidates": {"error": ...}} which is confusing.
+    if isinstance(result, dict) and result.get("error"):
+        return result
+    return {"candidates": result}
 
 
 async def handle_brain_skills_promote(args: dict) -> dict:
@@ -1334,6 +1343,11 @@ async def handle_brain_skills_promote(args: dict) -> dict:
     context — the brain is pure storage + template (no LLM). Writes
     skills/<slug>/SKILL.md and marks the candidate chunk as promoted.
     """
+    # Validate required fields upfront — otherwise KeyError bubbles up
+    # as a generic JSON-RPC -32603 error without a useful message.
+    missing = [k for k in ("chunk_id", "name", "description", "instructions") if not args.get(k)]
+    if missing:
+        return {"error": f"missing required argument(s): {', '.join(missing)}"}
     from src.skill_pipeline import promote_candidate
     return promote_candidate(
         chunk_id=args["chunk_id"],
