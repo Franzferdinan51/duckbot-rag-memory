@@ -28,7 +28,6 @@ No LLM, no paid APIs. Local stdlib + the Brain facade only.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 from typing import Any
@@ -317,9 +316,15 @@ def _serialize_stats(s) -> dict:
 
 def _do_remember_background(brain: Brain, text: str, source: str) -> None:
     """Fire-and-forget remember() — runs on a daemon thread so the
-    MCP/JSON-RPC caller doesn't block on embedding + ingest."""
+    MCP/JSON-RPC caller doesn't block on embedding + ingest.
+
+    Note: Brain.remember() is SYNCHRONOUS (it wraps the async Memory
+    call via _run_async internally). Don't wrap it in asyncio.run() —
+    that would call asyncio.run on a non-coroutine and raise
+    "a coroutine was expected" (caught here, but the remember was
+    silently dropped)."""
     try:
-        asyncio.run(brain.remember(text=text, source_path=source))
+        brain.remember(text=text, source_path=source)
     except Exception as e:  # noqa: BLE001
         logger.warning("background remember failed: %s", e)
 
