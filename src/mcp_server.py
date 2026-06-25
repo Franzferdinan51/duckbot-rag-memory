@@ -527,6 +527,8 @@ async def handle_remember(args: dict) -> dict:
 
 
 async def handle_recall(args: dict) -> dict:
+    if not args.get("query"):
+        return {"error": "query is required"}
     mem = Memory()
     tpo = args.get("tier_priors_overrides")
     if tpo is not None and not isinstance(tpo, dict):
@@ -557,6 +559,8 @@ async def handle_reflect(args: dict) -> dict:
 
 
 async def handle_forget(args: dict) -> dict:
+    if not args.get("chunk_id"):
+        return {"error": "chunk_id is required"}
     mem = Memory()
     from src.tier import Tier
     tier = Tier(args["tier"]) if args.get("tier") else None
@@ -567,6 +571,8 @@ async def handle_forget(args: dict) -> dict:
 # ---- v0.10.0 — useful MCP tools extension ----
 
 async def handle_recall_verbatim(args: dict) -> dict:
+    if not args.get("query"):
+        return {"error": "query is required"}
     from src.connectors.base import Brain
     brain = Brain()
     tpo = args.get("tier_priors_overrides")
@@ -615,6 +621,8 @@ async def handle_brain_decay_apply(args: dict) -> dict:
 
 
 async def handle_forget_by_query(args: dict) -> dict:
+    if not args.get("query"):
+        return {"error": "query is required"}
     from src.connectors.base import Brain
     brain = Brain()
     return brain.forget_by_query(
@@ -656,6 +664,8 @@ async def handle_dreaming_cycle(args: dict) -> dict:
 
 
 async def handle_learn(args: dict) -> dict:
+    if not args.get("text") or not str(args["text"]).strip():
+        return {"error": "text must be a non-empty string"}
     from src.connectors.base import Brain
     brain = Brain()
     return brain.learn(
@@ -668,6 +678,8 @@ async def handle_learn(args: dict) -> dict:
 
 
 async def handle_active_memory(args: dict) -> dict:
+    if not args.get("tool"):
+        return {"error": "tool is required"}
     from src.connectors.base import Brain
     brain = Brain()
     return brain.active_memory(
@@ -751,6 +763,8 @@ async def handle_brain_inflate(args: dict) -> dict:
       - An agent asks "what do I know about X?"
       - After ingest to surface what was just learned
     """
+    if not args.get("query"):
+        return {"error": "query is required"}
     mem = Memory()
     query = args["query"]
     k = args.get("k", 10)
