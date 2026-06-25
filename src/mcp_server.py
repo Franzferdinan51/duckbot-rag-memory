@@ -315,6 +315,19 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "brain_palace",
+        "description": "Wing/Room/Drawer 2D view of the brain (MemPalace-inspired). With no args, lists every wing (person/project) and its room count. With --wing, returns the drawers in that wing, optionally filtered to one room and/or tier. Use this for project-scoped recall ('everything I know about OpenClaw from this week') without manually filtering by source_path.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "wing": {"type": "string", "description": "walk a specific wing (person/project)"},
+                "room": {"type": "string", "description": "filter to one room (date or filename)"},
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "filter to one tier"},
+                "max_drawers": {"type": "integer", "default": 100, "description": "cap on drawers returned"},
+            },
+        },
+    },
 ]
 
 
@@ -1226,6 +1239,44 @@ async def handle_brain_user_model(args: dict) -> dict:
     }
 
 
+async def handle_brain_palace(args: dict) -> dict:
+    """Wing/Room/Drawer 2D view of the brain.
+
+    With no args: list every wing (person/project) with room counts.
+    With --wing: return the drawers in that wing, optionally filtered
+    to one --room (date) and/or --tier. Use this for project-scoped
+    recall: 'everything I know about OpenClaw from this week' without
+    manually filtering by source_path.
+    """
+    from src.palace import PalaceIndex
+    from src.memory import Memory
+    mem = Memory()
+    store, _ = await mem._ensure_initialized()
+    pi = PalaceIndex.from_store(store)
+
+    wing = args.get("wing")
+    if wing:
+        room = args.get("room")
+        tier = args.get("tier")
+        max_drawers = int(args.get("max_drawers", 100))
+        drawers = pi.walk(wing, room=room, tier=tier, max_drawers=max_drawers)
+        return {
+            "wing": wing,
+            "room": room,
+            "tier": tier,
+            "drawer_count": len(drawers),
+            "drawers": [d.to_dict() for d in drawers],
+        }
+
+    # No wing: list everything
+    wings = pi.wings()
+    return {
+        "wing_count": len(wings),
+        "total_drawers": len(pi.all_drawers()),
+        "wings": [w.to_dict() for w in wings],
+    }
+
+
 HANDLERS = {
     "remember": handle_remember,
     "recall": handle_recall,
@@ -1252,6 +1303,7 @@ HANDLERS = {
     "brain_nudge": handle_brain_nudge,
     "brain_skill_create": handle_brain_skill_create,
     "brain_user_model": handle_brain_user_model,
+    "brain_palace": handle_brain_palace,
     "brain_sync": handle_brain_sync,
 }
 

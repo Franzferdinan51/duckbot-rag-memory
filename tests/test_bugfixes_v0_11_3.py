@@ -1193,3 +1193,88 @@ def test_spellcheck_list_typos():
     for typo, fix in rows:
         assert isinstance(typo, str) and len(typo) > 0
         assert isinstance(fix, str) and len(fix) > 0
+
+
+def test_palace_wing_extraction():
+    """_wing_from_path should extract a clean wing name from common
+    personal-note path layouts."""
+    from src.palace import _wing_from_path
+    # Parent dir wins for typical notes/<project>/<date>.md layout.
+    assert _wing_from_path("/Users/me/notes/openclaw/2026-06-22.md") == "openclaw"
+    # Stem wins for /projects/<project>/notes.md layout.
+    assert _wing_from_path("/home/x/projects/ai-py-boy/notes.md") == "ai-py-boy"
+    # Stopwords stripped from the parent-dir candidate -> fall back to stem
+    # which is "2026" (a year, not in our stopword list) -> returns "2026".
+    # The function is a best-effort extractor; we don't try to detect years.
+    assert _wing_from_path("/x/memory/2026.md") == "2026"
+    # Empty / junk
+    assert _wing_from_path("") == "<unknown>"
+    assert _wing_from_path("!!!") == "<unknown>"
+
+
+def test_palace_room_extraction():
+    """_room_from_path should prefer YYYY-MM-DD in the path, falling
+    back to ingested_at."""
+    from src.palace import _room_from_path
+    # Date in filename
+    assert _room_from_path("/x/y/2026-06-22.md", 0) == "2026-06-22"
+    assert _room_from_path("/x/y/notes-2026-06-23.md", 0) == "2026-06-23"
+    # No date in path -> use timestamp
+    assert _room_from_path("/x/y.md", 0) == "1970-01-01"
+
+
+def test_palace_index_from_store():
+    """PalaceIndex.from_store must index every non-superseded chunk.
+    Tested against an in-memory fake store so we don't depend on a real
+    ChromaDB. Each tier's collection is mocked separately so the index
+    doesn't double-count."""
+    from src.palace import PalaceIndex
+    from src.tier import Tier
+
+    # Per-tier fixture: working has 2 chunks (1 superseded), episodic is
+    # empty, semantic has 1 chunk, procedural is empty.
+    PER_TIER = {
+        Tier("working"): (
+            ["a", "b"],
+            ["alpha bravo", "alpha charlie"],
+            [
+                {"source_path": "/x/notes/duckbot/2026-06-22.md",
+                 "ingested_at": 1700000000.0, "importance": 0.5},
+                {"source_path": "/x/notes/duckbot/2026-06-23.md",
+                 "ingested_at": 1700100000.0, "importance": 0.7,
+                 "superseded_by": "c"},
+            ],
+        ),
+        Tier("episodic"): (["x"], [], []),
+        Tier("semantic"): (
+            ["s1"],
+            ["sentinel text"],
+            [{"source_path": "/x/notes/duckbot/2026-06-24.md",
+              "ingested_at": 1700200000.0, "importance": 0.9}],
+        ),
+        Tier("procedural"): (["p"], [], []),
+    }
+    class FakeColl:
+        def __init__(self, tier):
+            self.ids, self.docs, self.metas = PER_TIER.get(tier, ([], [], []))
+        def get(self, limit, include):
+            return {"ids": self.ids, "documents": self.docs, "metadatas": self.metas}
+    class FakeStore:
+        def collection_for(self, tier):
+            return FakeColl(tier)
+    pi = PalaceIndex.from_store(FakeStore())
+    # 1 from working (b is superseded) + 1 from semantic = 2 total
+    assert len(pi.all_drawers()) == 2, f"got {len(pi.all_drawers())}"
+    wings = pi.wings()
+    assert wings[0].name == "duckbot"
+    assert wings[0].drawer_count == 2
+    # walk() with no room/tier returns all 2 sorted by ingested_at desc
+    drawers = pi.walk("duckbot")
+    assert len(drawers) == 2
+    assert drawers[0].ingested_at > drawers[1].ingested_at
+    # Filter to one room. Note: the working-tier chunk on 2026-06-23 is
+    # superseded and was already dropped at index time, so surviving
+    # rooms are 2026-06-22 and 2026-06-24.
+    drawers = pi.walk("duckbot", room="2026-06-22")
+    assert len(drawers) == 1
+    assert drawers[0].room == "2026-06-22"
