@@ -968,3 +968,67 @@ def test_brain_sync_both_target_works():
     assert "hermes/SOUL.md" in files
     assert r.get("dry_run") is True
     assert r.get("target") == "both"
+
+
+def test_dialect_compress_chunk_format():
+    """AAAK dialect: one line per chunk, with tier code + importance +
+    preview + source_path. Survives whitespace, quotes, and overlong
+    importance values."""
+    from src.dialect import compress_chunk, parse_entry
+    line = compress_chunk(
+        "Hello world\n\nfrom the\nmemory",
+        tier="episodic",
+        importance=0.7,
+        source_path="/notes/x.md",
+        preview_chars=20,
+    )
+    # Format: e:0.70 "Hello world from the memory" src=/notes/x.md
+    assert line.startswith("e:0.70 ")
+    assert 'src=/notes/x.md' in line
+    # The '...' should be elided to 20 chars + ellipsis
+    assert "…" in line
+    # Roundtrip
+    parsed = parse_entry(line)
+    assert parsed is not None
+    assert parsed["tier"] == "e"
+    assert 0.69 < parsed["importance"] < 0.71
+    assert parsed["source_path"] == "/notes/x.md"
+    assert "Hello" in parsed["preview"]
+
+
+def test_dialect_clamps_importance():
+    """Importance can drift above 1.0 in stored metadata. The dialect
+    must clamp to 0..1 so the output never shows 137.60 etc."""
+    from src.dialect import compress_chunk
+    line = compress_chunk("text", tier="working", importance=137.6, source_path="/x")
+    # Extract the importance portion between the first ':' and the first space.
+    import re
+    m = re.match(r"\w:([\d.]+) ", line)
+    assert m, f"line should match: {line!r}"
+    assert 0.0 <= float(m.group(1)) <= 1.0, m.group(1)
+
+
+def test_dialect_corpus_header():
+    """Whole-corpus compression must include a header line with
+    per-tier counts so the LLM can see the full picture in one line."""
+    from src.dialect import compress_corpus
+    out = compress_corpus([
+        {"text": "a", "tier": "working", "importance": 0.5, "source_path": "/a"},
+        {"text": "b", "tier": "episodic", "importance": 0.6, "source_path": "/b"},
+        {"text": "c", "tier": "episodic", "importance": 0.7, "source_path": "/c"},
+    ])
+    lines = out.split("\n")
+    assert lines[0].startswith("# brain index v1 | tiers:")
+    assert "w=1" in lines[0]
+    assert "e=2" in lines[0]
+    assert "total=3" in lines[0]
+    # Body has 3 lines after the header.
+    assert len(lines) == 1 + 3
+
+
+def test_brain_index_registered():
+    """brain_index MCP tool must be registered in HANDLERS + TOOLS."""
+    from src.mcp_server import HANDLERS, TOOLS
+    assert "brain_index" in HANDLERS
+    tool_names = {t["name"] for t in TOOLS}
+    assert "brain_index" in tool_names

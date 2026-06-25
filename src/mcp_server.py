@@ -261,6 +261,18 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "brain_index",
+        "description": "Compact one-line-per-chunk summary of the whole brain. Uses the AAAK compression dialect — an LLM can scan thousands of entries in <500 tokens and then call brain_recall with the source_path of entries it wants to expand. Default 5000 chunks; pair with --tier to narrow.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "filter to one tier"},
+                "max_chunks": {"type": "integer", "default": 5000, "description": "cap on lines emitted"},
+                "preview_chars": {"type": "integer", "default": 80, "description": "chars of each chunk's text to include"},
+            },
+        },
+    },
 ]
 
 
@@ -835,6 +847,67 @@ async def handle_brain_wake_up(args: dict) -> dict:
     )
 
 
+async def handle_brain_index(args: dict) -> dict:
+    """Compact whole-corpus summary using the AAAK dialect (dialect.py).
+
+    The LLM scans the output in <500 tokens and picks entries to expand
+    via brain_recall. Default 5000 lines; pair with --tier to narrow.
+    Returns the compressed string + a small parse hint (total count).
+    """
+    from src.dialect import compress_corpus
+    from src.tier import Tier
+    tier = args.get("tier")
+    if tier is not None:
+        tier = Tier(tier)
+    max_chunks = int(args.get("max_chunks", 5000))
+    preview_chars = int(args.get("preview_chars", 80))
+
+    # Walk every tier's collection. We could use the recall path, but
+    # the whole point of the index is to be cheaper than recall — pull
+    # documents+metadatas directly with a single .get() per tier.
+    from src.memory import Memory
+    mem = Memory()
+    # We need the store, but _ensure_initialized is async. Run it.
+    import asyncio
+    store, _ = await mem._ensure_initialized()
+    chunks: list[dict] = []
+    tier_filter = tier
+    for t in store.all_collections:
+        coll = store.collection_for(t)
+        if tier_filter is not None and t != tier_filter:
+            continue
+        try:
+            data = coll.get(limit=max_chunks, include=["documents", "metadatas"])
+        except Exception:
+            continue
+        ids = (data or {}).get("ids") or []
+        docs = (data or {}).get("documents") or []
+        metas = (data or {}).get("metadatas") or []
+        for cid, doc, md in zip(ids, docs, metas):
+            md = md or {}
+            # Skip superseded chunks — wake_up's behavior, applied here too.
+            if md.get("superseded_by"):
+                continue
+            chunks.append({
+                "text": doc or "",
+                "tier": t,
+                "importance": md.get("importance", 0.0),
+                "source_path": md.get("source_path", ""),
+            })
+            if len(chunks) >= max_chunks:
+                break
+        if len(chunks) >= max_chunks:
+            break
+
+    compressed = compress_corpus(chunks, max_chunks=max_chunks, preview_chars=preview_chars)
+    return {
+        "dialect": compressed,
+        "total": len(chunks),
+        "preview_chars": preview_chars,
+        "tier_filter": tier.value if tier else None,
+    }
+
+
 HANDLERS = {
     "remember": handle_remember,
     "recall": handle_recall,
@@ -857,6 +930,7 @@ HANDLERS = {
     # v0.11.2 — Enhanced Brain: context inflation
     "brain_inflate": handle_brain_inflate,
     "brain_wake_up": handle_brain_wake_up,
+    "brain_index": handle_brain_index,
     "brain_sync": handle_brain_sync,
 }
 
