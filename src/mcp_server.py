@@ -286,6 +286,22 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "brain_skill_create",
+        "description": "Auto-generate an agentskills.io-compatible SKILL.md from a task description + instructions. Writes to skills/<slug>/SKILL.md so the agent can re-use the procedure on similar tasks. Use after a successful task to make the win repeatable.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "human-readable skill name (e.g. 'Restart the BATMAN container')"},
+                "description": {"type": "string", "description": "one-line: when to use this skill"},
+                "instructions": {"type": "array", "items": {"type": "string"}, "description": "step-by-step instructions"},
+                "example": {"type": "string", "description": "optional worked example"},
+                "emoji": {"type": "string", "description": "optional emoji override; default is keyword-guessed"},
+                "overwrite": {"type": "boolean", "default": False, "description": "replace an existing skill with the same slug"},
+            },
+            "required": ["name", "description", "instructions"],
+        },
+    },
 ]
 
 
@@ -1033,6 +1049,60 @@ async def handle_brain_nudge(args: dict) -> dict:
     }
 
 
+async def handle_brain_skill_create(args: dict) -> dict:
+    """Auto-generate an agentskills.io-compatible SKILL.md from a task
+    description. Writes to skills/<slug>/SKILL.md.
+
+    Why this exists: when an agent solves a new task successfully, the
+    win should be reusable. The skill is the unit of re-use. This tool
+    lets the agent (or an external LLM script) crystallize the win
+    into a discoverable manifest.
+
+    Pure templating — no LLM call by default. An LLM-driven path could
+    route through LM Studio for higher-quality bodies; for v0.1 the
+    deterministic template is enough and the user can edit the file
+    afterwards.
+    """
+    from src.skillgen import write_skill, render_from_memory
+
+    name = args.get("name")
+    description = args.get("description")
+    if not name or not description:
+        return {"error": "name and description are required"}
+    instructions = args.get("instructions") or []
+    if not instructions:
+        return {"error": "instructions list is required (at least one step)"}
+
+    body = render_from_memory(
+        name=name,
+        description=description,
+        instructions=instructions,
+        example=args.get("example", ""),
+        emoji=args.get("emoji"),
+    )
+
+    # Skills dir is the repo's skills/ directory. The MCP server runs
+    # from the repo root so we can resolve it relative to the file.
+    repo_root = Path(__file__).resolve().parent.parent
+    skills_dir = repo_root / "skills"
+    try:
+        path = write_skill(
+            skills_dir=skills_dir,
+            name=name,
+            description=description,
+            body_markdown=body,
+            emoji=args.get("emoji"),
+            overwrite=bool(args.get("overwrite", False)),
+        )
+        return {
+            "path": str(path),
+            "slug": path.parent.name,
+            "created": True,
+        }
+    except FileExistsError as e:
+        return {"error": str(e), "created": False, "hint": "pass overwrite=true to replace"}
+
+
 HANDLERS = {
     "remember": handle_remember,
     "recall": handle_recall,
@@ -1057,6 +1127,7 @@ HANDLERS = {
     "brain_wake_up": handle_brain_wake_up,
     "brain_index": handle_brain_index,
     "brain_nudge": handle_brain_nudge,
+    "brain_skill_create": handle_brain_skill_create,
     "brain_sync": handle_brain_sync,
 }
 
