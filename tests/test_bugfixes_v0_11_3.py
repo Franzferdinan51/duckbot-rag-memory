@@ -947,3 +947,24 @@ def test_hermes_hook_scripts_exist_and_executable():
         assert os.path.exists(p), f"{name} missing"
         mode = os.stat(p).st_mode
         assert mode & stat.S_IXUSR, f"{name} not executable"
+
+
+def test_brain_sync_both_target_works():
+    """brain_sync(target='both') must write to BOTH OpenClaw and Hermes
+    without crashing. The previous code did r.source_path (AttributeError)
+    and r.importance (same) on QueryResult, so every call failed before
+    the previous version could even attempt a cross-agent sync."""
+    import asyncio
+    from src.mcp_server import handle_brain_sync
+    r = asyncio.run(handle_brain_sync({
+        "target": "both", "memory_k": 2, "user_k": 2, "dry_run": True,
+    }))
+    files = r.get("files", {})
+    assert "openclaw/MEMORY.md" in files
+    assert "openclaw/USER.md" in files
+    assert "openclaw/SOUL.md" in files
+    assert "hermes/MEMORY.md" in files
+    assert "hermes/USER.md" in files
+    assert "hermes/SOUL.md" in files
+    assert r.get("dry_run") is True
+    assert r.get("target") == "both"

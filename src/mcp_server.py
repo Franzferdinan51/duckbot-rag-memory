@@ -553,7 +553,7 @@ async def handle_brain_inflate(args: dict) -> dict:
         lines.append(f"### {emoji} {tier_name.title()} — {tier_desc.get(tier_name, '')}")
         for r in items[:k]:
             imp_bar = "▓" * int(r.importance * 10) + "░" * (10 - int(r.importance * 10))
-            source = r.source_path or "memory"
+            source = _src(r) or "memory"
             lines.append(f"- [{imp_bar}] {r.text[:300]}{'...' if len(r.text) > 300 else ''}")
             lines.append(f"  _source: {source} | tier: {r.tier.value}_")
         lines.append("")
@@ -595,6 +595,26 @@ async def handle_brain_sync(args: dict) -> dict:
 
     from pathlib import Path
     import os
+
+    def _src(r) -> str:
+        """Extract source_path from a QueryResult. QueryResult stores
+        source_path in metadata (not as a direct attribute), so a naive
+        r.source_path would AttributeError on every call. The previous
+        version had 4 sites that all crashed on this — centralizing here
+        means one fix covers all of them."""
+        return (getattr(r, "metadata", None) or {}).get("source_path", "") or ""
+
+    def _tier(r) -> str:
+        return r.tier.value if hasattr(r.tier, "value") else r.tier
+
+    def _imp(r) -> float:
+        """Extract importance from a QueryResult. Same shape as _src —
+        importance lives in metadata, not as a direct attribute."""
+        v = (getattr(r, "metadata", None) or {}).get("importance", 0)
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return 0.0
     from datetime import datetime
 
     mem = Memory()
@@ -646,12 +666,12 @@ async def handle_brain_sync(args: dict) -> dict:
             emoji = tier_emoji.get(tier_name, "•")
             oc_mem_lines.append(f"## {emoji} {tier_name.title()}")
             for r in items[:memory_k // 4]:
-                imp = r.importance or 0
+                imp = _imp(r)
                 oc_mem_lines.append(
                     f"- **[{imp:.0%}]** {r.text[:400]}{'...' if len(r.text) > 400 else ''}"
                 )
-                if r.source_path:
-                    oc_mem_lines.append(f"  _src: {r.source_path}_")
+                if _src(r):
+                    oc_mem_lines.append(f"  _src: {_src(r)}_")
             if not items:
                 oc_mem_lines.append("_No memories in this tier._")
             oc_mem_lines.append("")
@@ -670,8 +690,14 @@ async def handle_brain_sync(args: dict) -> dict:
             if r.text not in seen_texts:
                 seen_texts.add(r.text)
                 oc_user_lines.append(f"- {r.text[:500]}")
-                if r.source_path:
-                    oc_user_lines.append(f"  _src: {r.source_path} ({r.tier.value})_")
+                # r.source_path lives in metadata on QueryResult, not as a
+                # direct attribute. The previous code crashed on every
+                # brain_sync call with AttributeError; fall back to the
+                # metadata dict.
+                src = (r.metadata or {}).get("source_path", "")
+                tier_val = r.tier.value if hasattr(r.tier, "value") else r.tier
+                if src:
+                    oc_user_lines.append(f"  _src: {src} ({tier_val})_")
         if len(oc_user_lines) <= 3:
             oc_user_lines.append("_No user facts stored yet._")
         oc_user_content = "\n".join(oc_user_lines)
@@ -708,9 +734,9 @@ async def handle_brain_sync(args: dict) -> dict:
         # Hermes MEMORY.md: 2,200 char limit, §-delimited entries
         # Format: each entry is a line, prefixed with §
         def _make_hermes_entry(r: "RecallResult") -> str:
-            imp = int((r.importance or 0) * 10)
+            imp = int((_imp(r)) * 10)
             bar = "▓" * imp + "░" * (10 - imp)
-            src = f" [{r.source_path or 'memory'}]" if r.source_path else ""
+            src = f" [{_src(r) or 'memory'}]" if _src(r) else ""
             return f"§[{bar}]{r.text[:300]}{src}"
 
         hm_mem_entries: list[str] = []
@@ -742,7 +768,7 @@ async def handle_brain_sync(args: dict) -> dict:
             if r.text in seen:
                 continue
             seen.add(r.text)
-            src = f" [{r.source_path or 'memory'}]" if r.source_path else ""
+            src = f" [{_src(r) or 'memory'}]" if _src(r) else ""
             entry = f"§{r.text[:250]}{src}"
             if sum(len(e) for e in hm_user_entries) + len(entry) + 60 > 1375:
                 break
