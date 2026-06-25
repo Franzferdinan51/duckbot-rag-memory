@@ -724,8 +724,13 @@ class Brain:
                 mem = Memory()
                 store, _ = await mem._ensure_initialized()
                 embedder = await auto_detect_provider()
+                # Pass the embedder directly — hybrid_query expects an EmbeddingProvider,
+                # not a lambda. The previous lambda hack raised
+                # "'function' object has no attribute 'embed_one'" because
+                # hybrid_query.embed_one(query_text) was being called on the
+                # lambda instead of on the real embedder.
                 results, _ = await hybrid_query(
-                    entity, store, lambda *a, **kw: embedder.embed(*a, **kw),
+                    entity, store, embedder,
                     n_results=k, tier=None,
                 )
                 return results
