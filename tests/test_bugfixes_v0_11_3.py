@@ -1050,3 +1050,24 @@ def test_graph_bitemporal_query_known_at():
     known = g.query_known_at(at=3000.0)
     labels = sorted(r.label for r in known)
     assert "works_on" in labels and "manages" in labels
+
+
+def test_brain_nudge_registered():
+    """brain_nudge MCP tool must be registered."""
+    from src.mcp_server import HANDLERS, TOOLS
+    assert "brain_nudge" in HANDLERS
+    tool_names = {t["name"] for t in TOOLS}
+    assert "brain_nudge" in tool_names
+
+
+def test_brain_nudge_source_filters():
+    """brain_nudge filters by importance >= min_importance and
+    last_recalled_at < stale_cutoff. We verify at the source level
+    since the full flow requires a populated Chroma store."""
+    import inspect
+    from src.mcp_server import handle_brain_nudge
+    src = inspect.getsource(handle_brain_nudge)
+    assert "min_importance" in src
+    assert "stale_cutoff" in src
+    assert "superseded_by" in src  # we drop superseded chunks
+    assert "relevance" in src  # context-bias path

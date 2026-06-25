@@ -273,6 +273,19 @@ TOOLS = [
             },
         },
     },
+    {
+        "name": "brain_nudge",
+        "description": "Proactive memory nudge: surfaces stale-but-important memories the agent might be forgetting about. Logic: high importance + not recently recalled + older than 7 days. Use on a cron or as a 'just-in-time' reminder mid-task. Optional --context to bias toward memories relevant to a current focus.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "context": {"type": "string", "description": "optional current focus — biases nudge toward relevant memories"},
+                "k": {"type": "integer", "default": 5, "description": "max memories to return"},
+                "min_importance": {"type": "number", "default": 0.6, "description": "importance threshold (0..1)"},
+                "stale_days": {"type": "integer", "default": 7, "description": "consider stale if last_recalled_at is older than this many days"},
+            },
+        },
+    },
 ]
 
 
@@ -908,6 +921,118 @@ async def handle_brain_index(args: dict) -> dict:
     }
 
 
+async def handle_brain_nudge(args: dict) -> dict:
+    """Proactive memory nudge: surface stale-but-important memories.
+
+    Algorithm:
+      1. Recall high-importance memories (above --min_importance).
+      2. Filter to ones whose last_recalled_at is older than --stale_days
+         (or never recalled).
+      3. If --context is provided, bias toward memories that match the
+         current focus via a second recall.
+      4. Drop superseded chunks.
+      5. Return top --k with a "reason" explaining why each is being
+         surfaced.
+
+    Use cases:
+      - Cron: schedule daily to remind the agent of forgotten decisions.
+      - Mid-task: call before starting a new chunk of work to surface
+        related prior context the agent may not have on its mind.
+    """
+    from src.memory import Memory
+    import time
+    mem = Memory()
+    k = int(args.get("k", 5))
+    min_imp = float(args.get("min_importance", 0.6))
+    stale_days = int(args.get("stale_days", 7))
+    context = args.get("context")
+    stale_cutoff = time.time() - (stale_days * 86400.0)
+
+    # 1 + 2: pull candidates and filter
+    store, _ = await mem._ensure_initialized()
+    candidates: list[dict] = []
+    for t in store.all_collections:
+        try:
+            data = store.collection_for(t).get(
+                include=["documents", "metadatas"], limit=200,
+            )
+        except Exception:
+            continue
+        ids = (data or {}).get("ids") or []
+        docs = (data or {}).get("documents") or []
+        metas = (data or {}).get("metadatas") or []
+        for cid, doc, md in zip(ids, docs, metas):
+            md = md or {}
+            if md.get("superseded_by"):
+                continue
+            try:
+                imp = float(md.get("importance", 0.0))
+            except (TypeError, ValueError):
+                imp = 0.0
+            if imp < min_imp:
+                continue
+            last_recall = float(md.get("last_recalled_at") or 0.0)
+            # Either never recalled OR last recall is older than cutoff
+            if last_recall >= stale_cutoff:
+                continue
+            candidates.append({
+                "chunk_id": cid,
+                "text": doc or "",
+                "tier": t,
+                "importance": imp,
+                "source_path": md.get("source_path", ""),
+                "last_recalled_at": last_recall,
+                "age_days": round((time.time() - last_recall) / 86400.0, 1) if last_recall else None,
+            })
+
+    # 3: context bias — if provided, re-rank by recall similarity
+    if context and candidates:
+        try:
+            results, _ = await mem.recall(context, k=k * 3, tier=None, min_importance=min_imp)
+            # Build a relevance map: chunk_id -> rrf_score
+            rel: dict[str, float] = {}
+            for r in results:
+                md = getattr(r, "metadata", None) or {}
+                # The hybrid_query returns QueryResult objects whose
+                # metadata is the chunk's metadata dict.
+                cid = r.chunk_id
+                rel[cid] = float(getattr(r, "rrf_score", 0.0) or 0.0)
+            for c in candidates:
+                c["relevance"] = rel.get(c["chunk_id"], 0.0)
+            candidates.sort(key=lambda c: (c["relevance"], c["importance"]), reverse=True)
+        except Exception:
+            # Fall back to importance-only ordering
+            candidates.sort(key=lambda c: c["importance"], reverse=True)
+    else:
+        candidates.sort(key=lambda c: c["importance"], reverse=True)
+
+    out = candidates[:k]
+    # 4: build reasons
+    for c in out:
+        reasons = []
+        if c["importance"] >= 0.8:
+            reasons.append(f"high importance ({c['importance']:.2f})")
+        if c["age_days"] is None:
+            reasons.append("never recalled")
+        elif c["age_days"] >= stale_days * 2:
+            reasons.append(f"last recalled {c['age_days']}d ago")
+        else:
+            reasons.append(f"last recalled {c['age_days']}d ago")
+        if "relevance" in c and c["relevance"] > 0:
+            reasons.append("matches current context")
+        c["reason"] = " · ".join(reasons) if reasons else "stale"
+        # Truncate text preview
+        c["preview"] = (c.pop("text") or "")[:200]
+
+    return {
+        "nudges": out,
+        "total_candidates": len(candidates),
+        "context": context,
+        "stale_days": stale_days,
+        "min_importance": min_imp,
+    }
+
+
 HANDLERS = {
     "remember": handle_remember,
     "recall": handle_recall,
@@ -931,6 +1056,7 @@ HANDLERS = {
     "brain_inflate": handle_brain_inflate,
     "brain_wake_up": handle_brain_wake_up,
     "brain_index": handle_brain_index,
+    "brain_nudge": handle_brain_nudge,
     "brain_sync": handle_brain_sync,
 }
 
