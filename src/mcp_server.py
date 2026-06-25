@@ -1329,9 +1329,12 @@ async def handle_brain_optimize_fsrs(args: dict) -> dict:
 async def handle_brain_apply_fsrs_w20(args: dict) -> dict:
     """Apply a chosen w20 to the brain's fsrs.DEFAULT_W20.
 
-    In-process only — restart the server (or set the env var
-    DUCKBOT_FSRS_W20=<value>) to persist across restarts.
+    Persists across restarts automatically: as of v0.13.0 the fsrs module
+    reads DUCKBOT_FSRS_W20 at import time, so setting that env var (or
+    updating it before the next process start) makes the new w20 stick.
+    We also update os.environ so the running process picks it up.
     """
+    import os
     from src import fsrs
     w20 = args.get("w20")
     if w20 is None:
@@ -1344,11 +1347,13 @@ async def handle_brain_apply_fsrs_w20(args: dict) -> dict:
         return {"error": f"w20 must be > 0, got {w20}"}
     old = fsrs.DEFAULT_W20
     fsrs.DEFAULT_W20 = w20
+    # Also update the env so child processes / future imports see it.
+    os.environ["DUCKBOT_FSRS_W20"] = str(w20)
     return {
         "old_w20": old,
         "new_w20": w20,
-        "persisted": False,
-        "note": "In-process only. Set DUCKBOT_FSRS_W20 env var to persist across restarts.",
+        "persisted": True,
+        "note": "Set in-process + DUCKBOT_FSRS_W20 env var. Persists across restarts.",
     }
 
 

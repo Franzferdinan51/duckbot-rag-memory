@@ -65,7 +65,20 @@ from typing import Any
 # not 98% — we want to actually down-weight old chunks.
 #
 # This is the only FSRS-6 weight we expose; deployments tune it.
-DEFAULT_W20 = 0.9
+# Override at startup with the DUCKBOT_FSRS_W20 env var (e.g. set in
+# .env or via the brain_apply_fsrs_w20 MCP tool — though the tool is
+# in-process only; the env var persists across restarts).
+import os as _os
+_DEFAULT_W20_FROM_ENV = _os.environ.get("DUCKBOT_FSRS_W20", "").strip()
+if _DEFAULT_W20_FROM_ENV:
+    try:
+        DEFAULT_W20 = float(_DEFAULT_W20_FROM_ENV)
+    except (TypeError, ValueError):
+        # Fall back to the compiled-in default if the env var is malformed.
+        DEFAULT_W20 = 0.9
+else:
+    DEFAULT_W20 = 0.9
+del _DEFAULT_W20_FROM_ENV
 
 # Default stability-growth weight (FSRS-6 spec): w8 = 0.02 in the
 # reference implementation. Higher = stability grows faster on recall.

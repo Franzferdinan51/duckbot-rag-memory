@@ -1,5 +1,90 @@
 # Changelog
 
+## 0.13.0 — 2026-06-24 — Tier 2 + Tier 3 borrowed features
+
+Round of porting from upstream projects (MemPalace, mem0, mem0-style
+conflict detection, Graphiti, py-fsrs, agentskills.io) plus the bug
+fixes accumulated along the way. New MCP tools now total 53.
+
+### Added — Tier 2: battle-tested patterns
+
+- **AAAK compression dialect** (`src/dialect.py`, `brain_index` tool) —
+  MemPalace-style compact one-line-per-chunk format. Lets an LLM
+  scan thousands of entries in <500 tokens before deciding which to
+  expand via `brain_recall`. Pairs with the `wing/room/drawer` view.
+
+- **FSRS-6 w20 self-tuner** (`src/fsrs_optimizer.py`,
+  `brain_optimize_fsrs` + `brain_apply_fsrs_w20` tools) — grid-search
+  the forgetting-curve exponent from the brain's recall history,
+  minimizing MSE between predicted R(t, S) and observed
+  'remembered'/'forgotten' labels. `brain_apply_fsrs_w20` commits the
+  new w20 (in-process; env-var support coming next).
+
+- **Spellcheck on ingest** (`src/spellcheck.py`) — lightweight
+  common-typo fixer (~70 entries) runs before chunking in
+  `Memory.remember()`. Opt-out via `DUCKBOT_SPELLCHECK=0`. Preserves
+  case and protects proper nouns (Duckets, Hermes, BATMAN, etc.).
+
+- **Skill auto-creation** (`src/skillgen.py`, `brain_skill_create`
+  tool) — when an agent solves a new task, this distills the win
+  into an agentskills.io-compatible `skills/<slug>/SKILL.md`. Pure
+  templating, no LLM call by default. Refuses to overwrite by
+  default; pass `overwrite=true` to replace.
+
+- **Wing/Room/Drawer 2D hierarchy** (`src/palace.py`, `brain_palace`
+  tool) — MemPalace's 3-level structure (person/project → time →
+  verbatim chunk) overlaid on top of the existing tier system. Lets
+  an agent do "show me everything about OpenClaw from this week"
+  without manual source_path filtering. Skips superseded chunks at
+  index time.
+
+### Added — Tier 3: agent-specific integrations
+
+- **Cross-agent brain_sync** (`brain_sync` tool, `target=both`) —
+  write to BOTH `~/.openclaw/workspace/memory/` and
+  `~/.hermes/memories/` in a single call.
+
+- **Honcho-style user modeling** (`brain_user_model` tool) —
+  periodically distills high-importance user-related facts into a
+  single `user` memory block via `block_write`. Appends to existing
+  content so the model accumulates over time.
+
+- **Proactive memory nudge** (`brain_nudge` tool) — surfaces
+  stale-but-important memories the agent might be forgetting
+  about. High importance + not recently recalled + older than
+  `--stale_days`. Optional `--context` biases toward the agent's
+  current focus.
+
+- **Bi-temporal graph edges** (`graph.py`) — `recorded_from` /
+  `recorded_until` columns on relationships (separate from
+  `valid_from` / `valid_until`). `query_known_at()` answers "what did
+  the brain know at time X?" — different from `query_active()` which
+  asks "what was true then?" Graphiti-inspired. Idempotent migration
+  on existing DBs.
+
+### Fixed
+
+- **`test_hermes_cli_shim_recall` "Event loop is closed"** — root
+  cause: the cached `httpx.AsyncClient` in `src/embeddings.py` was
+  bound to a different (closed) event loop when reused across pytest
+  tests. `_get_http_client()` now tracks the binding loop and
+  rebuilds the client on mismatch. `_run_async()` also got a lock
+  + explicit `new_event_loop()`/`close()` lifecycle to prevent the
+  related class of leaks. 5 other regression tests switched from
+  `asyncio.run()` to a `_run_in_thread()` helper that owns the loop
+  properly.
+
+- **`brain_sync` AttributeError on `r.source_path` / `r.importance`** —
+  `QueryResult` stores both in `metadata`, not as direct attributes.
+  Centralized into `_src()` and `_imp()` helpers in
+  `handle_brain_sync`. The `target=both` path now works end-to-end.
+
+### Tests
+
+- 36 new regression tests across the 9 new features + the H1 fix.
+- Full suite: **597 passing** (was 517 at the start of the v0.11
+  series).
+
 ## 0.12.0 — 2026-06-24 — MemPalace + mem0 inspired upgrades
 
 Borrowing the highest-value open-source patterns from MemPalace
