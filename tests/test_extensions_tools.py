@@ -317,3 +317,30 @@ def test_summary_mentions_all_eleven_tools():
     for name in surface.tool_names():
         assert name in out
     assert "11 tools" in out
+
+def test_dispatch_brain_search_verbatim_rejects_empty_needle(fake_brain):
+    """Empty needle MUST be rejected — `in ""` matches every chunk,
+    returning expensive semantic results for no useful query."""
+    surface._BRAIN = fake_brain
+    out = surface.dispatch("brain_search_verbatim", {"needle": ""})
+    assert "error" in out
+    assert "non-empty" in out["error"]
+    fake_brain.search_verbatim.assert_not_called()
+
+
+def test_dispatch_brain_search_verbatim_rejects_whitespace_needle(fake_brain):
+    """Whitespace-only needle is equivalent to empty — same rejection."""
+    surface._BRAIN = fake_brain
+    out = surface.dispatch("brain_search_verbatim", {"needle": "   "})
+    assert "error" in out
+    fake_brain.search_verbatim.assert_not_called()
+
+
+def test_dispatch_brain_search_verbatim_strips_whitespace(fake_brain):
+    """Needle is stripped before dispatch so leading/trailing whitespace
+    doesn't miss the match."""
+    fake_brain.search_verbatim.return_value = [{"chunk_id": "x"}]
+    surface._BRAIN = fake_brain
+    out = surface.dispatch("brain_search_verbatim", {"needle": "  docker compose  "})
+    assert "matches" in out
+    fake_brain.search_verbatim.assert_called_once_with(needle="docker compose", k=5)

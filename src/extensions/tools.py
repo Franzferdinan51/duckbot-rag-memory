@@ -442,8 +442,14 @@ def dispatch(name: str, args: dict) -> dict:
             )
 
         if name == "brain_search_verbatim":
+            # Reject empty / whitespace-only needle — substring-search on
+            # "" trivially matches every chunk (Python's `in` check), and
+            # mem.recall() does an expensive semantic search first.
+            needle = (args.get("needle") or "").strip()
+            if not needle:
+                return {"error": "needle must be a non-empty string"}
             return {"matches": brain.search_verbatim(
-                needle=args["needle"],
+                needle=needle,
                 k=int(args.get("k", 5)),
             )}
 
