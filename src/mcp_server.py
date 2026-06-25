@@ -317,7 +317,7 @@ TOOLS = [
     },
     {
         "name": "brain_palace",
-        "description": "Wing/Room/Drawer 2D view of the brain (MemPalace-inspired). With no args, lists every wing (person/project) and its room count. With --wing, returns the drawers in that wing, optionally filtered to one room and/or tier. Use this for project-scoped recall ('everything I know about OpenClaw from this week') without manually filtering by source_path.",
+        "description": "Wing/Room/Drawer 2D view of the brain (MemPalace-inspired). With no args, lists every wing (person/project) and its room count, cross-referenced to the 'user' memory block so the agent sees which wings are already covered by the user model (modeled_in_user_block: true/false per wing). With --wing, returns the drawers in that wing, optionally filtered to one room and/or tier. Use this for project-scoped recall ('everything I know about OpenClaw from this week') without manually filtering by source_path.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1266,7 +1266,9 @@ async def handle_brain_user_model(args: dict) -> dict:
 async def handle_brain_palace(args: dict) -> dict:
     """Wing/Room/Drawer 2D view of the brain.
 
-    With no args: list every wing (person/project) with room counts.
+    With no args: list every wing (person/project) with room counts,
+    cross-referenced to the 'user' block so the agent sees which
+    wings the user model has already covered.
     With --wing: return the drawers in that wing, optionally filtered
     to one --room (date) and/or --tier. Use this for project-scoped
     recall: 'everything I know about OpenClaw from this week' without
@@ -1274,9 +1276,29 @@ async def handle_brain_palace(args: dict) -> dict:
     """
     from src.palace import PalaceIndex
     from src.memory import Memory
+    from src.connectors.base import Brain
     mem = Memory()
     store, _ = await mem._ensure_initialized()
     pi = PalaceIndex.from_store(store)
+
+    # Cross-reference: which wings the user model has already covered?
+    # Read the 'user' block and extract any wing names it mentions
+    # (case-insensitive). Cheap heuristic but useful: the agent sees
+    # at a glance which projects have been actively modeled.
+    modeled_wings: set[str] = set()
+    try:
+        brain = Brain()
+        user_block = brain.block_read("user")
+        if user_block and user_block.get("text"):
+            # Find any wing name mentioned in the user block.
+            wing_names = {w.name for w in pi.wings()}
+            text_lower = user_block["text"].lower()
+            for wn in wing_names:
+                if wn.lower() in text_lower:
+                    modeled_wings.add(wn)
+    except Exception:
+        # Non-fatal — cross-reference is best-effort.
+        pass
 
     wing = args.get("wing")
     if wing:
@@ -1290,14 +1312,20 @@ async def handle_brain_palace(args: dict) -> dict:
             "tier": tier,
             "drawer_count": len(drawers),
             "drawers": [d.to_dict() for d in drawers],
+            "modeled_in_user_block": wing in modeled_wings,
         }
 
     # No wing: list everything
     wings = pi.wings()
+    out_wings = []
+    for w in wings:
+        d = w.to_dict()
+        d["modeled_in_user_block"] = w.name in modeled_wings
+        out_wings.append(d)
     return {
         "wing_count": len(wings),
         "total_drawers": len(pi.all_drawers()),
-        "wings": [w.to_dict() for w in wings],
+        "wings": out_wings,
     }
 
 

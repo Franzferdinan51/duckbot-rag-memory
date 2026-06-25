@@ -1407,3 +1407,18 @@ def test_fsrs_default_w20_respects_env(monkeypatch):
     # set in the test runner, it would be that value.
     assert isinstance(fsrs.DEFAULT_W20, float)
     assert fsrs.DEFAULT_W20 > 0
+
+
+def test_brain_palace_includes_user_model_cross_ref():
+    """brain_palace must cross-reference each wing against the 'user'
+    memory block and surface 'modeled_in_user_block' so the agent
+    can see at a glance which projects the user model has covered."""
+    import inspect
+    from src.mcp_server import handle_brain_palace
+    src = inspect.getsource(handle_brain_palace)
+    assert "modeled_in_user_block" in src, (
+        "handle_brain_palace must surface modeled_in_user_block for each wing"
+    )
+    # Must read the 'user' block to do the cross-reference.
+    assert "block_read" in src
+    assert '"user"' in src or "'user'" in src
