@@ -493,6 +493,8 @@ def handle(tool_name: str, args: dict) -> dict:
                 entity_name=args["entity"], at=args.get("at")
             )}
         if tool_name == "brain_graph_history":
+            if not args.get("entity"):
+                return {"error": "entity is required", "tool": tool_name}
             return {"history": brain.graph_history(entity_name=args["entity"])}
 
         if tool_name == "brain_graph_cognify":
@@ -508,13 +510,21 @@ def handle(tool_name: str, args: dict) -> dict:
 
         # Blocks
         if tool_name == "brain_block_read":
+            if not args.get("name"):
+                return {"error": "name is required", "tool": tool_name}
             r = brain.block_read(args["name"])
-            return r if r is not None else {"error": f"block not found: {args['name']}"}
+            return r if r is not None else {"error": f"block not found: {args['name']}", "tool": tool_name}
         if tool_name == "brain_block_write":
+            if not args.get("name") or not args.get("text"):
+                return {"error": "name and text are required", "tool": tool_name}
             return brain.block_write(args["name"], args["text"])
         if tool_name == "brain_block_append":
+            if not args.get("name") or not args.get("text"):
+                return {"error": "name and text are required", "tool": tool_name}
             return brain.block_append(args["name"], args["text"])
         if tool_name == "brain_block_delete":
+            if not args.get("name"):
+                return {"error": "name is required", "tool": tool_name}
             return brain.block_delete(args["name"])
         if tool_name == "brain_block_list":
             return {"blocks": brain.block_list()}
@@ -523,10 +533,14 @@ def handle(tool_name: str, args: dict) -> dict:
 
         # Quarantine
         if tool_name == "brain_injection_scan":
+            if not args.get("text"):
+                return {"error": "text is required", "tool": tool_name}
             return brain.injection_scan(args["text"])
         if tool_name == "brain_quarantine_list":
             return {"quarantined": brain.quarantine_list(status=args.get("status", "pending"))}
         if tool_name == "brain_quarantine_review":
+            if not args.get("scan_id") or not args.get("decision"):
+                return {"error": "scan_id and decision are required", "tool": tool_name}
             return brain.quarantine_review(
                 scan_id=args["scan_id"],
                 decision=args["decision"],
@@ -542,14 +556,19 @@ def handle(tool_name: str, args: dict) -> dict:
         if tool_name == "brain_decay_status":
             return brain.decay_status(tier=args.get("tier"), k=args.get("k", 50))
         if tool_name == "brain_forget_by_query":
+            if not args.get("query"):
+                return {"error": "query is required", "tool": tool_name}
             return brain.forget_by_query(
                 query=args["query"],
                 k=args.get("k", 5),
                 tier=args.get("tier"),
             )
         if tool_name == "brain_search_verbatim":
+            needle = (args.get("needle") or "").strip()
+            if not needle:
+                return {"error": "needle must be a non-empty string", "tool": tool_name}
             return {"matches": brain.search_verbatim(
-                needle=args["needle"],
+                needle=needle,
                 k=args.get("k", 5),
             )}
 
@@ -562,14 +581,19 @@ def handle(tool_name: str, args: dict) -> dict:
                 min_importance=args.get("min_importance", 0.5),
             )
         if tool_name == "brain_learn":
+            text = args.get("text") or ""
+            if not text.strip():
+                return {"error": "text must be a non-empty string", "tool": tool_name}
             return brain.learn(
-                text=args["text"],
+                text=text,
                 force_tier=args.get("force_tier", "procedural"),
                 source=args.get("source", "<hermes-/learn>"),
                 metadata=args.get("metadata"),
                 invoke_hermes=args.get("invoke_hermes", True),
             )
         if tool_name == "brain_active_memory":
+            if not args.get("tool"):
+                return {"error": "tool is required", "tool": tool_name}
             return brain.active_memory(
                 tool=args["tool"],
                 args=args.get("args", {}),
