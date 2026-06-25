@@ -446,7 +446,11 @@ class Brain:
             try:
                 with Graph(path=self.graph_path) as g:
                     # Cheap: just pull counts + recent activity.
-                    ents = g.query(kind=None, limit=20)
+                    # Graph.list_entities(kind=None, limit=N) is the right
+                    # API — there is no .query() method. Calling the wrong
+                    # name silently swallowed the AttributeError into
+                    # graph_error and returned empty summaries.
+                    ents = g.list_entities(kind=None, limit=20)
                     out["graph_summary"] = {
                         "entity_count": len(ents),
                         "top_entities": [
