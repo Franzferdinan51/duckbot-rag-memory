@@ -344,3 +344,30 @@ def test_dispatch_brain_search_verbatim_strips_whitespace(fake_brain):
     out = surface.dispatch("brain_search_verbatim", {"needle": "  docker compose  "})
     assert "matches" in out
     fake_brain.search_verbatim.assert_called_once_with(needle="docker compose", k=5)
+
+
+def test_dispatch_brain_remember_rejects_empty_text(fake_brain):
+    """Empty text MUST be rejected — otherwise the daemon thread silently
+    fails (background Chroma error) and the agent thinks it succeeded."""
+    surface._BRAIN = fake_brain
+    out = surface.dispatch("brain_remember", {"text": ""})
+    assert "error" in out
+    assert "non-empty" in out["error"]
+
+
+def test_dispatch_brain_remember_rejects_whitespace_text(fake_brain):
+    surface._BRAIN = fake_brain
+    out = surface.dispatch("brain_remember", {"text": "   \t\n  "})
+    assert "error" in out
+    assert "non-empty" in out["error"]
+
+
+def test_dispatch_brain_remember_rejects_empty_skill_candidate(fake_brain):
+    """Empty skill_candidate would otherwise stamp a chunk_id = sha256("")
+    + source — an empty useless chunk in the procedural tier forever."""
+    surface._BRAIN = fake_brain
+    fake_brain.remember.return_value = MagicMock(chunk_id="abc", tier="procedural", stored=True)
+    out = surface.dispatch("brain_remember", {"text": "", "kind": "skill_candidate"})
+    assert "error" in out
+    # stamp_skill_candidate should NOT have been called
+    fake_brain.remember.assert_not_called()

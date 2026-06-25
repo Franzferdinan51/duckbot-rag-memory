@@ -389,6 +389,13 @@ def dispatch(name: str, args: dict) -> dict:
             source = args.get("source") or "openclaw-extension://ad-hoc"
             kind = args.get("kind")
 
+            # Reject empty / whitespace-only text. Without this, an empty
+            # remember() either silently fails in the daemon thread (empty
+            # fire-and-forget) or stores a useless empty chunk (skill_candidate
+            # path, where the chunk_id becomes the sha256 of "" + source).
+            if not text or not text.strip():
+                return {"error": "text must be a non-empty string"}
+
             if kind == "skill_candidate":
                 # Agent-driven pipeline: stamp a candidate (blocking, no LLM).
                 # Returns chunk_id so the agent can promote it later.
