@@ -1118,6 +1118,7 @@ async def handle_brain_wake_up(args: dict) -> dict:
     Drop-in for agents that want a single MCP call on session start
     instead of N round-trips. Query-less mode = "what was I doing recently?"
     """
+    from src.connectors.base import Brain
     brain = Brain()
     return brain.wake_up(
         query=args.get("query"),
