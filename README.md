@@ -1,9 +1,9 @@
 # DuckBot RAG + Memory System
 
-Persistent, searchable memory for DuckBot, OpenClaw, Hermes Agent, and any MCP client.
+Persistent, searchable memory that dramatically expands the limited default memory of OpenClaw and Hermes Agent. Drop-in replacement for the flat chat-history buffers both agents ship with — adds a 4-tier CoALA memory model, hybrid retrieval, entity graph, verbatim recall, FSRS-6 spaced repetition, dreaming consolidation, and a Wing/Room/Drawer 2D hierarchy on top.
 
-[![Status](https://img.shields.io/badge/latest_changelog-0.11.5-yellow)]()
-[![MCP](https://img.shields.io/badge/MCP_server-0.11.7-green)]()
+[![Status](https://img.shields.io/badge/latest_changelog-0.13.0-yellow)]()
+[![MCP](https://img.shields.io/badge/MCP_server-0.13.0-green)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 [![CI](https://github.com/Franzferdinan51/duckbot-rag-memory/actions/workflows/ci.yml/badge.svg)]()
 
@@ -11,27 +11,55 @@ Persistent, searchable memory for DuckBot, OpenClaw, Hermes Agent, and any MCP c
 
 DuckBot memory is a focused RAG and long-term memory layer for personal agent workflows. It ingests markdown, classifies it into memory tiers, embeds it, stores it in local vector collections, and exposes recall/write tools through CLI wrappers and MCP.
 
+## What You Get That Default Memory Doesn't
+
+| | OpenClaw / Hermes default | + This brain |
+|---|---|---|
+| Capacity | Last N chat turns (typically 20–50) | Unlimited — every fact the agent has ever seen |
+| Persistence | Session-only (or simple `.md` files) | 4-tier CoALA model: working, episodic, semantic, procedural |
+| Retrieval | Recency (last-message wins) | Hybrid vector + BM25 + keyword boost + temporal-proximity boost |
+| Memory for the user | None (no user model) | Honcho-style `brain_user_model` block that accumulates over time |
+| Memory for the work | Markdown files agents re-read every session | Wing/Room/Drawer 2D hierarchy (MemPalace-style): project → day → chunk |
+| Forgetting | Linear (oldest message dropped) | FSRS-6 spaced repetition with self-tunable `w20` (per-deployment) |
+| Consolidation | None | `reflect()` + `dreaming_cycle()` promote episodic → semantic |
+| Conflict detection | None (new fact overwrites old) | mem0-style: near-duplicates marked `superseded_by` |
+| Discovery | Grep through markdown | AAAK compression dialect scans the whole corpus in <500 tokens |
+| Self-improvement | None | `brain_skill_create` distills wins into agentskills.io SKILL.md; `brain_optimize_fsrs` self-tunes the forgetting curve |
+| Proactive | None | `brain_nudge` surfaces stale-but-important memories the agent is forgetting |
+| Audit trail | None | Bi-temporal graph: `valid_from`/`valid_until` (world time) + `recorded_from`/`recorded_until` (when the brain knew) |
+
+**TL;DR:** OpenClaw/Hermes remember the last 50 messages and call it memory. This brain makes the agent actually learn from the corpus it's seen.
+
 It is designed for a practical loop:
 
 1. Capture durable context from OpenClaw memory files, project docs, and direct `remember` calls.
-2. Retrieve with hybrid vector + keyword search.
+2. Retrieve with hybrid vector + keyword + temporal-proximity search.
 3. Consolidate episodic notes into semantic facts.
 4. Sync useful memories back into agent context files.
+5. Surface stale-but-important memories via proactive nudges.
+6. Distill successful tasks into reusable agentskills.io SKILL.md manifests.
 
-The project draws from mem0, Letta/MemGPT, Cognee, Hermes Agent, and the CoALA memory taxonomy, but it keeps the runtime small: no general agent framework, no hosted database requirement, no secrets in client config.
+The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs, Hermes Agent, and the CoALA memory taxonomy, but it keeps the runtime small: no general agent framework, no hosted database requirement, no secrets in client config.
 
 ## Core Capabilities
 
 - **Four memory tiers:** working, episodic, semantic, and procedural.
 - **Markdown-aware chunking:** recursive splitting around headers, paragraphs, sentences, and words.
-- **Hybrid retrieval:** vector search + BM25-style keyword matching + Reciprocal Rank Fusion.
-- **Entity and relationship memory:** lightweight graph storage for people, projects, files, and links between them.
+- **Hybrid retrieval:** vector search + BM25-style keyword matching + Reciprocal Rank Fusion, with optional keyword-boost and temporal-proximity boost layers.
+- **Entity and relationship memory:** lightweight graph storage for people, projects, files, and links between them, with bi-temporal edges (`valid_from`/`valid_until` for world time, `recorded_from`/`recorded_until` for when the brain learned it).
 - **Verbatim recall:** exact source text retrieval for quotes, commands, and sensitive wording.
-- **Memory health layers:** decay, FSRS-style review scheduling, tier priors, rerank hooks, and injection scanning.
+- **Memory health layers:** decay (Ebbinghaus), FSRS-6 spaced repetition with self-tunable `w20`, tier priors, rerank hooks, conflict detection (mem0-style), and injection scanning.
+- **Wing/Room/Drawer 2D hierarchy (MemPalace-inspired):** people/projects × time × verbatim chunks, accessible via `brain_palace` MCP tool.
+- **AAAK compression dialect:** compact one-line-per-chunk format for whole-corpus LLM scanning in <500 tokens, via `brain_index` MCP tool.
+- **Honcho-style user modeling:** periodic distillation of user-related facts into a single `user` memory block, via `brain_user_model`.
+- **Skill auto-creation:** when an agent solves a new task, distill it into an agentskills.io-compatible `SKILL.md` via `brain_skill_create`.
+- **Proactive memory nudges:** surface stale-but-important memories before they're forgotten, via `brain_nudge` MCP tool.
 - **Local-first embeddings:** LM Studio works well locally; MiniMax, OpenAI, and sentence-transformers are also supported.
 - **Watcher daemon:** polls markdown sources every five minutes by default and dedups unchanged content by hash.
-- **MCP stdio server:** 45 tools for recall, remember, reflect, graph, blocks, dreaming, learning, quarantine, and sync.
-- **Shell wrappers:** `scripts/duckbot-ask` and `scripts/brain-recall.sh` for use from any terminal or cron job.
+- **MCP stdio server:** 56 tools for recall, remember, reflect, graph, blocks, dreaming, learning, quarantine, sync, wake-up, palace, index, nudge, skillgen, user modeling, export/import, and demo seeding.
+- **Shell wrappers:** `scripts/duckbot-ask`, `scripts/brain-recall.sh`, `scripts/hermes-preflight.sh`, `scripts/hermes-postflight.sh`, and the one-command bootstraps `scripts/openclaw-bootstrap.sh` / `scripts/hermes-bootstrap.sh` for first-time setup.
+
+> If you (or an agent) just want to install this without reading the README, see [INSTALL.md](INSTALL.md) for a single-page copy-paste recipe (prereqs → install → bootstrap → register MCP → cron).
 
 ## Quick Start
 
@@ -45,9 +73,22 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your embedding provider settings.
 
+# One-command bootstrap for OpenClaw users: ingest every .md in
+# ~/.openclaw/workspace into the brain and print the MCP registration step.
+./scripts/openclaw-bootstrap.sh
+# Same for Hermes Agent:
+./scripts/hermes-bootstrap.sh
+
+# Or do it manually:
 python -m src.cli doctor
 python -m src.cli ingest ~/.openclaw/workspace/memory
 python -m src.cli query "What did we decide about cloud-only models?" -n 5
+
+# See the full brain in one markdown file (for backup / migration):
+python -m src.cli export --out-path data/brain_export.md
+
+# Migrate an existing brain_export.md back into the brain:
+python -m src.cli import data/brain_export.md
 ```
 
 From any shell:
@@ -57,6 +98,11 @@ From any shell:
 ./scripts/duckbot-ask -f compact -n 3 "Duckets correction style"
 ./scripts/duckbot-ask -f snippet "BATMAN container restart recipe"
 ./scripts/brain-recall.sh "watcher restart steps"
+
+# One-call session-start context load (for the agent):
+./scripts/hermes-preflight.sh                 # markdown block
+./scripts/hermes-preflight.sh --query OpenClaw  # anchored on a topic
+./scripts/hermes-postflight.sh                # consolidate at session end
 ```
 
 The wrappers load `.env` themselves and detect the local venv, so API keys do not need to be placed in MCP or shell history.
@@ -149,13 +195,13 @@ hermes mcp add duckbot-memory `
 
 Prefer the launcher scripts over passing env vars directly to MCP config. They load `.env` at process start, set unbuffered output, and choose the correct venv path per OS.
 
-The current MCP server exposes 45 tools:
+The current MCP server exposes 56 tools:
 
 | Area | Tools |
 | --- | --- |
 | Core memory | `remember`, `recall`, `reflect`, `forget`, `stats`, `watch`, `doctor` |
 | Retrieval maintenance | `recall_verbatim`, `search_verbatim`, `fsrs_review`, `decay_status`, `forget_by_query` |
-| Enhanced brain | `brain_wake_up`, `brain_inflate`, `brain_sync`, `brain_recall`, `brain_remember`, `brain_reflect`, `brain_stats` |
+| Enhanced brain | `brain_wake_up`, `brain_inflate`, `brain_sync`, `brain_recall`, `brain_remember`, `brain_reflect`, `brain_stats`, `brain_index`, `brain_nudge`, `brain_skill_create`, `brain_user_model`, `brain_palace`, `brain_optimize_fsrs`, `brain_apply_fsrs_w20`, `brain_export`, `brain_import`, `brain_seed_demo` |
 | Graph | `brain_graph_entity`, `brain_graph_relate`, `brain_graph_query`, `brain_graph_relationships`, `brain_graph_history` |
 | Blocks | `brain_block_read`, `brain_block_write`, `brain_block_append`, `brain_block_delete`, `brain_block_list`, `brain_seed_blocks` |
 | Safety | `brain_injection_scan`, `brain_quarantine_list`, `brain_quarantine_review` |
@@ -168,14 +214,32 @@ See [docs/INTEGRATION.md](docs/INTEGRATION.md) for client-specific setup, Window
 The enhanced brain closes the loop between retrieval and agent startup context.
 
 ```bash
+# One-call session-start context load (Hermes pre-flight, OpenClaw init).
+# Default output: markdown block ready to paste into an agent's context.
+python -m src.cli wake-up
+
+# Same data, JSON output for programmatic consumers.
+python -m src.cli wake-up --json | jq '.memories'
+
 # Sync useful memories into OpenClaw and Hermes context files.
 python -m src.cli sync --target both
 
 # Preview without writing.
 python -m src.cli sync --dry-run
+
+# Proactive nudge: what might the agent be forgetting?
+python -m src.cli nudge --k 5 --min-importance 0.6
+
+# Wing/Room/Drawer 2D view (MemPalace-inspired).
+python -m src.cli palace                    # list all wings
+python -m src.cli palace --wing openclaw    # walk one wing
+
+# Self-tune the forgetting curve (FSRS w20).
+python -m src.cli optimize-fsrs             # returns proposed w20 + sweep
+python -m src.cli apply-fsrs-w20 0.42       # commit (persists via DUCKBOT_FSRS_W20)
 ```
 
-`brain_wake_up` is the one-call session-start context load: top-k recent memories, active memory blocks, graph summary, and FSRS review queue. Designed for Hermes pre-flight + OpenClaw session-start hooks. `brain_inflate` recalls relevant memories and formats them as a markdown context block for an agent. `brain_sync` writes distilled context back to OpenClaw and Hermes memory files, respecting each platform's format and size limits.
+`brain_wake_up` is the one-call session-start context load: top-k recent memories, active memory blocks, graph summary, and FSRS review queue. Designed for Hermes pre-flight + OpenClaw session-start hooks. `brain_inflate` recalls relevant memories and formats them as a markdown context block for an agent. `brain_sync` writes distilled context back to OpenClaw and Hermes memory files, respecting each platform's format and size limits. `brain_nudge` surfaces stale-but-important memories the agent might be forgetting. `brain_palace` exposes the MemPalace-inspired 2D hierarchy (person/project → time → verbatim chunk). `brain_optimize_fsrs` + `brain_apply_fsrs_w20` self-tune the FSRS-6 forgetting-curve exponent. `brain_skill_create` distills a successful task into an agentskills.io-compatible `SKILL.md`. `brain_user_model` aggregates user-related facts into a single Honcho-style user block.
 
 ## Architecture
 
@@ -209,22 +273,31 @@ duckbot-rag-memory/
 |   |-- embeddings.py     # LM Studio, MiniMax, OpenAI, local providers
 |   |-- store.py          # ChromaDB wrapper
 |   |-- memory.py         # unified Memory facade
-|   |-- query.py          # hybrid retrieval and RRF
+|   |-- query.py          # hybrid retrieval + RRF + keyword/temporal boost
 |   |-- consolidate.py    # episodic -> semantic distillation
-|   |-- mcp_server.py     # MCP stdio server
+|   |-- mcp_server.py     # MCP stdio server (56 tools)
 |   |-- watcher.py        # polling watcher daemon
 |   |-- cli.py            # command-line interface
+|   |-- dialect.py        # AAAK compression dialect (brain_index)
+|   |-- palace.py         # Wing/Room/Drawer 2D index (brain_palace)
+|   |-- skillgen.py       # agentskills.io SKILL.md generator
+|   |-- spellcheck.py     # common-typo fixer on ingest
+|   |-- fsrs_optimizer.py # self-tune FSRS w20 from recall history
+|   |-- blocks.py graph.py entities.py
+|   |                      # blocks + temporal graph + entity extraction
 |   |-- backends/         # chroma, lancedb, qdrant interfaces
 |   `-- connectors/       # OpenClaw, Active Memory, dreaming, learn
-|-- tests/                # pytest suite, currently 560 tests collected
+|-- tests/                # pytest suite, currently 608 tests collected
 |-- benchmarks/           # golden retrieval evals
-|-- scripts/              # install, watcher, MCP launcher, query helpers
+|-- scripts/              # install, watcher, MCP launcher, query helpers,
+|                         #   hermes-preflight.sh, hermes-postflight.sh
 |-- skills/               # OpenClaw skill manifests and plugins
 |-- docs/                 # architecture, integration, research
 |-- data/                 # gitignored runtime state
 |-- .env.example          # local config template
 |-- AGENTS.md             # instructions for coding agents
 |-- CHANGELOG.md          # release history
+|-- INSTALL.md           # one-page install recipe for OpenClaw/Hermes agents
 |-- CONTRIBUTING.md       # contribution guide
 |-- SECURITY.md           # disclosure and hardening notes
 `-- README.md
@@ -256,7 +329,7 @@ pytest --collect-only -q
 bash scripts/secret-scan.sh
 ```
 
-Current local collection check: **560 tests collected**. The latest changelog entry records **529 passing** for the 0.11.5 audit fixes; the local suite has continued to grow since then.
+Current local check: **608 tests collected**. The suite is exercised in CI on every push.
 
 ## Cross-Platform Notes
 
