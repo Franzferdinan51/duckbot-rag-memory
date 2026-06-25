@@ -22,11 +22,13 @@ import asyncio
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 # Add parent to path so this can be run as `python -m src.mcp_server`
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from src import __version__ as PACKAGE_VERSION
 from src.memory import Memory
 from src.tier import Tier
 
@@ -350,6 +352,40 @@ TOOLS = [
                 "w20": {"type": "number", "description": "the new w20 to use"},
             },
             "required": ["w20"],
+        },
+    },
+    {
+        "name": "brain_export",
+        "description": "Export the entire brain as a single markdown file. One section per chunk, grouped by tier, with provenance. Use this to back up the brain, migrate to another machine, share with another agent, or inspect the corpus in a text editor. Default path is data/brain_export.md. Idempotent: re-running overwrites the same file. The reverse operation is brain_import — together they let you round-trip the brain as plain markdown.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "out_path": {"type": "string", "description": "where to write the export (default data/brain_export.md)"},
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "export only one tier (default: all)"},
+                "include_superseded": {"type": "boolean", "default": False, "description": "include chunks marked superseded_by (default: skip — keeps the export clean)"},
+            },
+        },
+    },
+    {
+        "name": "brain_import",
+        "description": "Import a markdown file into the brain. Each top-level section (## Heading) becomes one remembered chunk; the section text is the content; the section heading is auto-detected for tier (semantic if 'rule/preference/decision', episodic if 'YYYY-MM-DD', procedural if 'how to/always/never', else working). Use this to ingest chat-history exports, project docs, or another brain's brain_export dump. Source paths are stamped so brain_recall can cite provenance.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "in_path": {"type": "string", "description": "path to the markdown file to import"},
+                "source_path": {"type": "string", "description": "stamped as source_path on every chunk (default: filename)"},
+            },
+            "required": ["in_path"],
+        },
+    },
+    {
+        "name": "brain_seed_demo",
+        "description": "Seed the brain with a small bundled sample corpus so a new user can see a working brain without ingesting their own files first. Idempotent: skips chunks that already exist. Useful for demos, smoke tests, and onboarding.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "force": {"type": "boolean", "default": False, "description": "re-seed even if chunks already exist"},
+            },
         },
     },
 ]
@@ -1385,6 +1421,326 @@ async def handle_brain_apply_fsrs_w20(args: dict) -> dict:
     }
 
 
+async def handle_brain_export(args: dict) -> dict:
+    """Export the entire brain as a single markdown file.
+
+    One section per chunk, grouped by tier, with provenance. Useful for
+    backups, migration to another machine, sharing with another agent,
+    or inspecting the corpus in a text editor. The reverse operation
+    is brain_import — together they let you round-trip the brain as
+    plain markdown.
+    """
+    from src.tier import Tier
+    from pathlib import Path
+    from src.memory import Memory
+    tier_filter = args.get("tier")
+    if tier_filter is not None:
+        tier_filter = Tier(tier_filter)
+    include_super = bool(args.get("include_superseded", False))
+    out_path = Path(args.get("out_path") or "data/brain_export.md")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    mem = Memory()
+    store, _ = await mem._ensure_initialized()
+
+    lines: list[str] = ["# Brain Export", "",
+                        f"_Generated {time.strftime('%Y-%m-%d %H:%M:%S')}._",
+                        f"_Exported by duckbot-rag-memory v{PACKAGE_VERSION}._", ""]
+    per_tier: dict[str, int] = {}
+    for tier_name in ("working", "episodic", "semantic", "procedural"):
+        if tier_filter is not None and tier_filter.value != tier_name:
+            continue
+        try:
+            coll = store.collection_for(Tier(tier_name))
+            data = coll.get(limit=100000, include=["documents", "metadatas"])
+        except Exception:
+            continue
+        ids = (data or {}).get("ids") or []
+        docs = (data or {}).get("documents") or []
+        metas = (data or {}).get("metadatas") or []
+        if not ids:
+            continue
+        lines.append(f"## {tier_name.title()}")
+        lines.append("")
+        per_tier[tier_name] = 0
+        for cid, doc, md in zip(ids, docs, metas):
+            md = md or {}
+            if (not include_super) and md.get("superseded_by"):
+                continue
+            src = md.get("source_path", "memory") or "memory"
+            tier_label = md.get("tier", tier_name)
+            imp = float(md.get("importance", 0.0) or 0.0)
+            lines.append(f"### {cid}  (tier={tier_label}, importance={imp:.2f})")
+            lines.append(f"_source: {src}_")
+            lines.append("")
+            # Body: indent each non-empty line with two spaces so the
+            # downstream brain_import can detect section boundaries.
+            for line in (doc or "").splitlines():
+                if line.strip():
+                    lines.append("  " + line)
+                else:
+                    lines.append("")
+            lines.append("")
+            per_tier[tier_name] += 1
+        lines.append("")
+
+    out_path.write_text("\n".join(lines), encoding="utf-8")
+    return {
+        "out_path": str(out_path),
+        "total_chunks": sum(per_tier.values()),
+        "per_tier": per_tier,
+        "include_superseded": include_super,
+    }
+
+
+async def handle_brain_import(args: dict) -> dict:
+    """Import a markdown file into the brain.
+
+    Each top-level section (## Heading) becomes one remembered chunk;
+    the section text is the content. The section heading is
+    auto-detected for tier:
+      - 'rule' / 'preference' / 'decision' / 'setup' / 'how to' / 'always' /
+        'never' / 'must' / 'should not' → procedural
+      - 'YYYY-MM-DD' or 'today' / 'yesterday' → episodic
+      - otherwise → semantic (general knowledge)
+    Source paths are stamped so brain_recall can cite provenance.
+    """
+    from pathlib import Path
+    from src.memory import Memory
+    import re
+    in_path = Path(args["in_path"])
+    if not in_path.exists():
+        return {"error": f"file not found: {in_path}"}
+    source_path = args.get("source_path") or in_path.name
+    text = in_path.read_text(encoding="utf-8", errors="replace")
+
+    def _parse_export_chunks(raw_text: str) -> list[dict]:
+        tier_re = re.compile(r"^##\s+(.+?)\s*$")
+        chunk_re = re.compile(r"^###\s+(.+?)\s*$")
+        meta_re = re.compile(
+            r"^(?P<id>.+?)\s+\(tier=(?P<tier>[^,]+),\s*importance=(?P<importance>[0-9.]+)\)\s*$"
+        )
+        source_re = re.compile(r"^_source:\s*(?P<source>.+?)_\s*$")
+        chunks: list[dict] = []
+        current_tier = None
+        current = None
+        saw_chunk = False
+
+        def flush() -> None:
+            nonlocal current
+            if not current:
+                return
+            body = "\n".join(
+                line[2:] if line.startswith("  ") else line
+                for line in current["body_lines"]
+            ).strip()
+            if body:
+                current["body"] = body
+                chunks.append(current)
+            current = None
+
+        for raw in raw_text.splitlines():
+            tier_match = tier_re.match(raw)
+            if tier_match:
+                flush()
+                current_tier = tier_match.group(1).strip().lower()
+                continue
+
+            chunk_match = chunk_re.match(raw)
+            if chunk_match:
+                flush()
+                saw_chunk = True
+                header = chunk_match.group(1).strip()
+                title = header
+                tier_hint = current_tier
+                importance = None
+                meta_match = meta_re.match(header)
+                if meta_match:
+                    title = meta_match.group("id").strip()
+                    tier_hint = meta_match.group("tier").strip()
+                    importance = float(meta_match.group("importance"))
+                current = {
+                    "title": title,
+                    "tier": tier_hint,
+                    "importance": importance,
+                    "source_path": None,
+                    "body_lines": [],
+                }
+                continue
+
+            if current is not None:
+                source_match = source_re.match(raw)
+                if source_match and current["source_path"] is None:
+                    current["source_path"] = source_match.group("source").strip()
+                else:
+                    current["body_lines"].append(raw)
+
+        flush()
+        return chunks if saw_chunk else []
+
+    def _parse_generic_sections(raw_text: str) -> list[tuple[str, str]]:
+        section_re = re.compile(r"(?m)^##\s+(.+?)$")
+        parts = section_re.split(raw_text)
+        sections: list[tuple[str, str]] = []
+        for i in range(1, len(parts), 2):
+            if i + 1 >= len(parts):
+                break
+            title = parts[i].strip()
+            body = parts[i + 1].strip()
+            if not body:
+                continue
+            body = "\n".join(
+                line[2:] if line.startswith("  ") else line
+                for line in body.splitlines()
+            )
+            sections.append((title, body))
+        return sections
+
+    parsed_chunks = _parse_export_chunks(text)
+
+    # Heuristic tier classifier for the import.
+    PROC_KEYS = ("rule", "preference", "decision", "setup", "how to",
+                "always", "never", "must", "should not", "do not")
+    EPIS_KEYS = ("today", "yesterday", "log", "session")
+    DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+    def _classify(title: str, body: str) -> str:
+        head = (title + " " + body[:200]).lower()
+        if DATE_RE.search(title) or any(k in head for k in EPIS_KEYS):
+            return "episodic"
+        if any(k in head for k in PROC_KEYS):
+            return "procedural"
+        return "semantic"
+
+    mem = Memory()
+    stored = 0
+    skipped = 0
+    if parsed_chunks:
+        for chunk in parsed_chunks:
+            title = str(chunk["title"])
+            body = str(chunk["body"])
+            tier = chunk["tier"] or _classify(title, body)
+            source_for_chunk = chunk["source_path"] or source_path
+            metadata = {
+                "imported_from": str(in_path),
+                "import_title": title,
+                "exported_chunk_id": title,
+            }
+            if chunk["tier"] is not None:
+                metadata["exported_tier"] = str(chunk["tier"])
+            if chunk["importance"] is not None:
+                metadata["exported_importance"] = float(chunk["importance"])
+            if chunk["source_path"] is not None:
+                metadata["exported_source_path"] = str(chunk["source_path"])
+            try:
+                r = await mem.remember(
+                    f"# {title}\n\n{body}",
+                    source_path=str(source_for_chunk),
+                    force_tier=tier,
+                    metadata=metadata,
+                )
+                if r.stored:
+                    stored += 1
+                else:
+                    skipped += 1
+            except Exception as exc:
+                skipped += 1
+                # continue with the next section; don't abort the whole import.
+                print(f"⚠ import failed for {title!r}: {exc}", file=sys.stderr)
+    else:
+        sections = _parse_generic_sections(text)
+        if not sections:
+            return {"error": "no ## sections found in input file"}
+        for title, body in sections:
+            tier = _classify(title, body)
+            try:
+                r = await mem.remember(
+                    f"# {title}\n\n{body}",
+                    source_path=f"{source_path}#{title}",
+                    force_tier=tier,
+                    metadata={"imported_from": str(in_path), "import_title": title},
+                )
+                if r.stored:
+                    stored += 1
+                else:
+                    skipped += 1
+            except Exception as exc:
+                skipped += 1
+                # continue with the next section; don't abort the whole import.
+                print(f"⚠ import failed for {title!r}: {exc}", file=sys.stderr)
+
+    return {
+        "in_path": str(in_path),
+        "sections_seen": len(parsed_chunks) if parsed_chunks else len(sections),
+        "stored": stored,
+        "skipped": skipped,
+        "source_path_stamped": source_path,
+    }
+
+
+async def handle_brain_seed_demo(args: dict) -> dict:
+    """Seed the brain with a small bundled sample corpus.
+
+    Useful for demos, smoke tests, and onboarding. Idempotent: skips
+    chunks that already exist (matched by chunk_id which is content-hash
+    based) unless --force is set.
+    """
+    from src.memory import Memory
+    from src.tier import Tier
+    import time as _time
+    force = bool(args.get("force", False))
+    # The demo corpus is short and curated. Each section is one
+    # remembered chunk with auto-detected tier.
+    DEMO = [
+        ("Project: DuckBot", "DuckBot is the personal AI assistant I'm building. Stack: Python 3.12, ChromaDB, FastMCP. Currently focused on RAG + long-term memory.", "working"),
+        ("Decision: local-first embeddings", "I'm using LM Studio (nomic-embed-text-v1.5) for embeddings. Decision rationale: privacy + zero API cost. Re-evaluate if recall quality drops below 0.9.", "semantic"),
+        ("Rule: never commit secrets", "Always run scripts/secret-scan.sh before committing. If it fails, fix the leak. The .env file is gitignored for a reason.", "procedural"),
+        ("How to restart the BATMAN container", "1. docker ps | grep batman 2. docker restart <id> 3. tail -f /var/log/batman.log. If still down, check data/chroma/ for lock files.", "procedural"),
+        ("Duckets prefers dark mode", "User explicitly stated dark mode preference in 2026-05. Don't ask again. Apply to all UIs and themes going forward.", "semantic"),
+        ("Project: Hermes Agent", "Hermes Agent is the self-improving agent from Nous Research. We use it as a target for our brain via the MCP stdio interface.", "working"),
+    ]
+    mem = Memory()
+    stored = 0
+    skipped = 0
+    for title, body, tier in DEMO:
+        # Check if a chunk with this exact content already exists.
+        try:
+            recall_result = await mem.recall(
+                title, k=3, tier=Tier(tier), min_importance=0.0,
+            )
+        except Exception:
+            recall_result = ([], None)
+        if isinstance(recall_result, tuple):
+            existing, _ = recall_result
+        else:
+            existing = recall_result
+        # Cheap dedup: if any existing chunk's text starts with the
+        # demo body, skip.
+        if not force and any(
+            (r.text or "").strip().startswith(body.strip()[:60])
+            for r in existing
+        ):
+            skipped += 1
+            continue
+        try:
+            r = await mem.remember(
+                f"# {title}\n\n{body}",
+                source_path="<brain_seed_demo>",
+                force_tier=tier,
+                metadata={"seed": "demo", "seed_title": title},
+            )
+            if r.stored:
+                stored += 1
+        except Exception as exc:
+            skipped += 1
+            print(f"⚠ seed failed for {title!r}: {exc}", file=sys.stderr)
+    return {
+        "stored": stored,
+        "skipped": skipped,
+        "force": force,
+    }
+
+
 HANDLERS = {
     "remember": handle_remember,
     "recall": handle_recall,
@@ -1414,6 +1770,9 @@ HANDLERS = {
     "brain_palace": handle_brain_palace,
     "brain_optimize_fsrs": handle_brain_optimize_fsrs,
     "brain_apply_fsrs_w20": handle_brain_apply_fsrs_w20,
+    "brain_export": handle_brain_export,
+    "brain_import": handle_brain_import,
+    "brain_seed_demo": handle_brain_seed_demo,
     "brain_sync": handle_brain_sync,
 }
 
@@ -1477,7 +1836,7 @@ def mcp_stdio():
                         "jsonrpc": "2.0", "id": mid,
                         "result": {
                             "protocolVersion": "2024-11-05",
-                            "serverInfo": {"name": "duckbot-memory", "version": "0.11.7"},
+                            "serverInfo": {"name": "duckbot-memory", "version": PACKAGE_VERSION},
                             "capabilities": {"tools": {}},
                         },
                     }

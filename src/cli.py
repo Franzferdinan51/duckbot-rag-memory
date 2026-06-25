@@ -269,6 +269,102 @@ def cmd_reflect(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_palace(args: argparse.Namespace) -> int:
+    """Wing/Room/Drawer 2D view of the brain (MemPalace-inspired).
+
+    With no --wing: list every wing. With --wing: walk that wing.
+    Cross-references wings against the 'user' memory block.
+    """
+    async def run():
+        from src.mcp_server import handle_brain_palace
+        return await handle_brain_palace({
+            "wing": args.wing,
+            "room": getattr(args, "room", None),
+            "tier": getattr(args, "tier", None),
+            "max_drawers": args.max_drawers,
+        })
+    result = asyncio.run(run())
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def cmd_nudge(args: argparse.Namespace) -> int:
+    """Proactive memory nudge: surface stale-but-important memories."""
+    async def run():
+        from src.mcp_server import handle_brain_nudge
+        return await handle_brain_nudge({
+            "context": getattr(args, "context", None),
+            "k": args.k,
+            "min_importance": args.min_importance,
+            "stale_days": args.stale_days,
+        })
+    result = asyncio.run(run())
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def cmd_optimize_fsrs(args: argparse.Namespace) -> int:
+    """Self-tune the FSRS-6 forgetting-curve exponent (w20)."""
+    async def run():
+        from src.mcp_server import handle_brain_optimize_fsrs
+        return await handle_brain_optimize_fsrs({
+            "default_w20": args.default_w20,
+            "w20_lo": args.w20_lo,
+            "w20_hi": args.w20_hi,
+            "w20_step": args.w20_step,
+        })
+    result = asyncio.run(run())
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def cmd_apply_fsrs_w20(args: argparse.Namespace) -> int:
+    """Apply a chosen w20 to the brain. Persists via DUCKBOT_FSRS_W20 env var."""
+    async def run():
+        from src.mcp_server import handle_brain_apply_fsrs_w20
+        return await handle_brain_apply_fsrs_w20({"w20": args.w20})
+    result = asyncio.run(run())
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    """Export the entire brain as a single markdown file."""
+    async def run():
+        from src.mcp_server import handle_brain_export
+        return await handle_brain_export({
+            "out_path": args.out_path,
+            "tier": args.tier,
+            "include_superseded": args.include_superseded,
+        })
+    result = asyncio.run(run())
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    """Import a markdown file into the brain."""
+    async def run():
+        from src.mcp_server import handle_brain_import
+        return await handle_brain_import({
+            "in_path": args.in_path,
+            "source_path": args.source_path,
+        })
+    result = asyncio.run(run())
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def cmd_seed_demo(args: argparse.Namespace) -> int:
+    """Seed the brain with a small bundled sample corpus."""
+    async def run():
+        from src.mcp_server import handle_brain_seed_demo
+        return await handle_brain_seed_demo({"force": args.force})
+    result = asyncio.run(run())
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def cmd_reset(args: argparse.Namespace) -> int:
     if not args.yes:
         print("Refusing to reset without --yes", file=sys.stderr)
@@ -564,6 +660,79 @@ def main() -> int:
     p_reflect.add_argument("--days", type=int, default=7, help="lookback days")
     p_reflect.add_argument("--max-chunks", type=int, default=200, help="max episodic chunks to scan")
     p_reflect.set_defaults(func=cmd_reflect)
+
+    # Palace: Wing/Room/Drawer 2D view (MemPalace-inspired).
+    p_palace = sub.add_parser(
+        "palace",
+        help="wing/room/drawer 2D view of the brain",
+    )
+    p_palace.add_argument("--wing", help="walk a specific wing (person/project)")
+    p_palace.add_argument("--room", help="filter to one room (date or filename)")
+    p_palace.add_argument("--tier", choices=["working", "episodic", "semantic", "procedural"],
+                          help="filter to one tier")
+    p_palace.add_argument("--max-drawers", type=int, default=100, help="cap on drawers returned")
+    p_palace.set_defaults(func=cmd_palace)
+
+    # Nudge: proactive memory nudge.
+    p_nudge = sub.add_parser(
+        "nudge",
+        help="proactive memory nudge (stale-but-important)",
+    )
+    p_nudge.add_argument("--context", help="optional current focus — biases toward relevant memories")
+    p_nudge.add_argument("-k", type=int, default=5, help="max memories")
+    p_nudge.add_argument("--min-importance", type=float, default=0.6, help="importance threshold (0..1)")
+    p_nudge.add_argument("--stale-days", type=int, default=7, help="consider stale if last_recalled_at older than this many days")
+    p_nudge.set_defaults(func=cmd_nudge)
+
+    # Optimize FSRS: self-tune w20.
+    p_opt = sub.add_parser(
+        "optimize-fsrs",
+        help="self-tune the FSRS-6 forgetting-curve exponent",
+    )
+    p_opt.add_argument("--default-w20", type=float, default=0.9, help="comparison baseline")
+    p_opt.add_argument("--w20-lo", type=float, default=0.05, help="search grid low")
+    p_opt.add_argument("--w20-hi", type=float, default=3.0, help="search grid high")
+    p_opt.add_argument("--w20-step", type=float, default=0.05, help="search grid step")
+    p_opt.set_defaults(func=cmd_optimize_fsrs)
+
+    # Apply FSRS w20: persist the new value.
+    p_apply = sub.add_parser(
+        "apply-fsrs-w20",
+        help="apply a chosen w20 (persists via DUCKBOT_FSRS_W20 env var)",
+    )
+    p_apply.add_argument("w20", type=float, help="the new w20 to use")
+    p_apply.set_defaults(func=cmd_apply_fsrs_w20)
+
+    # Export the brain as a single markdown file.
+    p_export = sub.add_parser(
+        "export",
+        help="export the brain as a single markdown file (data/brain_export.md)",
+    )
+    p_export.add_argument("--out-path", default="data/brain_export.md",
+                         help="where to write the export (default: data/brain_export.md)")
+    p_export.add_argument("--tier", choices=["working", "episodic", "semantic", "procedural"],
+                         help="export only one tier (default: all)")
+    p_export.add_argument("--include-superseded", action="store_true",
+                         help="include chunks marked superseded_by (default: skip)")
+    p_export.set_defaults(func=cmd_export)
+
+    # Import a markdown file into the brain.
+    p_import = sub.add_parser(
+        "import",
+        help="import a markdown file (## sections → chunks) into the brain",
+    )
+    p_import.add_argument("in_path", help="path to the markdown file to import")
+    p_import.add_argument("--source-path", help="stamped as source_path on every chunk (default: filename)")
+    p_import.set_defaults(func=cmd_import)
+
+    # Seed the brain with bundled demo data.
+    p_seed = sub.add_parser(
+        "seed-demo",
+        help="seed the brain with a small bundled sample corpus",
+    )
+    p_seed.add_argument("--force", action="store_true",
+                        help="re-seed even if chunks already exist")
+    p_seed.set_defaults(func=cmd_seed_demo)
 
     p_hermes = sub.add_parser("hermes", help="Hermes agent CLI shim: hermes <verb> [args...]")
     p_hermes.add_argument("verb", nargs="+", help="verb (remember, recall, stats, etc.) + args")

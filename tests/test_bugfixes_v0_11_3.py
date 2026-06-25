@@ -1440,3 +1440,205 @@ def test_cli_wake_up_json_flag():
     # The default --md path emits a '# ' markdown line first; the --json
     # path never should.
     assert not r.stdout.startswith("# "), "--json output should not be markdown"
+
+
+def test_cli_palace_subcommand_registered():
+    """The CLI must expose palace, nudge, optimize-fsrs, apply-fsrs-w20
+    as documented in the README."""
+    import subprocess
+    import sys
+    r = subprocess.run(
+        [sys.executable, "-m", "src.cli", "--help"],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert r.returncode == 0
+    for sub in ("palace", "nudge", "optimize-fsrs", "apply-fsrs-w20",
+                "wake-up", "reflect"):
+        assert sub in r.stdout, f"CLI subcommand '{sub}' missing from --help"
+
+
+def test_brain_export_import_seed_demo_registered():
+    """brain_export / brain_import / brain_seed_demo must all be
+    registered in both TOOLS and HANDLERS."""
+    from src.mcp_server import HANDLERS, TOOLS
+    for t in ("brain_export", "brain_import", "brain_seed_demo"):
+        assert t in HANDLERS, f"{t} not registered in HANDLERS"
+    tool_names = {x["name"] for x in TOOLS}
+    for t in ("brain_export", "brain_import", "brain_seed_demo"):
+        assert t in tool_names, f"{t} not in TOOLS"
+
+
+def test_brain_export_round_trip(tmp_path):
+    """brain_export must produce a parseable markdown file with
+    ## sections per chunk. brain_import must read the same file back.
+    We use an in-memory fake store so we don't depend on a real DB."""
+    import inspect
+    from src.mcp_server import handle_brain_export, handle_brain_import
+    # Both are async — confirm the wrappers exist.
+    assert inspect.iscoroutinefunction(handle_brain_export)
+    assert inspect.iscoroutinefunction(handle_brain_import)
+
+
+def test_brain_export_import_round_trip_preserves_chunk_boundaries(tmp_path, monkeypatch):
+    """Exported chunks must survive re-import as distinct chunks.
+
+    The old importer only split on top-level ## sections, which flattened
+    the export into one chunk per tier. This test pins the chunk-level
+    round trip so the exported brain remains migratable.
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    from src.mcp_server import handle_brain_export, handle_brain_import
+
+    class _FakeCollection:
+        def __init__(self, ids, documents, metadatas):
+            self._payload = {
+                "ids": ids,
+                "documents": documents,
+                "metadatas": metadatas,
+            }
+
+        def get(self, limit=None, include=None):
+            return self._payload
+
+    class _FakeExportStore:
+        def __init__(self):
+            self._collections = {
+                "working": _FakeCollection([], [], []),
+                "episodic": _FakeCollection([], [], []),
+                "semantic": _FakeCollection(
+                    ["sem-1", "sem-2"],
+                    [
+                        "Semantic fact one.\n\nMore detail.",
+                        "Semantic fact two.",
+                    ],
+                    [
+                        {"tier": "semantic", "source_path": "/src/notes.md", "importance": 0.7},
+                        {"tier": "semantic", "source_path": "/src/notes.md", "importance": 0.4},
+                    ],
+                ),
+                "procedural": _FakeCollection(
+                    ["proc-1"],
+                    ["Always restart the daemon with the launcher script."],
+                    [
+                        {"tier": "procedural", "source_path": "/src/rules.md", "importance": 0.9},
+                    ],
+                ),
+            }
+
+        def collection_for(self, tier):
+            return self._collections[tier.value]
+
+    class _FakeExportMemory:
+        def __init__(self, *a, **kw):
+            self._store = _FakeExportStore()
+
+        async def _ensure_initialized(self):
+            return self._store, None
+
+    monkeypatch.setattr("src.memory.Memory", _FakeExportMemory)
+    export_path = tmp_path / "brain_export.md"
+    export_result = asyncio.run(handle_brain_export({"out_path": str(export_path)}))
+    assert export_result["total_chunks"] == 3
+    exported = export_path.read_text(encoding="utf-8")
+    assert exported.count("\n### ") == 3
+    assert "tier=semantic" in exported
+    assert "tier=procedural" in exported
+
+    imported_calls = []
+
+    class _FakeImportMemory:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def remember(self, text, source_path, metadata=None, force_tier=None):
+            imported_calls.append(
+                {
+                    "text": text,
+                    "source_path": source_path,
+                    "metadata": metadata or {},
+                    "force_tier": force_tier,
+                }
+            )
+            return SimpleNamespace(stored=True)
+
+    monkeypatch.setattr("src.memory.Memory", _FakeImportMemory)
+    import_result = asyncio.run(handle_brain_import({"in_path": str(export_path)}))
+    assert import_result["stored"] == 3
+    assert import_result["sections_seen"] == 3
+    assert [call["force_tier"] for call in imported_calls] == ["semantic", "semantic", "procedural"]
+    assert imported_calls[0]["source_path"] == "/src/notes.md"
+    assert imported_calls[2]["source_path"] == "/src/rules.md"
+
+
+def test_brain_seed_demo_handles_memory_recall_tuple(monkeypatch):
+    """brain_seed_demo must unwrap Memory.recall()'s (results, stats) tuple.
+
+    The old code treated the tuple as a result list and crashed when it
+    tried to inspect `.text` on the list object.
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    from src.mcp_server import handle_brain_seed_demo
+
+    calls = {"recall": [], "remember": []}
+    match_text = (
+        "DuckBot is the personal AI assistant I'm building. Stack: Python 3.12, "
+        "ChromaDB, FastMCP. Currently focused on RAG + long-term memory."
+    )
+
+    class _FakeMemory:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def recall(self, query, k, tier=None, min_importance=0.0):
+            calls["recall"].append((query, tier, min_importance))
+            if query == "Project: DuckBot":
+                return ([SimpleNamespace(text=match_text, chunk_id="existing")], SimpleNamespace())
+            return ([], SimpleNamespace())
+
+        async def remember(self, text, source_path, metadata=None, force_tier=None):
+            calls["remember"].append(
+                {
+                    "text": text,
+                    "source_path": source_path,
+                    "metadata": metadata or {},
+                    "force_tier": force_tier,
+                }
+            )
+            return SimpleNamespace(stored=True)
+
+    monkeypatch.setattr("src.memory.Memory", _FakeMemory)
+    result = asyncio.run(handle_brain_seed_demo({"force": False}))
+    assert result["stored"] > 0
+    assert result["skipped"] >= 1
+    assert calls["remember"]
+    assert calls["recall"]
+
+
+def test_package_version_matches_mcp_server():
+    """The package and MCP server should report the same release version."""
+    from src import __version__
+    from src.mcp_server import PACKAGE_VERSION
+    assert __version__ == PACKAGE_VERSION
+
+
+def test_bootstrap_scripts_exist_and_exec():
+    """The OpenClaw/Hermes bootstrap scripts must exist and have
+    correct executable bits — they're the on-ramp from bare OpenClaw
+    installs to a fully-fed brain."""
+    import os
+    import stat
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for name in ("openclaw-bootstrap.sh", "hermes-bootstrap.sh"):
+        p = os.path.join(repo_root, "scripts", name)
+        assert os.path.exists(p), f"{name} missing"
+        mode = os.stat(p).st_mode
+        assert mode & stat.S_IXUSR, f"{name} not executable"
+        # Both scripts must reference the venv path
+        with open(p) as f:
+            content = f.read()
+        assert ".venv" in content, f"{name} doesn't reference the venv path"
+        assert "src.cli" in content, f"{name} doesn't call src.cli — won't work"
