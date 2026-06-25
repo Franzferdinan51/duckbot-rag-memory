@@ -6,6 +6,8 @@ data/graph.db
 data/graph.db-*
 data/blocks.db
 data/blocks.db-*
+data/quarantine.db
+data/quarantine.db-*
 
 # Env
 .env
