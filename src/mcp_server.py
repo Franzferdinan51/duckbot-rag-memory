@@ -473,12 +473,20 @@ def _register_connector_tools() -> None:
 async def handle_remember(args: dict) -> dict:
     from src.tier import Tier
 
+    # Reject empty / whitespace-only text — same fix as the shared dispatch
+    # in src/extensions/tools.py. Without this, an empty remember() either
+    # silently fails (Chroma rejects empty documents) or stores a useless
+    # chunk with chunk_id = sha256("" + source) forever.
+    text = args.get("text") or ""
+    if not text.strip():
+        return {"error": "text must be a non-empty string"}
+
     # Agent-driven skill pipeline: stamp a candidate (no LLM).
     if args.get("kind") == "skill_candidate":
         from src.skill_pipeline import stamp_skill_candidate
         from src.connectors.base import Brain
         result = stamp_skill_candidate(
-            text=args["text"],
+            text=text,
             source=args.get("source_path", "agent://skill-candidate"),
             summary=args.get("summary", ""),
             importance=float(args.get("importance", 0.6)),
