@@ -418,6 +418,170 @@ class Graph:
             ).fetchall()
         return [self._row_to_relationship(r) for r in rows]
 
+    # -- Cognify + Reconcile (Cognee ECL stages 2 + 3) ------------------
+
+    def find_duplicate_relationships(self) -> list[tuple[str, str, str]]:
+        """Find relationships that share (source, target, label) and are
+        all active (no valid_until). Returns the duplicate triples
+        (source_name, target_name, label) — caller decides which to keep.
+        Public-domain graph dedup; no LLM call.
+        """
+        rows = self._conn.execute(
+            "SELECT source_id, target_id, label, COUNT(*) AS n "
+            "FROM relationships "
+            "WHERE valid_until IS NULL "
+            "GROUP BY source_id, target_id, label "
+            "HAVING n > 1"
+        ).fetchall()
+        out: list[tuple[str, str, str]] = []
+        for r in rows:
+            s = self._row_to_entity(self._conn.execute(
+                "SELECT * FROM entities WHERE id = ?", (r["source_id"],)
+            ).fetchone())
+            t = self._row_to_entity(self._conn.execute(
+                "SELECT * FROM entities WHERE id = ?", (r["target_id"],)
+            ).fetchone())
+            if s and t:
+                out.append((s.name, t.name, r["label"]))
+        return out
+
+    def merge_duplicate_relationships(
+        self, dupes: list[tuple[str, str, str]]
+    ) -> int:
+        """For each (src_name, tgt_name, label) triple in `dupes`, keep
+        the oldest relationship and end the others (set valid_until=now).
+        Returns the count of relationships ended.
+        """
+        if not dupes:
+            return 0
+        import time as _t
+        now = _t.time()
+        ended = 0
+        for src_name, tgt_name, label in dupes:
+            rows = self._conn.execute(
+                "SELECT r.id FROM relationships r "
+                "JOIN entities s ON r.source_id = s.id "
+                "JOIN entities t ON r.target_id = t.id "
+                "WHERE s.name = ? AND t.name = ? AND r.label = ? "
+                "AND r.valid_until IS NULL "
+                "ORDER BY r.created_at ASC",
+                (src_name, tgt_name, label),
+            ).fetchall()
+            if len(rows) < 2:
+                continue
+            # Keep the first (oldest); end the rest.
+            for r in rows[1:]:
+                self._conn.execute(
+                    "UPDATE relationships SET valid_until = ? WHERE id = ?",
+                    (now, r["id"]),
+                )
+                ended += 1
+        if ended:
+            self._conn.commit()
+        return ended
+
+    def find_duplicate_aliases(self) -> list[tuple[str, list[str]]]:
+        """Find entities whose aliases overlap (case-insensitive
+        substring match). Returns (entity_name, [duplicate_aliases]).
+        Public-domain; no LLM call.
+        """
+        rows = self._conn.execute(
+            "SELECT name, aliases FROM entities "
+            "WHERE aliases IS NOT NULL AND aliases != '[]'"
+        ).fetchall()
+        out: list[tuple[str, list[str]]] = []
+        for r in rows:
+            try:
+                import json as _json
+                aliases = _json.loads(r["aliases"])
+            except (ValueError, TypeError):
+                continue
+            if not aliases:
+                continue
+            # Find aliases that also match another entity's name.
+            dupes: list[str] = []
+            for a in aliases:
+                a_low = a.lower()
+                others = self._conn.execute(
+                    "SELECT name FROM entities WHERE name != ? AND LOWER(name) = ?",
+                    (r["name"], a_low),
+                ).fetchall()
+                if others:
+                    dupes.append(a)
+            if dupes:
+                out.append((r["name"], dupes))
+        return out
+
+    def merge_duplicate_aliases(
+        self, dupes: list[tuple[str, list[str]]]
+    ) -> int:
+        """For each (entity_name, [aliases]) in `dupes`, drop the
+        aliases that are also another entity's name. Returns the
+        number of aliases removed.
+        """
+        if not dupes:
+            return 0
+        import json as _json
+        removed = 0
+        for name, dup_aliases in dupes:
+            row = self._conn.execute(
+                "SELECT aliases FROM entities WHERE name = ?", (name,),
+            ).fetchone()
+            if not row:
+                continue
+            try:
+                aliases = _json.loads(row["aliases"])
+            except (ValueError, TypeError):
+                continue
+            new_aliases = [a for a in aliases if a not in dup_aliases]
+            removed += len(aliases) - len(new_aliases)
+            self._conn.execute(
+                "UPDATE entities SET aliases = ? WHERE name = ?",
+                (_json.dumps(new_aliases), name),
+            )
+        if removed:
+            self._conn.commit()
+        return removed
+
+    def reconcile(self) -> dict:
+        """Cognee ECL stage 3: typed-schema reconcile. Enforces the
+        schema invariants the graph should always have:
+          1. Every relationship's source/target entity must exist
+             (delete orphan relationships).
+          2. Every alias is canonicalized — no alias equals another
+             entity's name (already covered by find/merge_duplicate_aliases).
+          3. No self-loops: an entity doesn't have a relationship to
+             itself (delete the self-loop).
+
+        Returns: dict with counts of fixes applied.
+        """
+        stats = {"orphans_deleted": 0, "self_loops_deleted": 0, "fixed": 0}
+        # 1. Orphan relationships: source or target no longer exists.
+        orphan_rows = self._conn.execute(
+            "SELECT r.id, r.source_id, r.target_id FROM relationships r "
+            "LEFT JOIN entities s ON r.source_id = s.id "
+            "LEFT JOIN entities t ON r.target_id = t.id "
+            "WHERE s.id IS NULL OR t.id IS NULL"
+        ).fetchall()
+        for r in orphan_rows:
+            self._conn.execute(
+                "DELETE FROM relationships WHERE id = ?", (r["id"],)
+            )
+            stats["orphans_deleted"] += 1
+        # 2. Self-loops: source == target.
+        loop_rows = self._conn.execute(
+            "SELECT id FROM relationships WHERE source_id = target_id"
+        ).fetchall()
+        for r in loop_rows:
+            self._conn.execute(
+                "DELETE FROM relationships WHERE id = ?", (r["id"],)
+            )
+            stats["self_loops_deleted"] += 1
+        if stats["orphans_deleted"] or stats["self_loops_deleted"]:
+            self._conn.commit()
+        stats["fixed"] = stats["orphans_deleted"] + stats["self_loops_deleted"]
+        return stats
+
     def query_at(self, entity_id: str, at: float) -> list[Relationship]:
         """What was true about `entity_id` at time `at`?"""
         return self.query_active(entity_id=entity_id, at=at)

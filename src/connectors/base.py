@@ -530,6 +530,65 @@ class Brain:
                 entities = [e for e in entities if name_l in e.name.lower()]
             return [e.to_dict() for e in entities]
 
+    # -- Graph Cognify + Reconcile (Cognee ECL stages 2+3) --------------
+
+    def graph_cognify(self, dry_run: bool = True) -> dict:
+        """Cognee ECL stage 2: dedupe + reconcile entity relations.
+
+        Walks every relationship, finds pairs (a→b, c→d) where a==c
+        AND b==d (same endpoints AND same label) and collapses the
+        duplicate. Also merges entity aliases that resolve to the same
+        name (case-insensitive).
+
+        Public-domain graph normalization; no LLM call.
+
+        Args:
+            dry_run: if True, report what would be merged without
+                actually writing. Default True.
+        """
+        from src.graph import Graph
+        if not self.graph_path.exists() and not self.graph_path.parent.exists():
+            self.graph_path.parent.mkdir(parents=True, exist_ok=True)
+        with Graph(path=self.graph_path) as g:
+            dupes = g.find_duplicate_relationships()
+            alias_dupes = g.find_duplicate_aliases()
+            if not dry_run:
+                g.merge_duplicate_relationships(dupes)
+                g.merge_duplicate_aliases(alias_dupes)
+            return {
+                "dry_run": dry_run,
+                "duplicate_relationships": len(dupes),
+                "duplicate_relationship_samples": [
+                    {"source": r[0], "target": r[1], "label": r[2]} for r in dupes[:10]
+                ],
+                "duplicate_aliases": len(alias_dupes),
+                "duplicate_alias_samples": [
+                    {"name": a[0], "aliases": a[1]} for a in alias_dupes[:10]
+                ],
+            }
+
+    def graph_reconcile(self) -> dict:
+        """Cognee ECL stage 3: typed-schema reconcile.
+
+        Enforces schema invariants the graph should always have:
+          - Every relationship's source/target entity actually exists.
+          - Every alias canonicalizes to its entity's name.
+          - No self-loops (entity.relationships_to_self) on the same
+            label.
+
+        Public-domain graph cleanup; no LLM call.
+
+        Returns: dict with counts of fixes applied. dry_run=False
+        always — this method always writes; pass `dry_run=True` via
+        `graph_cognify` if you want a preview.
+        """
+        from src.graph import Graph
+        if not self.graph_path.exists() and not self.graph_path.parent.exists():
+            self.graph_path.parent.mkdir(parents=True, exist_ok=True)
+        with Graph(path=self.graph_path) as g:
+            stats = g.reconcile()
+        return stats
+
     def graph_relationships(
         self, entity_name: str, at: Optional[float] = None
     ) -> list[dict]:

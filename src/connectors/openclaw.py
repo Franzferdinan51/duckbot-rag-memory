@@ -178,6 +178,24 @@ TOOL_DEFINITIONS: list[dict] = [
             "required": ["entity"],
         },
     },
+    {
+        "name": "brain_graph_cognify",
+        "description": "Cognee ECL stage 2: dedupe + reconcile entity relations. Finds duplicate (source, target, label) triples + duplicate aliases. Default dry-run. Use to clean up a graph that's accumulated duplicates over time.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "dry_run": {"type": "boolean", "default": True, "description": "preview only — don't actually merge"},
+            },
+        },
+    },
+    {
+        "name": "brain_graph_reconcile",
+        "description": "Cognee ECL stage 3: typed-schema reconcile. Deletes orphan relationships (source/target entity missing) + self-loops. Always writes (no dry-run).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 
     # ----- Memory blocks (Layer 3) -----
     {
@@ -455,6 +473,11 @@ def handle(tool_name: str, args: dict) -> dict:
             )}
         if tool_name == "brain_graph_history":
             return {"history": brain.graph_history(entity_name=args["entity"])}
+
+        if tool_name == "brain_graph_cognify":
+            return brain.graph_cognify(dry_run=bool(args.get("dry_run", True)))
+        if tool_name == "brain_graph_reconcile":
+            return brain.graph_reconcile()
 
         # Blocks
         if tool_name == "brain_block_read":

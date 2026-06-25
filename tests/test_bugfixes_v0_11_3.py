@@ -1695,3 +1695,126 @@ def test_consolidate_extraction_falls_back_on_llm_failure(monkeypatch):
     facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")
     # Regex still catches the "user-said" fact.
     assert any(f.kind == "user-said" for f in facts)
+
+
+def test_graph_cognify_dedupes_relationships_and_aliases():
+    """graph_cognify must find + merge duplicate (source, target, label)
+    relationships and duplicate aliases. Public-domain graph dedup."""
+    import tempfile, pathlib, time
+    from src.graph import Graph
+
+    p = pathlib.Path(tempfile.mkstemp(suffix='.db')[1])
+    g = Graph(path=p)
+    a = g.upsert_entity("alice", "person")
+    b = g.upsert_entity("bob", "person")
+    # Bypass the add_relationship dedup by inserting directly so we
+    # actually have 3 duplicate rows to find. Disable FK so the duplicate
+    # source_id inserts work — the test_graph_reconcile test relies on the
+    # same kind of raw insert.
+    g._conn.execute("PRAGMA foreign_keys = OFF")
+    now = time.time()
+    for i in range(3):
+        g._conn.execute(
+            "INSERT INTO relationships (id, source_id, target_id, label, "
+            "valid_from, valid_until, recorded_from, recorded_until, "
+            "confidence, source, created_at) "
+            "VALUES (?, ?, ?, 'works_on', ?, NULL, ?, NULL, 1.0, NULL, ?)",
+            (f"r{i}", a.id, b.id, now, now, now),
+        )
+    g._conn.commit()
+    g._conn.execute("PRAGMA foreign_keys = ON")
+    # Entity with a self-conflicting alias. Bypass the upsert dedup (it
+    # would auto-merge Kai+Orion since one is an alias of the other)
+    # by inserting directly with FK off.
+    import json
+    import uuid
+    g._conn.execute("PRAGMA foreign_keys = OFF")
+    g._conn.execute(
+        "INSERT INTO entities (id, name, kind, aliases, notes, created_at) "
+        "VALUES (?, 'Kai', 'person', ?, NULL, ?)",
+        (str(uuid.uuid4()), json.dumps(["kai", "Orion"]), now),
+    )
+    g._conn.execute(
+        "INSERT INTO entities (id, name, kind, aliases, notes, created_at) "
+        "VALUES (?, 'Orion', 'project', ?, NULL, ?)",
+        (str(uuid.uuid4()), json.dumps(["orion-project"]), now),
+    )
+    g._conn.commit()
+    g._conn.execute("PRAGMA foreign_keys = ON")
+
+    dupes = g.find_duplicate_relationships()
+    assert len(dupes) == 1
+    assert dupes[0][0] == "alice" and dupes[0][1] == "bob"
+
+    ended = g.merge_duplicate_relationships(dupes)
+    assert ended == 2  # 2 of the 3 ended
+
+    alias_dupes = g.find_duplicate_aliases()
+    # "Kai" has alias "Orion" which matches another entity
+    assert any("Kai" in d[0] for d in alias_dupes)
+
+    removed = g.merge_duplicate_aliases(alias_dupes)
+    assert removed >= 1  # at least the "Orion" alias was removed
+
+    # Verify: only 1 works_on edge remains, Kai's "Orion" alias is gone
+    edges = g.query_active(label="works_on")
+    assert len(edges) == 1
+    # Pull all entities and find Kai. There's no public query() method,
+    # so walk the table directly.
+    kai_row = g._conn.execute(
+        "SELECT * FROM entities WHERE name = ?", ("Kai",)
+    ).fetchone()
+    assert kai_row is not None
+    import json as _json
+    kai_aliases = _json.loads(kai_row["aliases"])
+    assert "Orion" not in kai_aliases
+
+
+def test_graph_reconcile_deletes_orphans_and_self_loops():
+    """graph_reconcile must delete orphan relationships (source or target
+    entity missing) and self-loops (source == target)."""
+    import tempfile, pathlib
+    from src.graph import Graph
+
+    p = pathlib.Path(tempfile.mkstemp(suffix='.db')[1])
+    g = Graph(path=p)
+    a = g.upsert_entity("alice", "person")
+    b = g.upsert_entity("bob", "person")
+    # Normal edge
+    g.add_relationship(a.id, b.id, "works_on", source=None)
+    # Self-loop
+    g.add_relationship(a.id, a.id, "knows", source=None)
+    # Orphan (force by directly inserting a rel pointing to a fake id)
+    # — must disable FK constraints first so the bogus target is allowed.
+    g._conn.execute("PRAGMA foreign_keys = OFF")
+    g._conn.execute(
+        "INSERT INTO relationships (id, source_id, target_id, label, "
+        "valid_from, valid_until, recorded_from, recorded_until, "
+        "confidence, source, created_at) "
+        "VALUES ('orphan', ?, ?, 'old', 0, NULL, 0, NULL, 1.0, NULL, 0)",
+        (a.id, "nonexistent-id"),
+    )
+    g._conn.commit()
+    g._conn.execute("PRAGMA foreign_keys = ON")
+
+    stats = g.reconcile()
+    assert stats["self_loops_deleted"] == 1
+    assert stats["orphans_deleted"] == 1
+    # The normal edge should still exist
+    edges = g.query_active(label="works_on")
+    assert len(edges) == 1
+
+
+def test_brain_graph_cognify_and_reconcile_registered():
+    """brain_graph_cognify + brain_graph_reconcile MCP tools must be
+    registered in BOTH the openclaw connector tool defs AND the
+    dispatch table (so calling them via MCP works end-to-end)."""
+    from src.connectors import openclaw
+    from src.mcp_server import HANDLERS
+    # OpenClaw tool defs include the new entries.
+    names = {t["name"] for t in openclaw.TOOL_DEFINITIONS}
+    assert "brain_graph_cognify" in names
+    assert "brain_graph_reconcile" in names
+    # ...and the dispatch table routes them to the right Brain methods.
+    assert "brain_graph_cognify" in HANDLERS
+    assert "brain_graph_reconcile" in HANDLERS
