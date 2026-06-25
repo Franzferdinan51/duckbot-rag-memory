@@ -330,6 +330,7 @@ class Brain:
         decay: Optional[bool] = None,
         tier_priors: Optional[bool] = None,
         tier_priors_overrides: Optional[dict[str, float]] = None,
+        fsrs: Optional[bool] = None,
     ) -> list[VerbatimResult]:
         """Like `recall()` but returns only the verbatim (pre-overlap) text.
 
@@ -348,6 +349,7 @@ class Brain:
             rerank=rerank, decay=decay,
             tier_priors=tier_priors,
             tier_priors_overrides=tier_priors_overrides,
+            fsrs=fsrs,
         )
         out: list[VerbatimResult] = []
         for r in raw:
