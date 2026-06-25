@@ -474,12 +474,17 @@ def handle(tool_name: str, args: dict) -> dict:
 
         # Graph
         if tool_name == "brain_graph_entity":
+            if not args.get("name"):
+                return {"error": "name is required", "tool": tool_name}
             return brain.graph_upsert_entity(
                 name=args["name"],
                 kind=args.get("kind", "concept"),
                 properties=args.get("properties"),
             )
         if tool_name == "brain_graph_relate":
+            missing = [k for k in ("source", "target", "label") if not args.get(k)]
+            if missing:
+                return {"error": f"missing required argument(s): {', '.join(missing)}", "tool": tool_name}
             return brain.graph_add_relationship(
                 source=args["source"],
                 target=args["target"],
@@ -489,6 +494,8 @@ def handle(tool_name: str, args: dict) -> dict:
         if tool_name == "brain_graph_query":
             return {"entities": brain.graph_query(name=args.get("name"), kind=args.get("kind"))}
         if tool_name == "brain_graph_relationships":
+            if not args.get("entity"):
+                return {"error": "entity is required", "tool": tool_name}
             return {"relationships": brain.graph_relationships(
                 entity_name=args["entity"], at=args.get("at")
             )}
