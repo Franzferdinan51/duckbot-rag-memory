@@ -59,8 +59,36 @@ _http_client_lock: asyncio.Lock | None = None
 
 
 async def _get_http_client(timeout: float = 120.0) -> httpx.AsyncClient:
-    """Process-wide shared httpx.AsyncClient."""
+    """Process-wide shared httpx.AsyncClient.
+
+    v0.13.0 fix: detect when the cached client is bound to a closed
+    event loop (which happens when pytest-asyncio reuses this client
+    across tests with different loops) and rebuild it on the current
+    loop. The previous version only checked `is_closed` (the client's
+    own closed flag), which doesn't catch a client bound to a dead
+    loop. The `Event loop is closed` error surfaced in
+    test_hermes_cli_shim_recall when earlier tests created the client
+    on one loop and a later test tried to reuse it on another.
+    """
     global _http_client, _http_client_lock
+    # If the cached client was bound to a different (or closed) event
+    # loop, rebuild. We compare by checking whether the running loop
+    # matches the one the client is attached to.
+    if _http_client is not None and not _http_client.is_closed:
+        try:
+            current_loop = asyncio.get_running_loop()
+            # httpx clients store the loop they were created under on
+            # the underlying transport pool. If the running loop differs,
+            # the client will explode with "Event loop is closed" the
+            # moment we try to send a request.
+            if getattr(_http_client, "_loop", None) not in (None, current_loop):
+                # Bind mismatch — discard and rebuild below.
+                _http_client = None
+        except RuntimeError:
+            # No running loop (called from sync code via _run_async);
+            # fall through — the client will rebuild when it tries
+            # to use the wrong loop, or we accept the cached one.
+            pass
     if _http_client is not None and not _http_client.is_closed:
         return _http_client
     # Lazily create lock attached to the current event loop.
@@ -70,7 +98,7 @@ async def _get_http_client(timeout: float = 120.0) -> httpx.AsyncClient:
         # Double-check after acquiring the lock.
         if _http_client is not None and not _http_client.is_closed:
             return _http_client
-        _http_client = httpx.AsyncClient(
+        new_client = httpx.AsyncClient(
             timeout=timeout,
             limits=httpx.Limits(
                 max_connections=10,
@@ -78,6 +106,14 @@ async def _get_http_client(timeout: float = 120.0) -> httpx.AsyncClient:
                 keepalive_expiry=30.0,
             ),
         )
+        # Track which loop we bound to so the next caller can detect
+        # a mismatch. httpx doesn't expose this directly, so we attach
+        # it as a private attribute.
+        try:
+            new_client._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            new_client._loop = None
+        _http_client = new_client
         return _http_client
 
 

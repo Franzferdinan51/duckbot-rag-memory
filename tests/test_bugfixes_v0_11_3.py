@@ -11,6 +11,29 @@ import math
 import time
 import tempfile
 import pathlib
+import asyncio
+import concurrent.futures
+
+
+def _run_in_thread(coro):
+    """Run an async coroutine in a fresh event loop in a worker thread.
+
+    Why this helper exists: `asyncio.run(coro)` looks equivalent but
+    pollutes the interpreter's loop tracking — after the call, the
+    "current thread's loop" is the closed one we just used, and any
+    later test that calls `asyncio.run()` (e.g. via _run_async) gets
+    'Event loop is closed'. The thread-with-explicit-loop pattern is
+    the same one _run_async uses internally, and it's safe across
+    tests in the same process.
+    """
+    def _runner():
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(_runner).result()
 from types import SimpleNamespace
 
 
@@ -99,7 +122,7 @@ def test_run_async_works_from_inside_running_loop():
     # Loop running → worker-thread path
     async def outer():
         return _run_async(inner())
-    assert asyncio.run(outer()) == 42
+    assert _run_in_thread(outer()) == 42
 
 
 # -----------------------------------------------------------------------------
@@ -179,7 +202,7 @@ def test_forget_returns_false_for_unknown_id():
         m._ensure_initialized = fake_init
         return await m.forget("does_not_exist", tier=Tier.SEMANTIC)
 
-    assert asyncio.run(main()) is False
+    assert _run_in_thread(main()) is False
 
 
 def test_forget_returns_true_for_known_id():
@@ -212,7 +235,7 @@ def test_forget_returns_true_for_known_id():
         m._ensure_initialized = fake_init
         return await m.forget("known_id", tier=Tier.SEMANTIC)
 
-    assert asyncio.run(main()) is True
+    assert _run_in_thread(main()) is True
 
 
 # -----------------------------------------------------------------------------
@@ -310,7 +333,7 @@ def test_rerank_score_works_inside_running_loop():
     # From inside a running loop — previously raised RuntimeError.
     async def outer():
         return backend.score("q", ["a", "b"])
-    out = asyncio.run(outer())
+    out = _run_in_thread(outer())
     assert out == [0.9, 0.9]
 
     # From outside a loop — still works.
@@ -630,7 +653,7 @@ def test_fsrs_review_queue_includes_fresh_chunks():
         assert "stability_days=7" not in src  # source uses `7.0` not the kwarg name
         assert "7.0" in src
 
-    asyncio.run(main())
+    _run_in_thread(main())
 
 
 def test_tier_priors_does_not_mutate_input():
@@ -946,12 +969,23 @@ def test_brain_sync_both_target_works():
     """brain_sync(target='both') must write to BOTH OpenClaw and Hermes
     without crashing. The previous code did r.source_path (AttributeError)
     and r.importance (same) on QueryResult, so every call failed before
-    the previous version could even attempt a cross-agent sync."""
-    import asyncio
+    the previous version could even attempt a cross-agent sync.
+
+    Note: we don't use `asyncio.run(handle_brain_sync(...))` here. That
+    pattern works in isolation but creates an event loop that gets
+    closed mid-test, and any subsequent test that calls _run_async()
+    ends up referencing the closed loop ("Event loop is closed" in
+    test_hermes_cli_shim_recall). Instead we drive the async handler
+    via the same _run_async bridge the MCP server uses, which owns
+    the loop lifecycle correctly.
+    """
+    import concurrent.futures
+    from src.connectors.base import _run_async
     from src.mcp_server import handle_brain_sync
-    r = asyncio.run(handle_brain_sync({
-        "target": "both", "memory_k": 2, "user_k": 2, "dry_run": True,
-    }))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        r = ex.submit(_run_async, handle_brain_sync({
+            "target": "both", "memory_k": 2, "user_k": 2, "dry_run": True,
+        })).result()
     files = r.get("files", {})
     assert "openclaw/MEMORY.md" in files
     assert "openclaw/USER.md" in files

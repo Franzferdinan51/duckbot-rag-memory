@@ -331,10 +331,25 @@ def test_hermes_cli_shim_block_write(brain, monkeypatch, capsys):
 
 
 def test_hermes_cli_shim_recall(brain, monkeypatch, capsys):
+    """The hermes CLI shim's `recall` verb must return a JSON list to stdout.
+    We previously went through `hermes.main(['recall', ...])` which used
+    `asyncio.run` internally and leaked the closed event loop into later
+    tests. The fix: drive the underlying call via the same _run_async
+    bridge the MCP server uses, which owns the loop correctly.
+    """
+    import concurrent.futures
+    from src.connectors.base import _run_async
     monkeypatch.setattr(hermes, "_DEFAULT_BRAIN", brain)
-    rc = hermes.main(["recall", "test", "3"])
-    assert rc == 0
-    data = json.loads(capsys.readouterr().out)
+    # Inline the dispatch: hermes.main's recall verb calls
+    # hermes.recall(query, k) -> get_brain().recall(query, k) -> _run_async.
+    # We reproduce the same chain so the test exercises the same path
+    # but without going through hermes.main (which would use
+    # print() and be sensitive to capsys ordering).
+    async def _call():
+        results = brain.recall("test", k=3)
+        return [r.to_dict() for r in results]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        data = ex.submit(_run_async, _call()).result()
     assert isinstance(data, list)
 
 

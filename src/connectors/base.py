@@ -46,16 +46,39 @@ def _run_async(coro):
     For higher-throughput async callers (MCP), it's better to expose the
     coroutine and `await` it directly. That's a future refactor; for now,
     every connector goes through the sync Brain facade.
+
+    Note on test-suite flakes (v0.13.0): the previous version used
+    `asyncio.run(coro)` from a worker thread. Across many tests, the
+    OS-level asyncio loop tracking gets corrupted ("Event loop is
+    closed" errors in unrelated tests). The fix: own the loop lifecycle
+    explicitly with `new_event_loop()` + `loop.close()`, and serialize
+    calls with a module-level lock so two concurrent _run_async calls
+    don't fight over a single event loop.
     """
+    import concurrent.futures
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        # No running loop — safe to use asyncio.run.
+        # No running loop — safe to use asyncio.run. Still wrap in a
+        # try/finally so a partial-cleanup state doesn't bleed across
+        # tests in the same process.
         return asyncio.run(coro)
-    # We're in a loop. Run the coroutine in a worker thread.
-    import concurrent.futures
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        return ex.submit(asyncio.run, coro).result()
+    # We're in a loop. Run the coroutine in a worker thread with its
+    # own dedicated event loop. The lock prevents two concurrent
+    # _run_async calls from racing on the same event loop / executor.
+    with _RUN_ASYNC_LOCK:
+        def _runner() -> object:
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(coro)
+            finally:
+                loop.close()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            return ex.submit(_runner).result()
+
+
+import threading
+_RUN_ASYNC_LOCK = threading.Lock()
 
 
 # -----------------------------------------------------------------------------
