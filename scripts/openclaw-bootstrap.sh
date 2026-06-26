@@ -93,7 +93,7 @@ echo
 echo "Next: register the brain as a memory provider with OpenClaw."
 echo "Two equivalent options — pick one:"
 echo
-echo "  (A) Extension adapter (stdio JSON-RPC, 9-tool core agent surface):"
+echo "  (A) Extension adapter (stdio JSON-RPC, 12-tool core agent surface):"
 echo "      Edit ~/.openclaw/openclaw.json and add under plugins.entries:"
 echo '      {'
 echo '        "duckbot-brain": {'
@@ -102,7 +102,7 @@ echo "          \"config\": { \"repoPath\": \"$REPO_ROOT\" }"
 echo '        }'
 echo '      }'
 echo
-echo "  (B) Canonical MCP server (56-tool full surface):"
+echo "  (B) Canonical MCP server (64-tool full surface):"
 echo "      Edit ~/.openclaw/openclaw.json and add under mcp.servers:"
 echo '      {'
 echo '        "duckbot-brain": {'

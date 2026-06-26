@@ -2,7 +2,7 @@
 
 Local hybrid RAG memory for OpenClaw. **MIT, zero paid APIs.**
 
-This extension connects the DuckBot brain project (`~/Desktop/duckbot-rag-memory`) to OpenClaw as a memory provider. OpenClaw gets 11 core tools that operate on the same brain:
+This extension connects the DuckBot brain project (`~/Desktop/duckbot-rag-memory`) to OpenClaw as a memory provider. OpenClaw gets 12 core tools that operate on the same brain:
 
 - **`brain_wake_up`** — one-call session-start context load. **Call this first on every session start.** Returns recent memories (superseded filtered), active blocks, graph summary, FSRS review queue, and stats in one MCP call.
 - `brain_recall` — hybrid vector + BM25 + RRF retrieval, with optional cross-encoder rerank and Ebbinghaus decay.
@@ -16,7 +16,7 @@ This extension connects the DuckBot brain project (`~/Desktop/duckbot-rag-memory
 - `brain_skills_list` — list unpromoted skill candidates (agent-driven pipeline).
 - `brain_skills_promote` — promote a candidate to a full SKILL.md. The AGENT authors the name/description/instructions; the brain is pure storage + template (no LLM).
 
-The 11 tools are the **core agent surface** — same list exposed by the Hermes MemoryProvider plugin (`src/plugins/memory/duckbot_brain/`) so an agent author can rely on the same tool names regardless of which platform they're on. The full 63-tool MCP surface is still available via `python -m src.mcp_server` for admin / CLI use; this thin JSON-RPC adapter is the lightweight path for runtime agent calls.
+The 12 tools are the **core agent surface** — same list exposed by the Hermes MemoryProvider plugin (`src/plugins/memory/duckbot_brain/`) so an agent author can rely on the same tool names regardless of which platform they're on. The full 64-tool MCP surface is still available via `python -m src.mcp_server` for admin / CLI use; this thin JSON-RPC adapter is the lightweight path for runtime agent calls.
 
 Pattern sources:
 - OpenClaw's [active-memory extension](https://github.com/openclaw/openclaw/tree/main/extensions/active-memory) (TypeScript, MIT).

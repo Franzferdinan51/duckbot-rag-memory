@@ -497,7 +497,7 @@ def test_dispatch_brain_skills_promote(reset_singletons):
 # -----------------------------------------------------------------------------
 
 def test_shared_surface_has_11_tools():
-    """The shared surface now exposes 11 tools (9 + brain_skills_list + promote)."""
+    """The shared surface now exposes 12 tools (10 + brain_skills_list + promote)."""
     names = surface.tool_names()
     assert len(names) == 12
     assert "brain_skills_list" in names

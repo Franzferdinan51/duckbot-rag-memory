@@ -1,7 +1,7 @@
 """connectors/openclaw_shim.py — OpenClaw CLI shim.
 
 Parallel to `connectors/hermes.py`'s CLI shim, but delegates to the
-shared 11-tool core agent surface (`src.extensions.tools`) so the
+shared 12-tool core agent surface (`src.extensions.tools`) so the
 shell path matches what an OpenClaw agent sees via the JSON-RPC
 adapter.
 
@@ -9,7 +9,7 @@ Why a separate shim (not just adding verbs to hermes.py)?
 
   - The Hermes shim speaks the Hermes contract (sync_turn, blocks,
     graph, quarantine). The OpenClaw shim speaks the OpenClaw
-    contract (the 11 core tools + a generic `call <tool> '<json>'`
+    contract (the 12 core tools + a generic `call <tool> '<json>'`
     escape hatch). Mixing them would confuse either side.
   - The OpenClaw shim is the recommended shell entry point for
     agents that want to test the JSON-RPC surface without standing
@@ -33,7 +33,7 @@ Verbs:
     search-verbatim <needle>                 - exact substring match
     skills-list                              - list unpromoted skill candidates
     skills-promote <chunk_id> <name>         - promote a candidate to SKILL.md
-    tools                                    - list the 11 core tools
+    tools                                    - list the 12 core tools
     call <tool> '<json-args>'                - generic dispatch (full surface)
 
 All output is JSON to stdout, so OpenClaw cron jobs / shell scripts
@@ -50,7 +50,7 @@ from src.extensions import tools as _surface
 
 
 # -----------------------------------------------------------------------------
-# Verb handlers — each maps to one of the 9 core tools
+# Verb handlers — each maps to one of the 12 core tools
 # -----------------------------------------------------------------------------
 
 
@@ -240,7 +240,7 @@ def _cmd_skills_promote(rest: list[str]) -> Any:
 
 
 def _cmd_tools(rest: list[str]) -> Any:
-    """List the 11 core tools (same surface the JSON-RPC adapter exposes)."""
+    """List the 12 core tools (same surface the JSON-RPC adapter exposes)."""
     return {"tools": _surface.tool_schemas(), "summary": _surface.summary()}
 
 

@@ -637,7 +637,7 @@ def cmd_hermes(args: argparse.Namespace) -> int:
 
 
 def cmd_openclaw(args: argparse.Namespace) -> int:
-    """OpenClaw CLI shim: 'python -m src.cli openclaw <verb> [args...]' delegates to the shared 11-tool surface."""
+    """OpenClaw CLI shim: 'python -m src.cli openclaw <verb> [args...]' delegates to the shared 12-tool surface."""
     from .connectors import openclaw_shim
     return openclaw_shim.main(list(args.verb))
 

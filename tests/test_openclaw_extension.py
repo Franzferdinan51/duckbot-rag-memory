@@ -260,7 +260,7 @@ def test_openclaw_plugin_json_required_fields():
     assert "description" in data
     assert "configSchema" in data
     assert "tools" in data
-    # v0.14.0: manifest must list all 11 tools (was 9 before the skill pipeline).
+    # v0.14.0: manifest must list all 12 tools (was 9 before the skill pipeline).
     tool_names = {t["name"] for t in data["tools"]}
     expected = {
         "brain_wake_up", "brain_recall", "brain_recall_verbatim",

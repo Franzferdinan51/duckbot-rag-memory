@@ -2,8 +2,8 @@
 
 Persistent, searchable memory that dramatically expands the limited default memory of OpenClaw and Hermes Agent. Drop-in replacement for the flat chat-history buffers both agents ship with — adds a 4-tier CoALA memory model, hybrid retrieval, entity graph, verbatim recall, FSRS-6 spaced repetition, dreaming consolidation, and a Wing/Room/Drawer 2D hierarchy on top.
 
-[![Status](https://img.shields.io/badge/latest_changelog-0.14.0-yellow)]()
-[![MCP](https://img.shields.io/badge/MCP_server-0.14.0-green)]()
+[![Status](https://img.shields.io/badge/latest_changelog-0.15.0-yellow)]()
+[![MCP](https://img.shields.io/badge/MCP_server-0.15.0-green)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 [![CI](https://github.com/Franzferdinan51/duckbot-rag-memory/actions/workflows/ci.yml/badge.svg)]()
 
@@ -24,7 +24,7 @@ DuckBot memory is a focused RAG and long-term memory layer for personal agent wo
 | Consolidation | None | `reflect()` + `dreaming_cycle()` promote episodic → semantic |
 | Conflict detection | None (new fact overwrites old) | mem0-style: near-duplicates marked `superseded_by` |
 | Discovery | Grep through markdown | AAAK compression dialect scans the whole corpus in <500 tokens |
-| Self-improvement | None | **Agent-driven skill pipeline**: agents stamp candidates with `brain_remember(kind="skill_candidate")` (no LLM) and promote them to agentskills.io SKILL.md themselves; `brain_optimize_fsrs` self-tunes the forgetting curve |
+| Self-improvement | None | **Agent-driven skill pipeline**: agents stamp candidates with `brain_remember(kind="skill_candidate")` (no LLM) and promote them to agentskills.io SKILL.md themselves; `brain_skills_suggest` finds candidates by semantic query; `brain_optimize_fsrs` self-tunes the forgetting curve |
 | Proactive | None | `brain_nudge` surfaces stale-but-important memories the agent is forgetting |
 | Audit trail | None | Bi-temporal graph: `valid_from`/`valid_until` (world time) + `recorded_from`/`recorded_until` (when the brain knew) |
 
@@ -52,8 +52,9 @@ The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs,
 - **Wing/Room/Drawer 2D hierarchy (MemPalace-inspired):** people/projects × time × verbatim chunks, accessible via `brain_palace` MCP tool.
 - **AAAK compression dialect:** compact one-line-per-chunk format for whole-corpus LLM scanning in <500 tokens, via `brain_index` MCP tool.
 - **Honcho-style user modeling:** periodic distillation of user-related facts into a single `user` memory block, via `brain_user_model`.
-- **Agent-driven skill pipeline:** agents stamp lightweight candidates with `brain_remember(kind="skill_candidate")` (no LLM call from the brain) and promote them to agentskills.io SKILL.md via `brain_skills_promote`. The brain is pure storage + template — only the embedding model runs.
+- **Agent-driven skill pipeline:** agents stamp lightweight candidates with `brain_remember(kind="skill_candidate")` (no LLM call from the brain) and promote them to agentskills.io SKILL.md via `brain_skills_promote`. Supports `trust_level` ("full" skips injection scan; "standard" quarantines suspicious content) and `instructions_markdown` for rich SKILL.md bodies. The brain is pure storage + template — only the embedding model runs.
 - **Skill auto-creation:** when an agent solves a new task, it can also distill it directly into an agentskills.io-compatible `SKILL.md` via `brain_skill_create`.
+- **Skill suggestion:** `brain_skills_suggest` finds candidates by semantic query — "are there candidate skills about X?" — scoped to the procedural tier, filtered to unpromoted. No LLM.
 - **Proactive memory nudges:** surface stale-but-important memories before they're forgotten, via `brain_nudge` MCP tool.
 - **Local-first embeddings:** LM Studio works well locally; MiniMax, OpenAI, and sentence-transformers are also supported.
 - **Watcher daemon:** polls markdown sources every five minutes by default and dedups unchanged content by hash.
@@ -255,13 +256,15 @@ The flow:
      kind="skill_candidate",
      summary="BATMAN container restart",
      importance=0.8,
+     trust_level="full",          # "full" (default) or "standard" (run injection scan)
    )
    ```
    The brain stores the chunk in the procedural tier with `metadata.kind="skill_candidate"`. No LLM call. Returns `chunk_id` immediately so you can promote it later.
 
-2. **At a quiet moment** → review unpromoted candidates:
+2. **At a quiet moment** → review or search unpromoted candidates:
    ```
-   brain_skills_list()    # sorted by recency then importance
+   brain_skills_list()                              # sorted by recency then importance
+   brain_skills_suggest("docker container restart")  # semantic top-N by query
    ```
 
 3. **Write the SKILL.md yourself** (you have the full context — what worked, what the user prefers, what to watch out for), then promote:
@@ -277,9 +280,27 @@ The flow:
      ],
    )
    ```
+   For richer SKILL.md bodies (headings, code blocks, tables), pass `instructions_markdown` instead of the flat `instructions` list:
+   ```
+   brain_skills_promote(
+     chunk_id="mem_abc123",
+     name="Restart BATMAN Container",
+     description="Use this when BATMAN is offline",
+     instructions_markdown="## Setup\n\nRun this first.\n\n## Usage\n\n```bash\ndocker compose up -d\n```",
+     overwrite=True,
+   )
+   ```
    The brain writes `skills/<slug>/SKILL.md` via the existing `skillgen.write_skill` (pure template) and marks the candidate chunk as `promoted=True`.
 
-The same 12-tool core surface (which includes `brain_skills_list` and `brain_skills_promote`) is exposed by every thin entry point (OpenClaw adapter, Hermes plugin, and the canonical MCP server. See [docs/PLUGIN_SURFACE.md](docs/PLUGIN_SURFACE.md) for the full comparison.
+**Standalone CLI** (no agent required):
+```bash
+python -m src.cli skills stamp "I learned to restart BATMAN via docker compose"
+python -m src.cli skills list -k 10
+python -m src.cli skills suggest "docker"
+python -m src.cli skills promote <chunk_id> "Restart BATMAN" "When BATMAN is offline" "docker compose down" "docker compose up -d"
+```
+
+The same 12-tool core surface (which includes `brain_skills_list`, `brain_skills_suggest`, and `brain_skills_promote`) is exposed by every thin entry point: OpenClaw adapter, Hermes plugin, and the canonical MCP server. See [docs/PLUGIN_SURFACE.md](docs/PLUGIN_SURFACE.md) for the full comparison.
 
 ## Architecture
 
@@ -327,10 +348,10 @@ duckbot-rag-memory/
 |   |-- blocks.py graph.py entities.py
 |   |                      # blocks + temporal graph + entity extraction
 |   |-- backends/         # chroma, lancedb, qdrant interfaces
-|   |-- connectors/       # OpenClaw (legacy), Active Memory, dreaming, learn
-|   |-- extensions/       # shared agent surface (11 tools) + OpenClaw adapter
+|   |-- connectors/       # OpenClaw (legacy + aliases), Active Memory, dreaming, learn
+|   |-- extensions/       # shared agent surface (12 tools) + OpenClaw adapter
 |   `-- plugins/          # Hermes MemoryProvider plugin package
-|-- tests/                # pytest suite, currently 712 tests
+|-- tests/                # pytest suite, currently 737 tests
 |-- benchmarks/           # golden retrieval evals
 |-- scripts/              # install, watcher, MCP launcher, query helpers,
 |                         #   hermes-preflight.sh, hermes-postflight.sh
@@ -357,6 +378,10 @@ python -m src.cli consolidate 7
 python -m src.cli compact
 python -m src.cli dashboard --json
 python -m src.cli sync --target openclaw|hermes|both
+python -m src.cli skills stamp "I learned to restart BATMAN"
+python -m src.cli skills list
+python -m src.cli skills promote <chunk_id> <name> <description> <instr1> [instr2 ...]
+python -m src.cli skills suggest "docker container restart"
 python -m src.cli doctor
 ```
 
@@ -373,6 +398,8 @@ bash scripts/secret-scan.sh
 ```
 
 Current local check: **737 tests passing**. The suite is exercised in CI on every push.
+
+Eval trend detection (`compute_trend`) reads `data/eval_history.jsonl` and reports recent-vs-prior deltas on `mean_recall_at_5`, `mean_mrr`, and `p95_latency`. `python -m src.cli eval benchmarks/golden.jsonl` prints the trend alongside the summary.
 
 ## Cross-Platform Notes
 

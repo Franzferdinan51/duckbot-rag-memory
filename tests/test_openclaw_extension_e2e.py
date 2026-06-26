@@ -89,7 +89,7 @@ def test_initialize_returns_protocol_info():
 
 
 def test_tools_list_returns_nine_tools():
-    """E2E: the adapter must expose all 9 core tools, with brain_wake_up
+    """E2E: the adapter must expose all 12 core tools, with brain_wake_up
     listed. This is the test that catches the v0.14.0 bug (wake_up was
     missing from the adapter)."""
     proc = _spawn_adapter()
@@ -100,7 +100,7 @@ def test_tools_list_returns_nine_tools():
         assert resp["id"] == 2
         tools = resp["result"]["tools"]
         names = [t["name"] for t in tools]
-        assert len(names) == 12, f"expected 11 tools, got {len(names)}: {names}"
+        assert len(names) == 12, f"expected 12 tools, got {len(names)}: {names}"
         assert "brain_wake_up" in names, "brain_wake_up must be exposed"
         # All tools have the required MCP fields.
         for t in tools:

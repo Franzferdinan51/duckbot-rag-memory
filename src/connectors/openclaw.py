@@ -3,7 +3,7 @@ connectors/openclaw.py - OpenClaw integration for the DuckBot brain.
 
 .. deprecated:: v0.14.0
     Prefer `src.extensions.duckbot_brain.adapter` (the stdio JSON-RPC
-    OpenClaw extension, 9-tool core agent surface) or
+    OpenClaw extension, 12-tool core agent surface) or
     `src.connectors.openclaw_shim` (the shell CLI shim). This module is
     retained for backwards compatibility with deployments that wired up
     `python -m src.connectors.openclaw` directly. It will not be removed

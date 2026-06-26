@@ -89,7 +89,7 @@ hermes mcp add duckbot-memory \
 # (on Windows: --command "C:\Users\you\duckbot-rag-memory\scripts\duckbot-memory-mcp.bat")
 ```
 
-Restart OpenClaw / `mcporter list` should now show 56+ tools.
+Restart OpenClaw / `mcporter list` should now show 64 tools.
 
 ### Hermes Agent
 
@@ -192,7 +192,7 @@ pwsh scripts/install.ps1     # Windows Task Scheduler
 
 ## 9. What to do next
 
-- Read `README.md` for a tour of all 56 tools.
+- Read `README.md` for a tour of all 64 tools.
 - Read `docs/ARCHITECTURE.md` for the 4-tier CoALA model + hybrid retrieval details.
 - Read `docs/RESEARCH.md` for the upstream-project lineage (mem0, Letta, MemPalace, Graphiti, py-fsrs) and what was borrowed.
 - Read `CHANGELOG.md` for the version-by-version history.

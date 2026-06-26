@@ -251,7 +251,7 @@ def test_openclaw_connector_dispatches_new_tools():
 
 def test_openclaw_extension_adapter_registers_new_tools():
     """src.extensions.duckbot_brain.adapter exposes the v0.14.0 "core agent
-    surface" — the 11 tools shared with the Hermes MemoryProvider plugin.
+    surface" — the 12 tools shared with the Hermes MemoryProvider plugin.
 
     v0.14.0 redesign: the OpenClaw extension and the Hermes plugin now
     delegate to the same shared surface (`src.extensions.tools`), which

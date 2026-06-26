@@ -2,7 +2,7 @@
 test_openclaw_shim.py — verify the OpenClaw CLI shim.
 
 Parallel to test_hermes_plugin.py but anchored at the shell entry point.
-The shim delegates to the shared 9-tool surface in src.extensions.tools,
+The shim delegates to the shared 12-tool surface in src.extensions.tools,
 so this test mostly verifies the verb → dispatch mapping and that JSON
 output is parseable.
 """

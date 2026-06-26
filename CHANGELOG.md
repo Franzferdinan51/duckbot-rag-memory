@@ -61,8 +61,8 @@
 ### Test surface
 
 - 737 passing
-- 12 shared-surface tools (was 11; added `brain_skills_suggest`)
-- 64 MCP tools (was 63)
+- 12 shared-surface tools (was 11; added `brain_skills_suggest` + `brain_skills_promote`)
+- 64 MCP tools (was 43, now correctly 64 including connector tools)
 
 ## Unreleased — v0.14.0 — Agent plugin parity + wake-up wiring
 

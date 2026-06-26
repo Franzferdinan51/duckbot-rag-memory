@@ -16,7 +16,7 @@ each session from a blank slate.
 The enhanced brain is built on duckbot-rag-memory:
 - **4-tier memory model** (CoALA): working / episodic / semantic / procedural
 - **Hybrid retrieval**: vector search + keyword search + rank fusion
-- **11-tool core surface** (`brain_wake_up` is the canonical session-start call)
+- **12-tool core surface** (`brain_wake_up` is the canonical session-start call)
 - Stored memories surface via `brain_wake_up` / `brain_recall`; context files sync via `brain_sync` (MCP server only)
 - **Agent-driven skill pipeline**: stamp candidates while you work, promote them to full SKILL.md files later (zero VRAM on the brain side — only the embedding model runs)
 
@@ -53,7 +53,7 @@ and stores. Non-blocking, rate-limited 10/min.
 
 After significant work, write memories back to OpenClaw's workspace:
 `~/.openclaw/workspace/memory/MEMORY.md`, `USER.md`, `SOUL.md`. Note:
-this tool is on the full MCP server (63 tools), not the thin 11-tool
+this tool is on the full MCP server (64 tools), not the thin 12-tool
 agent surface — call it via `python -m src.cli sync`.
 
 ## Agent-Driven Skill Pipeline (Zero VRAM)
@@ -162,7 +162,7 @@ agent is the author.
 
 The brain is reachable three ways — pick whichever fits your runtime:
 
-**1. As an OpenClaw extension (stdio JSON-RPC, 11 tools):**
+**1. As an OpenClaw extension (stdio JSON-RPC, 12 tools):**
 
 ```bash
 # Auto-install via the bootstrap script (recommended)
@@ -183,7 +183,7 @@ ln -sf ~/Desktop/duckbot-rag-memory/skills/duckbot-brain/SKILL.md \
   ~/.openclaw/workspace/skills/duckbot-brain/SKILL.md
 ```
 
-**3. As the canonical MCP server (63 tools, full surface):**
+**3. As the canonical MCP server (64 tools, full surface):**
 
 ```bash
 hermes mcp add duckbot-memory \

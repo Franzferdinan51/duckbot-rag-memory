@@ -23,7 +23,7 @@ Call `brain_wake_up` when:
 
 ## MCP Tools Available
 
-The brain exposes 63 tools via the `duckbot-memory` MCP server. The
+The brain exposes 64 tools via the `duckbot-memory` MCP server. The
 most useful ones for Codex sessions:
 
 | Tool | Purpose |

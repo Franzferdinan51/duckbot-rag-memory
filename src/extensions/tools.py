@@ -1,24 +1,24 @@
 """extensions/tools.py — shared "core agent surface" for OpenClaw + Hermes.
 
-Single source of truth for the 11 tools that every thin entry point
+Single source of truth for the 12 tools that every thin entry point
 (OpenClaw stdio adapter, Hermes MemoryProvider plugin, anything else
 that wants zero-deps stdio JSON-RPC / function-call access) should
 expose.
 
-Why 11 and not 56 (the full MCP server surface)?
+Why 12 and not 64 (the full MCP server surface)?
 
-  - These 11 are the ones every skill file (skills/duckbot-brain,
+  - These 12 are the ones every skill file (skills/duckbot-brain,
     skills/openclaw-imports, skills/codex-imports, skills/cursor-imports)
     advertises to agents, plus the 2 agent-driven skill-pipeline tools
-  - The full 56 are still available via:
+  - The full 64 are still available via:
       * `python -m src.cli <verb>` (CLI)
       * `scripts/duckbot-ask "..."` (shell wrapper)
-      * The canonical MCP server at `src/mcp_server.py` (56 tools)
+      * The canonical MCP server at `src/mcp_server.py` (64 tools)
   - Keeping the thin surface tight means portable stdio JSON-RPC stays
     lightweight and the OpenClaw adapter doesn't have to bundle the
     graph / blocks / quarantine layers (those are admin concerns).
 
-The 11 tools map to existing `src.connectors.base.Brain` methods +
+The 12 tools map to existing `src.connectors.base.Brain` methods +
 the skill_pipeline module (brain_skills_list / brain_skills_promote).
 This module is the dispatch layer: every entry point calls
 `dispatch(name, args)` and gets a JSON-serializable dict back.
@@ -611,7 +611,7 @@ def check_rate_limit(name: str) -> dict | None:
 
 
 def function_call_schemas() -> list[dict]:
-    """Return the same 9 tools in OpenAI function-call shape.
+    """Return the same 12 tools in OpenAI function-call shape.
 
     Hermes MemoryProvider plugin uses this — it injects schemas into
     the agent's tool list at session start.

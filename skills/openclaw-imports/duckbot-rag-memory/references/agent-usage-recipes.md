@@ -4,7 +4,7 @@ This is the **agent-facing cheatsheet**: how an agent in a live Hermes
 session should actually USE the brain. Not the developer recipe
 (see `setup-on-windows.md` for that).
 
-The brain is registered as MCP server `duckbot-memory` with 45 tools.
+The brain is registered as MCP server `duckbot-memory` with 64 tools.
 When the session starts, those tools are available as `mcp__duckbot_memory__*`
 prefixed names — they show up in the agent's tool list, but the agent has
 to actually *call* them for them to help.
@@ -134,7 +134,5 @@ brain-recall "Duckets current mining status"    # alias
 
 ## Versioning
 
-This skill tracks `Franzferdinan51/duckbot-rag-memory`. As of session
-2026-06-24, the live server reports `version: 0.11.2` with 45 tools.
-The next version (0.11.3+) ships `scripts/duckbot-ask` + 5-min watcher
-default + 16 new tests.
+This skill tracks `Franzferdinan51/duckbot-rag-memory`. Current version
+is **v0.15.0** with 64 MCP server tools.

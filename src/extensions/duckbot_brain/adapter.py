@@ -6,7 +6,7 @@ can drive the brain as a memory provider.
 This is the Python sibling of the Hermes plugin at
 src/plugins/memory/duckbot_brain/__init__.py — both delegate to the
 shared tool surface at `src.extensions.tools` so they advertise the
-same 9 tools (incl. `brain_wake_up`, the canonical session-start call).
+same 12 tools (incl. `brain_wake_up`, the canonical session-start call).
 
 Pattern sources:
   - OpenClaw active-memory extension (extensions/active-memory/index.ts)

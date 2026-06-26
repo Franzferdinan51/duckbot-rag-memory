@@ -1,7 +1,7 @@
 # Plugin Surface — what every agent sees
 
 The duckbot-rag-memory project exposes the brain through several
-entry points. As of **v0.14.0** they all advertise the same 11 "core
+entry points. As of **v0.14.0** they all advertise the same 12 "core
 agent tools" — so an agent author can write one set of `brain_*`
 calls and have it work on OpenClaw, Hermes, Codex, Cursor, and the
 canonical MCP server.
@@ -30,15 +30,15 @@ session-start call.
 
 | Entry point | Tools exposed | Discovery shape | Rate-limited? | Hooks? |
 |---|---|---|---|---|
-| `python -m src.mcp_server` | **63** | MCP `tools/list` | yes (per-tool token bucket) | n/a (it's a server) |
-| `scripts/duckbot-memory-mcp.sh` | 63 (wraps the MCP server) | MCP stdio | yes | n/a |
-| `python -m src.extensions.duckbot_brain.adapter` | **11** | JSON-RPC over stdio (`openclaw.plugin.json`) | yes (same module) | n/a |
-| `from src.plugins.memory.duckbot_brain import DuckBotBrainProvider` | **11** (function-call shape) | `plugin.yaml` | yes | `on_session_start`, `on_session_end` |
-| `python -m src.cli openclaw <verb>` | **11** (shell shim, parallel to `hermes`) | argparse | yes | n/a |
+| `python -m src.mcp_server` | **64** | MCP `tools/list` | yes (per-tool token bucket) | n/a (it's a server) |
+| `scripts/duckbot-memory-mcp.sh` | 64 (wraps the MCP server) | MCP stdio | yes | n/a |
+| `python -m src.extensions.duckbot_brain.adapter` | **12** | JSON-RPC over stdio (`openclaw.plugin.json`) | yes (same module) | n/a |
+| `from src.plugins.memory.duckbot_brain import DuckBotBrainProvider` | **12** (function-call shape) | `plugin.yaml` | yes | `on_session_start`, `on_session_end` |
+| `python -m src.cli openclaw <verb>` | **12** (shell shim, parallel to `hermes`) | argparse | yes | n/a |
 | `python -m src.cli <verb>` | per-verb | argparse | n/a | n/a |
 | `scripts/duckbot-ask "..."` | per-flavor (compact/snippet/json) | shell wrapper | n/a | n/a |
 
-All three thin entry points (OpenClaw adapter, Hermes plugin, the 11
+All three thin entry points (OpenClaw adapter, Hermes plugin, the 12
 listed in the canonical MCP server as well) call the same dispatch in
 `src/extensions/tools.py`. If you add a tool there, every entry point
 picks it up.
@@ -80,7 +80,7 @@ context = provider.on_session_start()   # brain_wake_up shape
 provider.on_session_end(messages)        # persists durable rules as procedural
 ```
 
-### MCP server (canonical, 63 tools)
+### MCP server (canonical, 64 tools)
 
 ```bash
 ./scripts/duckbot-memory-mcp.sh &
@@ -91,7 +91,7 @@ provider.on_session_end(messages)        # persists durable rules as procedural
 ### CLI / shell wrapper (no discovery needed)
 
 ```bash
-# OpenClaw-style shell shim (11-tool core surface)
+# OpenClaw-style shell shim (12-tool core surface)
 python -m src.cli openclaw wake-up
 python -m src.cli openclaw recall "What did we decide about cloud-only models?"
 python -m src.cli openclaw tools
@@ -108,13 +108,13 @@ scripts/brain-recall "BATMAN worker offline"
 The thin 12-tool surface is intentional — it's the portable stdio subset
 that works across all three thin entry points without bringing in heavy
 deps (graph, blocks, quarantine, dreaming, active-memory, etc.). The
-remaining 47 tools are admin / CLI tools that an agent shouldn't be
+remaining 52 tools are admin / CLI tools that an agent shouldn't be
 calling at runtime:
 
 - `brain_graph_*` (7) — knowledge-graph CRUD, cognify, reconcile
-- `brain_block_*` (6) — memory-block CRUD
-- `brain_quarantine_*` (3) — injection-scan review queue
-- `brain_seed_blocks`, `brain_injection_scan` (2)
+- `brain_block_*` (6) — memory-block CRUD + seed_blocks
+- `brain_quarantine_*` (2) — quarantine review queue
+- `brain_injection_scan` (1)
 - `brain_index`, `brain_inflate`, `brain_nudge`, `brain_skill_create`,
   `brain_user_model`, `brain_palace`, `brain_optimize_fsrs`,
   `brain_apply_fsrs_w20`, `brain_fsrs_optimize_apply`,
@@ -124,6 +124,10 @@ calling at runtime:
 - `doctor`, `watch` (2)
 - Legacy un-prefixed: `remember`, `recall`, `reflect`, `forget`, `stats`,
   `fsrs_review`, `decay_status`, `forget_by_query`, `search_verbatim` (9)
+- Also in MCP but not thin: `active_memory`, `brain_active_memory` (2)
+
+(Categories above overlap; 64 MCP total − 12 thin surface = 52 MCP-exclusive.
+All 64 remain available via `python -m src.mcp_server`.)
 
 If an agent needs one of these (e.g. `brain_export` for a backup), the
 right path is `python -m src.cli brain_export` (CLI) or call the
