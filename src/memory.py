@@ -26,11 +26,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
+
+logger = logging.getLogger(__name__)
 
 from .chunk import Chunk, chunk_markdown
 from .consolidate import extract_facts_from_chunk, deduplicate_facts
@@ -175,6 +178,14 @@ class Memory:
         self._store = store
         self._embedder = embedder
         self._persist_dir = persist_dir
+        # Serialize concurrent remember() calls so conflict detection
+        # (query -> check -> update superseded_by -> add_chunks) stays
+        # consistent. Without this, two parallel ingests can race and
+        # both believe they're the canonical version of a near-duplicate
+        # fact, leaving the graph in an inconsistent state. One lock per
+        # Memory instance; the singleton Memory() shares one lock.
+        import asyncio
+        self._write_lock = asyncio.Lock()
 
     async def _ensure_initialized(self) -> tuple[MemoryStore, EmbeddingProvider]:
         if self._store is None:
@@ -327,31 +338,16 @@ class Memory:
             #
             # Cheap: one vector query against the same tier. Cost = one
             # embedding (already computed above) + one Chroma call.
-            try:
-                tier_coll_pre = store.collection_for(tier)
-                existing = tier_coll_pre.query(
-                    query_embeddings=[vecs[0]],
-                    n_results=1,
-                    include=["metadatas", "distances"],
-                )
-                if existing and existing.get("ids") and existing["ids"][0]:
-                    eid = existing["ids"][0][0]
-                    edist = existing["distances"][0][0]
-                    emeta = (existing.get("metadatas") or [[{}]])[0][0] or {}
-                    # Chroma returns cosine DISTANCE; 0 = identical, 2 = opposite.
-                    # 0.08 distance ≈ 0.92 similarity — the standard near-dup bar.
-                    already_superseded = bool(emeta.get("superseded_by"))
-                    if edist < 0.08 and not already_superseded and eid != chunk.id:
-                        # Mark old as superseded; new chunk stores the backref.
-                        emeta["superseded_by"] = chunk.id
-                        emeta["superseded_at"] = time.time()
-                        tier_coll_pre.update(ids=[eid], metadatas=[emeta])
-                        chunk_meta["supersedes"] = eid
-            except Exception:
-                # Non-fatal — conflict detection is best-effort.
-                pass
-
+            #
+            # SERIALIZED via self._write_lock: the conflict-detection +
+            # add_chunks sequence is a check-then-update that must not race.
+            # Without this lock, two parallel ingests of the same fact both
+            # see "no existing chunk" and both write without marking
+            # superseded_by — leaving stale duplicates in the graph.
             # 6. Store
+            # Build chunk_meta BEFORE the lock so the fallback path can
+            # access it on lock failure. The dict is mutated inside the
+            # lock (supersedes key) but the base shape is set here.
             chunk_meta = dict(meta)
             chunk_meta.update({
                 "confidence": confidence,
@@ -360,9 +356,45 @@ class Memory:
                 "relationships_count": len(relationships),
             })
             chunk_id = chunk.id  # content-hash based, idempotent
-            added = await store.add_chunks(
-                [chunk], vecs, tier, metadata_override=[chunk_meta]
-            )
+            # `added` is set inside the lock block (success path) or in the
+            # except branch (lock failure fallback). `stored` is True if the
+            # chunk was added (added > 0 means new chunk_id didn't exist
+            # before). Initialize to 0 so the except branch can assign.
+            added = 0
+            try:
+                async with self._write_lock:
+                    tier_coll_pre = store.collection_for(tier)
+                    existing = tier_coll_pre.query(
+                        query_embeddings=[vecs[0]],
+                        n_results=1,
+                        include=["metadatas", "distances"],
+                    )
+                    if existing and existing.get("ids") and existing["ids"][0]:
+                        eid = existing["ids"][0][0]
+                        edist = existing["distances"][0][0]
+                        emeta = (existing.get("metadatas") or [[{}]])[0][0] or {}
+                        # Chroma returns cosine DISTANCE; 0 = identical, 2 = opposite.
+                        # 0.08 distance ≈ 0.92 similarity — the standard near-dup bar.
+                        already_superseded = bool(emeta.get("superseded_by"))
+                        if edist < 0.08 and not already_superseded and eid != chunk.id:
+                            # Mark old as superseded; new chunk stores the backref.
+                            emeta["superseded_by"] = chunk.id
+                            emeta["superseded_at"] = time.time()
+                            tier_coll_pre.update(ids=[eid], metadatas=[emeta])
+                            chunk_meta["supersedes"] = eid
+                    added = await store.add_chunks(
+                        [chunk], vecs, tier, metadata_override=[chunk_meta]
+                    )
+            except Exception as exc:
+                # If the lock or store fails for any reason, fall back to
+                # an unlocked add_chunks so the ingest isn't dropped entirely.
+                # The lock is for conflict detection; the actual write is
+                # idempotent (content-hash chunk_id) so a racing duplicate
+                # is recoverable.
+                logger.warning("ingest under write_lock failed (%s); falling back", exc)
+                added = await store.add_chunks(
+                    [chunk], vecs, tier, metadata_override=[chunk_meta]
+                )
             stored = added > 0
 
             result = RememberResult(
