@@ -549,15 +549,47 @@ class Memory:
         """
         store, embedder = await self._ensure_initialized()
         episodic = store.collection_for(Tier.EPISODIC)
-        recent = episodic.get(limit=max_chunks, include=["documents", "metadatas"])
+        cutoff = None
+        get_kwargs = {
+            "limit": max_chunks,
+            "include": ["documents", "metadatas"],
+        }
+        if lookback_days and lookback_days > 0:
+            cutoff = time.time() - (lookback_days * 86400)
+            get_kwargs["where"] = {"ingested_at": {"$gte": cutoff}}
+        try:
+            recent = episodic.get(**get_kwargs)
+        except TypeError:
+            # Some collection adapters may not support metadata filters.
+            recent = episodic.get(limit=max_chunks, include=["documents", "metadatas"])
         if not recent or not recent.get("ids"):
             return {"scanned": 0, "extracted": 0, "promoted": 0}
 
+        ids = list(recent.get("ids") or [])
+        docs = list(recent.get("documents") or [])
+        metadatas = list(recent.get("metadatas") or [])
+
+        if cutoff is not None:
+            filtered: list[tuple[str, str, dict]] = []
+            for cid, doc, md in zip(ids, docs, metadatas):
+                ts = 0.0
+                if isinstance(md, dict):
+                    ts = float(md.get("ingested_at") or md.get("created_at") or 0.0)
+                if ts >= cutoff:
+                    filtered.append((cid, doc, md or {}))
+            if filtered:
+                ids, docs, metadatas = [list(col) for col in zip(*filtered)]
+            else:
+                ids, docs, metadatas = [], [], []
+
+        if not ids:
+            return {"scanned": 0, "extracted": 0, "promoted": 0}
+
         all_facts = []
-        for i, cid in enumerate(recent["ids"]):
+        for i, cid in enumerate(ids):
             facts = extract_facts_from_chunk(
-                recent["documents"][i], cid,
-                recent["metadatas"][i].get("source_path", "<unknown>"),
+                docs[i], cid,
+                (metadatas[i] or {}).get("source_path", "<unknown>"),
             )
             all_facts.extend(facts)
 
@@ -591,7 +623,7 @@ class Memory:
             pass
 
         return {
-            "scanned": len(recent["ids"]),
+            "scanned": len(ids),
             "extracted": len(all_facts),
             "after_dedup": len(deduped),
             "promoted": promoted,

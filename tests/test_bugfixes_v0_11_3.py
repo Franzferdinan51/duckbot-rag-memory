@@ -1977,6 +1977,85 @@ def test_memory_write_lock_is_lazy(monkeypatch):
     assert lock_calls["count"] == 1
 
 
+def test_memory_reflect_respects_lookback_days(monkeypatch):
+    """reflect() should filter episodic chunks by ingested_at age."""
+    from src import memory as memory_module
+    from src.tier import Tier
+
+    now = 1_700_000_000.0
+    old_ts = now - 10 * 86400
+    fresh_ts = now - 2 * 86400
+    captured = {"promoted": []}
+
+    class FakeColl:
+        def __init__(self):
+            self.where = None
+        def get(self, limit=None, include=None, where=None):
+            self.where = where
+            rows = [
+                {
+                    "id": "old",
+                    "documents": "Duckets installed the old path.",
+                    "metadatas": {"source_path": "/old.md", "ingested_at": old_ts},
+                },
+                {
+                    "id": "fresh",
+                    "documents": "Duckets installed the fresh path.",
+                    "metadatas": {"source_path": "/fresh.md", "ingested_at": fresh_ts},
+                },
+            ]
+            if where and "ingested_at" in where and "$gte" in where["ingested_at"]:
+                cutoff = where["ingested_at"]["$gte"]
+                rows = [r for r in rows if r["metadatas"]["ingested_at"] >= cutoff]
+            return {
+                "ids": [r["id"] for r in rows],
+                "documents": [r["documents"] for r in rows],
+                "metadatas": [r["metadatas"] for r in rows],
+            }
+
+    class FakeMeta:
+        def upsert(self, *args, **kwargs):
+            return None
+
+    class FakeStore:
+        def __init__(self):
+            self.episodic = FakeColl()
+            self.meta = FakeMeta()
+        def collection_for(self, tier):
+            if tier == Tier.EPISODIC:
+                return self.episodic
+            raise AssertionError(f"unexpected tier: {tier}")
+        @property
+        def _client(self):
+            class _Client:
+                def get_or_create_collection(self, name):
+                    return FakeMeta()
+            return _Client()
+
+    class FakeEmbedder:
+        name = "mock"
+        dim = 2
+
+    async def fake_ensure_initialized():
+        return FakeStore(), FakeEmbedder()
+
+    async def fake_remember(text, source_path="<remember>", metadata=None, force_tier=None):
+        captured["promoted"].append((text, source_path, metadata, force_tier))
+        return SimpleNamespace(stored=True)
+
+    monkeypatch.setattr(memory_module.time, "time", lambda: now)
+    m = memory_module.Memory(store=object(), embedder=FakeEmbedder())
+    monkeypatch.setattr(m, "_ensure_initialized", fake_ensure_initialized)
+    monkeypatch.setattr(m, "remember", fake_remember)
+
+    result = _run_in_thread(m.reflect(lookback_days=7, max_chunks=50))
+
+    assert result["scanned"] == 1
+    assert result["extracted"] == 1
+    assert len(captured["promoted"]) == 1
+    assert "fresh path" in captured["promoted"][0][0]
+
+
 def test_rate_limiter_allows_until_burned():
     """RateLimiter.check consumes one token per call; once exhausted
     returns (False, info) with a positive retry_after. DUCKBOT_RATELIMIT_DISABLE
