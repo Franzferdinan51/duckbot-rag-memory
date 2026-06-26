@@ -370,7 +370,17 @@ def maybe_fsrs(
     annotated = []
     now = time.time()
     for r in results:
-        meta = getattr(r, "metadata", None) or {}
+        # Handle both dict and object result items.
+        # Object items (QueryResult dataclass): use getattr/setattr.
+        # Dict items: convert to a writeable dict-first wrapper.
+        is_dict = isinstance(r, dict)
+
+        def _meta() -> dict:
+            if is_dict:
+                return r.get("metadata") or {}
+            return getattr(r, "metadata", None) or {}
+
+        meta = _meta()
         stability = float(meta.get("stability_days") or 7.0)
         difficulty = float(meta.get("difficulty") or DEFAULT_DIFFICULTY)
 
@@ -388,17 +398,24 @@ def maybe_fsrs(
             elapsed = max(0.0, (now - float(last_seen)) / 86400.0)
 
         r_now = fsrs_retrievability(elapsed, stability, w20=w20)
-        original_rrf = getattr(r, "rrf_score", 0.0) or 0.0
-        adjusted = original_rrf * r_now
+        if is_dict:
+            r["_fsrs_retrievability"] = r_now
+            r["_fsrs_stability"] = stability
+            r["_fsrs_difficulty"] = difficulty
+            r["_fsrs_elapsed_days"] = elapsed
+            r["rrf_score"] = r["rrf_score"] * r_now
+            annotated.append(r)
+        else:
+            original_rrf = getattr(r, "rrf_score", 0.0) or 0.0
+            adjusted = original_rrf * r_now
+            setattr(r, "_fsrs_retrievability", r_now)
+            setattr(r, "_fsrs_stability", stability)
+            setattr(r, "_fsrs_difficulty", difficulty)
+            setattr(r, "_fsrs_elapsed_days", elapsed)
+            setattr(r, "rrf_score", adjusted)
+            annotated.append(r)
 
-        setattr(r, "_fsrs_retrievability", r_now)
-        setattr(r, "_fsrs_stability", stability)
-        setattr(r, "_fsrs_difficulty", difficulty)
-        setattr(r, "_fsrs_elapsed_days", elapsed)
-        setattr(r, "rrf_score", adjusted)
-        annotated.append(r)
-
-    annotated.sort(key=lambda r: r.rrf_score, reverse=True)
+    annotated.sort(key=lambda r: r["rrf_score"] if isinstance(r, dict) else r.rrf_score, reverse=True)
     return annotated
 
 
