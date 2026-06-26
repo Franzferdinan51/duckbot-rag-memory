@@ -2108,6 +2108,43 @@ HANDLERS = {
     "brain_sync": handle_brain_sync,
 }
 
+
+# v0.15.1: lifecycle event capture (data/events.db). Lazy-loaded so the
+# rest of the module imports cleanly even if the filesystem blocks writes
+# (read-only install, broken permissions, etc.).
+import os as _os
+from pathlib import Path as _Path
+EVENT_LOG_PATH = _Path(
+    _os.environ.get("DUCKBOT_EVENTS_DB") or (_Path("data") / "events.db")
+)
+_event_store_singleton = None
+
+
+def _get_event_store():
+    """Lazy-init the EventStore singleton. Returns None on failure."""
+    global _event_store_singleton
+    if _event_store_singleton is not None:
+        return _event_store_singleton
+    try:
+        from src.events import EventStore as _ES
+        _event_store_singleton = _ES(EVENT_LOG_PATH)
+        return _event_store_singleton
+    except Exception as _e:  # noqa: BLE001
+        import sys as _s
+        print(f"[mcp_server] event capture disabled: {_e}", file=_s.stderr)
+        return None
+
+
+# Event-type constants are imported lazily (see _get_event_store) but the
+# capture sites inside mcp_stdio need them as names. Alias them once.
+from src.events import (  # noqa: E402  -- imported for side-effect aliasing
+    SESSION_START,
+    SESSION_END,
+    PRE_TOOL_USE,
+    POST_TOOL_USE,
+    TOOL_ERROR,
+)
+
 # Register the 28 connector tools (graph + blocks + quarantine + scan +
 # brain_* aliases). Called after HANDLERS is defined so the dispatch table
 # is ready.
@@ -2154,6 +2191,12 @@ def mcp_stdio():
     # any loop-bound resources break) and unnecessary — mcp_stdio() is
     # itself synchronous and we can drive handlers from a single loop.
     _server_loop = asyncio.new_event_loop()
+
+    # v0.15.1: lifecycle event capture. The EventStore is optional —
+    # if events can't be initialized (read-only filesystem, etc.) we
+    # log + continue without events rather than failing the server.
+    _event_store = _get_event_store()
+    _current_session_id: str = ""
     try:
         while True:
             try:
@@ -2164,6 +2207,29 @@ def mcp_stdio():
                 method = msg.get("method")
                 mid = msg.get("id")
                 if method == "initialize":
+                    params = msg.get("params", {})
+                    # v0.15.1: extract a session_id from the initialize
+                    # params so events can be grouped per-MCP-session.
+                    # Prefer explicit _meta.session_id (MCP convention),
+                    # fall back to clientInfo.name, then a UUID-like id.
+                    _client_info = params.get("clientInfo") or {}
+                    _init_meta = params.get("_meta") or {}
+                    _current_session_id = (
+                        _init_meta.get("session_id")
+                        or _client_info.get("session_id")
+                        or _client_info.get("name")
+                        or f"mcp-{_os.getpid()}-{int(_time.time())}"
+                    )
+                    if _event_store is not None:
+                        _event_store.record_event(
+                            _current_session_id,
+                            SESSION_START,
+                            context={
+                                "client": _client_info.get("name"),
+                                "version": _client_info.get("version"),
+                                "platform": _init_meta.get("platform"),
+                            },
+                        )
                     resp = {
                         "jsonrpc": "2.0", "id": mid,
                         "result": {
@@ -2199,14 +2265,54 @@ def mcp_stdio():
                                 },
                             }
                         else:
+                            # v0.15.1: pre/post event capture. Each tool
+                            # call logs PRE (with args) + POST (with
+                            # result + duration) or TOOL_ERROR (with
+                            # exception message). Events are best-effort:
+                            # if the EventStore raises, we still return
+                            # the tool's result.
+                            _call_started = _time.monotonic()
+                            _event_store = _get_event_store()
+                            if _event_store is not None:
+                                try:
+                                    _event_store.record_event(
+                                        _current_session_id,
+                                        PRE_TOOL_USE,
+                                        tool_name=name,
+                                        args=args,
+                                    )
+                                except Exception:  # noqa: BLE001
+                                    pass
                             try:
                                 result = _server_loop.run_until_complete(handler(args))
                                 resp = {
                                     "jsonrpc": "2.0", "id": mid,
                                     "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]},
                                 }
+                                if _event_store is not None:
+                                    try:
+                                        _event_store.record_event(
+                                            _current_session_id,
+                                            POST_TOOL_USE,
+                                            tool_name=name,
+                                            result=result,
+                                            duration_ms=int((_time.monotonic() - _call_started) * 1000),
+                                        )
+                                    except Exception:  # noqa: BLE001
+                                        pass
                             except Exception as exc:
                                 resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(exc)}}
+                                if _event_store is not None:
+                                    try:
+                                        _event_store.record_event(
+                                            _current_session_id,
+                                            TOOL_ERROR,
+                                            tool_name=name,
+                                            error=str(exc),
+                                            duration_ms=int((_time.monotonic() - _call_started) * 1000),
+                                        )
+                                    except Exception:  # noqa: BLE001
+                                        pass
                 else:
                     resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"unknown method: {method}"}}
                 _s.stdout.write(json.dumps(resp) + "\n")

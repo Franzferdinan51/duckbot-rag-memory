@@ -72,6 +72,30 @@ module.exports = definePluginEntry({
       repoPath, pythonPath,
     );
 
+    // ---- v0.15.1: tee Python stderr to data/mcp.log ---------------------
+    // stdout is the JSON-RPC channel (OpenClaw reads it line-by-line) so
+    // we must NOT redirect stdout. stderr is free — operators can read
+    // data/mcp.log to debug segfaults and tracebacks after the fact.
+    // Set DUCKBOT_MCP_LOG=/path/to/file (or default data/mcp.log) to
+    // override the destination; set to empty string to disable.
+    let stderrLogStream = null;
+    let stderrLogPath = null;
+    const logPathEnv = process.env.DUCKBOT_MCP_LOG;
+    if (logPathEnv !== '') {
+      stderrLogPath = logPathEnv || path.join(repoPath, 'data', 'mcp.log');
+      try {
+        const fs = require('node:fs');
+        fs.mkdirSync(path.dirname(stderrLogPath), { recursive: true });
+        stderrLogStream = fs.createWriteStream(stderrLogPath, { flags: 'a' });
+        stderrLogStream.on('error', (e) => {
+          logger.warn('[duckbot-memory] stderr log stream error: %s', e.message);
+        });
+      } catch (e) {
+        logger.warn('[duckbot-memory] could not open %s: %s — stderr will go to logger only', stderrLogPath, e.message);
+        stderrLogStream = null;
+      }
+    }
+
     // ---- spawn Python MCP server as a subprocess --------------------------
     const child = spawn(
       pythonPath,
@@ -89,8 +113,16 @@ module.exports = definePluginEntry({
       },
     );
 
+    // Tee Python stderr to the log file (in addition to the plugin logger,
+    // which StdioJsonRpc._onStderr already handles).
+    if (stderrLogStream) {
+      child.stderr.on('data', (chunk) => {
+        stderrLogStream.write(chunk);
+      });
+    }
+
     const rpc = new StdioJsonRpc(child, logger);
-    const handle = { child, rpc, closed: false };
+    const handle = { child, rpc, closed: false, stderrLogStream, stderrLogPath };
 
     child.on('error', (err) => {
       logger.error('[duckbot-memory] failed to spawn python: %s', err.message);
@@ -229,6 +261,11 @@ module.exports = definePluginEntry({
       try { child.stdin.end(); } catch { /* already gone */ }
       try { child.kill('SIGTERM'); } catch { /* already gone */ }
       rpc.close();
+      // Flush the stderr log stream so the tail of the Python output
+      // lands on disk before the gateway tears us down.
+      if (handle.stderrLogStream) {
+        try { handle.stderrLogStream.end(); } catch { /* already closed */ }
+      }
       logger.info('[duckbot-memory] shim shut down');
     });
 
@@ -239,9 +276,13 @@ module.exports = definePluginEntry({
       pythonPath,
       registeredTools: () => [...registeredTools],
       handshakeTools: () => [...toolNames],
+      stderrLogPath,
       shutdown: () => {
         try { child.kill('SIGTERM'); } catch { /* already gone */ }
         rpc.close();
+        if (handle.stderrLogStream) {
+          try { handle.stderrLogStream.end(); } catch { /* already closed */ }
+        }
       },
     };
   },

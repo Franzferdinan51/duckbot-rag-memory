@@ -138,11 +138,86 @@ test('shim spawns python and registers hooks + tools when configured', (t) => {
   assert.equal(handle.pythonPath, '/fake/python');
   assert.ok(Array.isArray(handle.registeredTools()));
   assert.ok(Array.isArray(handle.handshakeTools()));
+  // stderrLogPath defaults to <repoPath>/data/mcp.log.
+  assert.equal(handle.stderrLogPath, '/fake/repo/data/mcp.log');
 
   // ---- gateway_stop hook kills the child cleanly ------------------------
   const stopHook = api.registeredHooks.find((h) => h.name === 'gateway_stop').handler;
   stopHook();
   assert.equal(fakeChild.killed, 'SIGTERM');
+});
+
+// ---- stderr logging ------------------------------------------------------
+
+test('shim writes Python stderr to data/mcp.log (default path)', (t) => {
+  // Spy on fs.createWriteStream to confirm we open the log file.
+  const fs = require('node:fs');
+  const openPaths = [];
+  t.mock.method(fs, 'createWriteStream', (p, opts) => {
+    openPaths.push({ path: p, flags: opts?.flags });
+    // Return a fake stream so the shim's `end()` call doesn't crash.
+    return { write() {}, end() {}, on() { return this; } };
+  });
+  // Same for mkdirSync (silent).
+  t.mock.method(fs, 'mkdirSync', () => undefined);
+
+  const cp = require('node:child_process');
+  const fakeChild = makeFakeChild();
+  t.mock.method(cp, 'spawn', () => fakeChild);
+
+  delete require.cache[require.resolve('../index.js')];
+  const entry = require('../index.js');
+  const api = makeFakeApi({ repoPath: '/fake/repo' });
+  entry.register(api);
+
+  assert.equal(openPaths.length, 1, 'expected one createWriteStream call');
+  assert.equal(openPaths[0].path, '/fake/repo/data/mcp.log');
+  assert.equal(openPaths[0].flags, 'a'); // append mode
+});
+
+test('DUCKBOT_MCP_LOG overrides the log path', (t) => {
+  const fs = require('node:fs');
+  let opened = null;
+  t.mock.method(fs, 'createWriteStream', (p) => {
+    opened = p;
+    return { write() {}, end() {}, on() { return this; } };
+  });
+  t.mock.method(fs, 'mkdirSync', () => undefined);
+  const cp = require('node:child_process');
+  t.mock.method(cp, 'spawn', () => makeFakeChild());
+
+  process.env.DUCKBOT_MCP_LOG = '/custom/path/mcp.log';
+  try {
+    delete require.cache[require.resolve('../index.js')];
+    const entry = require('../index.js');
+    const api = makeFakeApi({ repoPath: '/fake/repo' });
+    entry.register(api);
+    assert.equal(opened, '/custom/path/mcp.log');
+  } finally {
+    delete process.env.DUCKBOT_MCP_LOG;
+  }
+});
+
+test('DUCKBOT_MCP_LOG="" disables stderr logging entirely', (t) => {
+  const fs = require('node:fs');
+  let opened = null;
+  t.mock.method(fs, 'createWriteStream', (p) => {
+    opened = p;
+    return { write() {}, end() {}, on() { return this; } };
+  });
+  const cp = require('node:child_process');
+  t.mock.method(cp, 'spawn', () => makeFakeChild());
+
+  process.env.DUCKBOT_MCP_LOG = '';
+  try {
+    delete require.cache[require.resolve('../index.js')];
+    const entry = require('../index.js');
+    const api = makeFakeApi({ repoPath: '/fake/repo' });
+    entry.register(api);
+    assert.equal(opened, null, 'no log file should be opened when DUCKBOT_MCP_LOG=""');
+  } finally {
+    delete process.env.DUCKBOT_MCP_LOG;
+  }
 });
 
 // ---- StdioJsonRpc tests ----------------------------------------------------

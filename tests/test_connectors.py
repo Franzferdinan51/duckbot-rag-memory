@@ -117,6 +117,69 @@ def test_graph_history(brain):
     assert len(history) == 1
 
 
+# ----- Brain facade: Observer (precursor tracing + blind spots) ---------
+
+def test_graph_precursors_unknown_entity(brain):
+    """Unknown entity returns empty trace with a 'not found' note."""
+    # Create one entity so graph.db exists, then trace a different name.
+    brain.graph_add_relationship("alice", "openclaw", "works_on")
+    trace = brain.graph_precursors("nonexistent")
+    assert trace["total_nodes"] == 0
+    assert "not found" in trace["notes"][0]
+
+
+def test_graph_precursors_three_hop_chain(brain):
+    """Build a 3-hop causal chain; tracing from the leaf returns 3 nodes."""
+    brain.graph_add_relationship("load_test", "use_postgres", "decided_by")
+    brain.graph_add_relationship("use_postgres", "acid_reqs", "depends_on")
+    brain.graph_add_relationship("acid_reqs", "financial_integrity", "supports")
+    trace = brain.graph_precursors("financial_integrity", max_depth=5)
+    assert trace["root"] == "financial_integrity"
+    assert trace["max_depth_reached"] == 3
+    all_names = [
+        n["entity_name"]
+        for layer in trace["chain"]
+        for n in layer
+    ]
+    assert "acid_reqs" in all_names
+    assert "use_postgres" in all_names
+    assert "load_test" in all_names
+
+
+def test_graph_blind_spots_flags_orphan_decisions(brain):
+    """Entity with outgoing causal edges but no upstream = blind spot."""
+    brain.graph_add_relationship("fast", "use_postgres", "decided_by")
+    spots = brain.graph_blind_spots()
+    assert len(spots) == 1
+    assert spots[0]["entity_name"] == "fast"
+    assert spots[0]["causal_edge_count"] == 1
+    assert spots[0]["severity"] == "low"
+
+
+def test_graph_blind_spots_skips_grounded_entities(brain):
+    """Entity with incoming causal edges is not a blind spot."""
+    brain.graph_add_relationship("a", "b", "decided_by")
+    brain.graph_add_relationship("b", "c", "decided_by")
+    spots = brain.graph_blind_spots()
+    # b has incoming from a → not a blind spot.
+    assert all(s["entity_name"] != "b" for s in spots)
+
+
+def test_graph_blind_spots_no_graph_db_returns_empty(tmp_path):
+    """If graph.db doesn't exist yet, return an empty list (not error)."""
+    b = Brain(
+        graph_path=tmp_path / "does_not_exist.db",
+        blocks_path=tmp_path / "blocks.db",
+        quarantine_path=tmp_path / "quarantine.db",
+        scan_before_remember=False,
+    )
+    assert b.graph_blind_spots() == []
+    # graph_precursors returns a graceful empty trace.
+    trace = b.graph_precursors("anything")
+    assert trace["total_nodes"] == 0
+    assert trace["notes"]
+
+
 # ----- Brain facade: injection scan / quarantine -----
 
 def test_injection_scan_clean(brain):

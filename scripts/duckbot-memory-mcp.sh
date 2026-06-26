@@ -30,4 +30,9 @@ else
     exit 1
 fi
 
-exec "$PYTHON_BIN" -m src.mcp_server "$@"
+# v0.15.1: append stderr (logs + Python tracebacks) to data/mcp.log so
+# operators can debug segfaults and other failures after the fact. stdout
+# stays on the JSON-RPC channel (Hermes reads it line-by-line) — DO NOT
+# redirect stdout or the MCP protocol breaks.
+mkdir -p "$REPO_ROOT/data"
+exec "$PYTHON_BIN" -m src.mcp_server "$@" 2>>"$REPO_ROOT/data/mcp.log"

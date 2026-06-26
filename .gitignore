@@ -9,6 +9,8 @@ data/blocks.db-*
 data/quarantine.db
 data/quarantine.db-*
 data/brain_export.md
+data/events.db
+data/events.db-*
 
 # Env
 .env

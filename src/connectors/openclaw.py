@@ -188,6 +188,51 @@ TOOL_DEFINITIONS: list[dict] = [
         },
     },
     {
+        "name": "brain_graph_precursors",
+        "description": (
+            "Causal precursor tracing (Observer Perspective). Walks the "
+            "graph backward from an entity through decided_by / depends_on "
+            "/ learned_from / caused_by / supports edges to surface WHY we "
+            "know something. Returns a depth-indexed chain + critical_depth "
+            "(shallowest depth capturing >=90% of influence) + coverage "
+            "(fraction of immediate edges with upstream rationale). Use "
+            "before making a decision to understand the full reasoning "
+            "chain. Inspired by MindBank's Observer Perspective."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity": {"type": "string", "description": "entity to trace backward from (e.g. 'Use Postgres')"},
+                "max_depth": {"type": "integer", "default": 3, "minimum": 1, "maximum": 10,
+                              "description": "BFS depth limit (default 3 hops)"},
+                "include_inactive": {"type": "boolean", "default": False,
+                                     "description": "include ended relationships"},
+                "min_influence": {"type": "number", "default": 0.0,
+                                  "description": "drop precursors whose decayed influence is below this floor"},
+            },
+            "required": ["entity"],
+        },
+    },
+    {
+        "name": "brain_graph_blind_spots",
+        "description": (
+            "Identify orphan decisions in the graph — entities that have "
+            "outgoing causal edges (decided_by / depends_on / learned_from / "
+            "etc.) but no upstream rationale of their own. Severity scales "
+            "with downstream edge count: 1 = low, 2 = medium, 3+ = high. Use "
+            "to surface facts the agent believes but can't explain WHY."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "max_results": {"type": "integer", "default": 50, "minimum": 1, "maximum": 500,
+                                "description": "cap on returned blind spots"},
+                "include_inactive": {"type": "boolean", "default": False,
+                                     "description": "include entities whose relationships are inactive"},
+            },
+        },
+    },
+    {
         "name": "brain_graph_cognify",
         "description": "Cognee ECL stage 2: dedupe + reconcile entity relations. Finds duplicate (source, target, label) triples + duplicate aliases. Default dry-run. Use to clean up a graph that's accumulated duplicates over time.",
         "inputSchema": {
@@ -797,6 +842,22 @@ def handle(tool_name: str, args: dict) -> dict:
             if not args.get("entity"):
                 return {"error": "entity is required", "tool": tool_name}
             return {"history": brain.graph_history(entity_name=args["entity"])}
+
+        if tool_name == "brain_graph_precursors":
+            if not args.get("entity"):
+                return {"error": "entity is required", "tool": tool_name}
+            return brain.graph_precursors(
+                entity_name=args["entity"],
+                max_depth=int(args.get("max_depth", 3)),
+                include_inactive=bool(args.get("include_inactive", False)),
+                min_influence=float(args.get("min_influence", 0.0)),
+            )
+
+        if tool_name == "brain_graph_blind_spots":
+            return brain.graph_blind_spots(
+                max_results=int(args.get("max_results", 50)),
+                include_inactive=bool(args.get("include_inactive", False)),
+            )
 
         if tool_name == "brain_graph_cognify":
             return brain.graph_cognify(dry_run=bool(args.get("dry_run", True)))

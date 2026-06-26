@@ -1,5 +1,49 @@
 # Changelog
 
+## Unreleased — v0.15.1 — Observer perspective + lifecycle events + priority scoring
+
+### Added
+
+- **5-factor priority scoring** (`src/scoring.py`) — re-ranks
+  `brain_wake_up` results using MindBank-style weighted factors
+  (recency 30%, frequency 25%, connectivity 20%, explicit 15%,
+  type 10%). An old-but-frequently-recalled high-importance chunk
+  now surfaces above a fresh-but-noisy one. Pure functions, no
+  I/O; integrates into `Brain.wake_up` after the recall pass.
+  29 unit tests + safe-degrade behavior when `scoring.py` is
+  unavailable.
+
+- **Lifecycle event capture** (`src/events.py`) — SQLite-backed
+  `data/events.db` records `session_start`, `session_end`,
+  `pre_tool_use`, `post_tool_use`, `tool_error` events per MCP
+  session. Enables "what tool calls led to this decision?"
+  debugging. Auto-captures around every MCP tool call (pre + post
+  + duration_ms; tool_error captures exception messages) and
+  every Hermes plugin session boundary. JSON payloads are
+  recursively truncated to 8192 chars so a runaway tool can't
+  blow up the DB. 22 unit tests + concurrent-write test.
+
+- **Observer perspective — causal precursor tracing**
+  (`src/observer.py`) — backward BFS through the entity graph
+  via causal labels (decided_by / depends_on / learned_from /
+  caused_by / supports / related_to / contradicts). Returns a
+  depth-indexed chain + `critical_depth` (shallowest depth
+  capturing >= 90% of influence) + `coverage` (fraction of
+  immediate edges with upstream rationale). Inspired by MindBank's
+  Observer Perspective.
+
+- **Observer perspective — blind-spot detection**
+  (`src/observer.find_blind_spots`) — flags entities that make
+  causal claims (outgoing decided_by / depends_on / learned_from
+  edges) but have no upstream rationale of their own. Severity
+  scales with downstream edge count (1 = low, 2 = medium, 3+ =
+  high). 27 unit tests for the observer module + 5 facade-level
+  tests in `test_connectors.py`.
+
+- **Two new MCP tools** (now 66 total, was 64):
+  - `brain_graph_precursors(entity, max_depth, include_inactive, min_influence)` — runs `trace_precursors` against the live graph.
+  - `brain_graph_blind_spots(max_results, include_inactive)` — runs `find_blind_spots`.
+
 ## Unreleased — v0.15.0 — Native OpenClaw plugin + Hermes auto-activation
 
 ### Added

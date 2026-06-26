@@ -111,6 +111,12 @@ node -e "console.log(globalThis[Symbol.for('openclaw.duckbot-memory')])"
 
 # Tail Python stderr (logged via api.logger → OpenClaw gateway log)
 tail -f ~/.openclaw/gateway.log | grep duckbot-memory
+
+# v0.15.1: Python stderr is also appended to data/mcp.log so segfaults
+# and tracebacks survive after the gateway tears down. Set
+# DUCKBOT_MCP_LOG=/custom/path.log to override, or DUCKBOT_MCP_LOG=""
+# to disable entirely.
+tail -f ~/Desktop/duckbot-rag-memory/data/mcp.log
 ```
 
 ## Testing

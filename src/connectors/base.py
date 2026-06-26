@@ -432,6 +432,18 @@ class Brain:
                     break
                 # Not enough yet — try fetching more.
                 fetch_size *= 2
+
+            # v0.15.1: re-rank by 5-factor priority (recency + frequency +
+            # connectivity + explicit + type). Recall returned results in
+            # RRF order (semantic similarity); priority re-ranking surfaces
+            # old-but-important chunks above fresh-but-noisy ones.
+            # Falls back gracefully if scoring.py isn't importable.
+            try:
+                from src.scoring import sort_by_priority
+                kept = sort_by_priority(kept)
+            except ImportError:
+                pass
+
             out["memories"] = kept
         except Exception as e:
             out["memories_error"] = str(e)
@@ -652,6 +664,69 @@ class Brain:
                 }
                 for r in rels
             ]
+
+    # -- Observer: causal precursor tracing + blind-spot detection ---------
+
+    def graph_precursors(
+        self,
+        entity_name: str,
+        *,
+        max_depth: int = 3,
+        include_inactive: bool = False,
+        min_influence: float = 0.0,
+    ) -> dict:
+        """Backward-trace causal predecessors of an entity.
+
+        Inspired by MindBank's "Observer Perspective". Returns:
+          - chain: depth-indexed list of precursors (closest first)
+          - influence_modes: top precursors ranked by decayed score
+          - critical_depth: shallowest depth capturing >=90% of influence
+          - coverage: fraction of immediate edges w/ upstream rationale
+          - notes: human-readable diagnostic hints
+
+        Pure delegation to `src/observer.trace_precursors` against the
+        live graph. Returns an empty trace (with a note) if the
+        graph file doesn't exist or the entity isn't found.
+        """
+        if not self.graph_path.exists():
+            return {
+                "root": entity_name, "root_entity_id": "",
+                "total_nodes": 0, "max_depth_reached": 0,
+                "critical_depth": 0, "coverage": 0.0,
+                "immediate_edge_count": 0, "precursors_with_upstream": 0,
+                "chain": [], "influence_modes": [],
+                "notes": ["graph.db does not exist — no causal trace available"],
+            }
+        from src.observer import trace_precursors as _trace
+        with Graph(path=self.graph_path) as g:
+            trace = _trace(
+                g, entity_name,
+                max_depth=max_depth,
+                include_inactive=include_inactive,
+                min_influence=min_influence,
+            )
+            return trace.to_dict()
+
+    def graph_blind_spots(
+        self,
+        *,
+        max_results: int = 50,
+        include_inactive: bool = False,
+    ) -> list[dict]:
+        """Find entities with outgoing causal edges but no upstream rationale.
+
+        Returns a list of BlindSpot dicts sorted by severity
+        (high → low) then by causal_edge_count desc. Limited to
+        `max_results`.
+        """
+        if not self.graph_path.exists():
+            return []
+        from src.observer import find_blind_spots as _find
+        with Graph(path=self.graph_path) as g:
+            spots = _find(
+                g, max_results=max_results, include_inactive=include_inactive,
+            )
+            return [s.to_dict() for s in spots]
 
     # -- Inspect: consolidated entity view (Honcho-style) -------------------
 

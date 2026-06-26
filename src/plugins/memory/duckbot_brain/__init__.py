@@ -93,6 +93,30 @@ class DuckBotBrainProvider:
         self._hermes_home: str = ""
         self._platform: str = ""
         self._agent_context: str = "primary"
+        # v0.15.1: lifecycle event capture (best-effort; never blocks).
+        self._events = None
+        try:
+            from pathlib import Path as _Path
+            import os as _os
+            from src.events import EventStore as _ES
+            # __file__ is src/plugins/memory/duckbot_brain/__init__.py;
+            # parents[4] gets us back to the repo root (where data/ lives).
+            _events_path = _Path(
+                _os.environ.get("DUCKBOT_EVENTS_DB")
+                or (_Path(__file__).resolve().parents[4] / "data" / "events.db")
+            )
+            self._events = _ES(_events_path)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _record_event(self, event_type: str, **kwargs) -> None:
+        """Best-effort event write. Never raises — events are observability, not correctness."""
+        if self._events is None or not self._session_id:
+            return
+        try:
+            self._events.record_event(self._session_id, event_type, **kwargs)
+        except Exception:  # noqa: BLE001
+            pass
 
     # -- Identity ------------------------------------------------------------
 
@@ -133,6 +157,16 @@ class DuckBotBrainProvider:
         self._hermes_home = kwargs.get("hermes_home", "")
         self._platform = kwargs.get("platform", "cli")
         self._agent_context = kwargs.get("agent_context", "primary")
+
+        # v0.15.1: log session start for lifecycle debugging.
+        self._record_event(
+            "session_start",
+            context={
+                "platform": self._platform,
+                "agent_context": self._agent_context,
+                "hermes_home": self._hermes_home or None,
+            },
+        )
 
         # Lazy brain — only construct on first recall/sync to keep startup fast.
         self._brain = None
@@ -266,21 +300,35 @@ class DuckBotBrainProvider:
         OpenClaw adapter — agents get the same tool behavior whichever
         plugin loader they used.
         """
+        # v0.15.1: pre-tool-use event capture (best-effort).
+        self._record_event("pre_tool_use", tool_name=tool_name, args=args)
         # Per-tool rate limit (matches the MCP server + OpenClaw adapter).
         rl_err = _tools.check_rate_limit(tool_name)
         if rl_err is not None:
             return json.dumps(rl_err)
         # Honor a per-provider brain override (test fixture path —
         # keeps `provider._brain = fake_brain` working in tests).
-        if self._brain is not None:
-            original = _tools._BRAIN
-            _tools._BRAIN = self._brain
-            try:
+        try:
+            if self._brain is not None:
+                original = _tools._BRAIN
+                _tools._BRAIN = self._brain
+                try:
+                    result = _tools.dispatch(tool_name, args)
+                finally:
+                    _tools._BRAIN = original
+            else:
                 result = _tools.dispatch(tool_name, args)
-            finally:
-                _tools._BRAIN = original
-        else:
-            result = _tools.dispatch(tool_name, args)
+        except Exception as exc:
+            # v0.15.1: surface tool errors so operators can grep
+            # data/events.db for the failure trace.
+            self._record_event("tool_error", tool_name=tool_name, error=str(exc))
+            raise
+        # v0.15.1: post-tool-use event capture (best-effort).
+        # `result` is a dict; the EventStore truncates oversized values.
+        try:
+            self._record_event("post_tool_use", tool_name=tool_name, result=result)
+        except Exception:  # noqa: BLE001
+            pass
         return json.dumps(result, default=str)
 
     # -- Optional hooks (override to opt in) ---------------------------------
@@ -371,6 +419,19 @@ class DuckBotBrainProvider:
         except Exception as e:  # noqa: BLE001
             logger.warning("on_session_end submit failed: %s", e)
             return None
+
+        # v0.15.1: log session_end for lifecycle debugging. Includes
+        # the count of durable rules persisted so an operator can
+        # quickly verify the hook fired + worked.
+        self._record_event(
+            "session_end",
+            context={
+                "persisted": len(durable[:10]),
+                "source": source,
+                "tier": "procedural",
+                "message_count": len(messages or []),
+            },
+        )
 
         return {
             "persisted": len(durable[:10]),
