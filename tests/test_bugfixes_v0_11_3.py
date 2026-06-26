@@ -976,6 +976,50 @@ def test_cli_consolidate_delegates_to_memory_reflect(monkeypatch):
     assert called["args"] == (9, 200)
 
 
+def test_cli_doctor_accepts_any_available_provider(monkeypatch):
+    """doctor should pass when at least one embedding provider works.
+
+    Missing OPENAI_API_KEY alone is not a blocker if MiniMax or LM Studio
+    is available.
+    """
+    from src import cli
+    from types import SimpleNamespace
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("MINIMAX_API_KEY", "dummy-minimax-key")
+    monkeypatch.delenv("DUCKBOT_EMBEDDING", raising=False)
+
+    class FakeResp:
+        status_code = 200
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return False
+        def get(self, *args, **kwargs):
+            return FakeResp()
+
+    class FakeStore:
+        def stats(self):
+            return SimpleNamespace(total=1, working=0, episodic=1, semantic=0, procedural=0)
+
+    class FakeEmbedder:
+        name = "minimax"
+        dim = 1536
+
+    import httpx
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+    async def fake_resolve():
+        return FakeStore(), FakeEmbedder()
+    monkeypatch.setattr(cli, "_resolve_store_and_embedder", fake_resolve)
+
+    rc = cli.cmd_doctor(argparse.Namespace())
+    assert rc == 0
+
+
 def test_hermes_hook_scripts_exist_and_executable():
     """hermes-preflight.sh + hermes-postflight.sh must exist and be runnable."""
     import os

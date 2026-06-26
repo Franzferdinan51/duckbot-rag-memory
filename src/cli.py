@@ -526,29 +526,39 @@ def cmd_compact(args: argparse.Namespace) -> int:
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Sanity check: env, deps, store."""
     import importlib
-    checks = []
+    required_checks: list[tuple[str, str, bool]] = []
+    info_checks: list[tuple[str, str, bool]] = []
+
+    def add_check(name: str, value: str, ok: bool, *, required: bool = True) -> None:
+        target = required_checks if required else info_checks
+        target.append((name, value, ok))
+
     # 1. Python version
-    checks.append(("python", f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}", True))
+    add_check("python", f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}", True)
     # 2. Critical deps
     for mod in ["chromadb", "httpx", "numpy"]:
         try:
             importlib.import_module(mod)
-            checks.append((mod, "imported", True))
+            add_check(mod, "imported", True)
         except ImportError as exc:
-            checks.append((mod, str(exc), False))
+            add_check(mod, str(exc), False)
     # 3. Optional deps
     for mod in ["sentence_transformers"]:
         try:
             importlib.import_module(mod)
-            checks.append((mod, "imported (local mode available)", True))
+            add_check(mod, "imported (local mode available)", True, required=False)
         except ImportError:
-            checks.append((mod, "not installed (local mode disabled)", False))
-    # 4. Env vars (all 4 providers)
-    checks.append(("OPENAI_API_KEY", "set" if os.environ.get("OPENAI_API_KEY") else "MISSING", bool(os.environ.get("OPENAI_API_KEY"))))
-    checks.append(("MINIMAX_API_KEY", "set" if os.environ.get("MINIMAX_API_KEY") else "MISSING", bool(os.environ.get("MINIMAX_API_KEY"))))
-    checks.append(("LMSTUDIO_URL", os.environ.get("LMSTUDIO_URL", "http://127.0.0.1:1234/v1"), True))
-    # 5. LM Studio reachability
+            add_check(mod, "not installed (local mode disabled)", True, required=False)
+
+    explicit_provider = os.environ.get("DUCKBOT_EMBEDDING", "").lower().strip()
+    openai_key = bool(os.environ.get("OPENAI_API_KEY"))
+    minimax_key = bool(os.environ.get("MINIMAX_API_KEY"))
     lm_url = os.environ.get("LMSTUDIO_URL", "http://127.0.0.1:1234/v1")
+    add_check("OPENAI_API_KEY", "set" if openai_key else "missing", True, required=False)
+    add_check("MINIMAX_API_KEY", "set" if minimax_key else "missing", True, required=False)
+    add_check("LMSTUDIO_URL", lm_url, True, required=False)
+
+    # 4. LM Studio reachability
     lm_key = (
         os.environ.get("LMSTUDIO_API_KEY")
         or os.environ.get("LMSTUDIO_KEY")
@@ -563,9 +573,47 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             lm_ok = r.status_code == 200
             lm_info = f"reachable ({r.status_code})" if lm_ok else f"unreachable ({r.status_code})"
     except Exception as exc:
-        lm_ok = False
-        lm_info = f"unreachable ({exc})"
-    checks.append(("LM Studio", lm_info, lm_ok))
+            lm_ok = False
+            lm_info = f"unreachable ({exc})"
+    add_check("LM Studio", lm_info, lm_ok, required=(explicit_provider == "lmstudio"))
+
+    # 5. Decide whether any embedding provider path is actually usable.
+    try:
+        import sentence_transformers  # noqa: F401
+        local_ok = True
+    except ImportError:
+        local_ok = False
+
+    if explicit_provider == "openai":
+        provider_ok = openai_key
+        provider_label = "openai" if provider_ok else "openai (missing OPENAI_API_KEY)"
+    elif explicit_provider == "minimax":
+        provider_ok = minimax_key
+        provider_label = "minimax" if provider_ok else "minimax (missing MINIMAX_API_KEY)"
+    elif explicit_provider == "lmstudio":
+        provider_ok = lm_ok
+        provider_label = "lmstudio" if provider_ok else "lmstudio (unreachable)"
+    elif explicit_provider == "local":
+        provider_ok = local_ok
+        provider_label = "local" if provider_ok else "local (sentence_transformers missing)"
+    else:
+        if lm_ok:
+            provider_ok = True
+            provider_label = "lmstudio"
+        elif minimax_key:
+            provider_ok = True
+            provider_label = "minimax"
+        elif openai_key:
+            provider_ok = True
+            provider_label = "openai"
+        elif local_ok:
+            provider_ok = True
+            provider_label = "local"
+        else:
+            provider_ok = False
+            provider_label = "none"
+    add_check("embedding provider", provider_label, provider_ok)
+
     # 6. Store reachable (default dim)
     try:
         async def _check():
@@ -574,16 +622,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         store, emb = asyncio.run(_check())
         stats = store.stats()
         tiers_with_data = sum(1 for t in ['working','episodic','semantic','procedural'] if getattr(stats, t, 0) > 0)
-        checks.append(("chroma store", f"{stats.total} chunks across {tiers_with_data} tiers (provider={emb.name}, dim={emb.dim})", True))
+        add_check("chroma store", f"{stats.total} chunks across {tiers_with_data} tiers (provider={emb.name}, dim={emb.dim})", True)
     except Exception as exc:
-        checks.append(("chroma store", str(exc), False))
+        add_check("chroma store", str(exc), False)
 
+    checks = required_checks + info_checks
     max_name = max(len(c[0]) for c in checks)
     all_ok = True
     for name, value, ok in checks:
         marker = "✓" if ok else "✗"
         print(f"  {marker} {name.ljust(max_name)}  {value}")
-        if not ok:
+        if name in {c[0] for c in required_checks} and not ok:
             all_ok = False
     return 0 if all_ok else 1
 
