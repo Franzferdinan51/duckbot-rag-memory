@@ -32,22 +32,48 @@ session-start call.
 |---|---|---|---|---|
 | `python -m src.mcp_server` | **64** | MCP `tools/list` | yes (per-tool token bucket) | n/a (it's a server) |
 | `scripts/duckbot-memory-mcp.sh` | 64 (wraps the MCP server) | MCP stdio | yes | n/a |
-| `python -m src.extensions.duckbot_brain.adapter` | **12** | JSON-RPC over stdio (`openclaw.plugin.json`) | yes (same module) | n/a |
+| `extensions/duckbot-memory/index.js` (Node.js shim) | **64** (proxied) | OpenClaw in-process plugin (`package.json#main`) | yes (per-tool bucket on the Python side) | `session_start`, `session_end`, `gateway_stop` |
+| `python -m src.extensions.duckbot_brain.adapter` | **12** | Generic JSON-RPC over stdio (for Claude Code / Cursor / Codex / mcporter) | yes (same module) | n/a |
 | `from src.plugins.memory.duckbot_brain import DuckBotBrainProvider` | **12** (function-call shape) | `plugin.yaml` | yes | `on_session_start`, `on_session_end` |
 | `python -m src.cli openclaw <verb>` | **12** (shell shim, parallel to `hermes`) | argparse | yes | n/a |
 | `python -m src.cli <verb>` | per-verb | argparse | n/a | n/a |
 | `scripts/duckbot-ask "..."` | per-flavor (compact/snippet/json) | shell wrapper | n/a | n/a |
 
-All three thin entry points (OpenClaw adapter, Hermes plugin, the 12
-listed in the canonical MCP server as well) call the same dispatch in
-`src/extensions/tools.py`. If you add a tool there, every entry point
-picks it up.
+All three thin entry points (OpenClaw Node.js shim, Hermes plugin, the
+JSON-RPC adapter) call the same dispatch in `src/extensions/tools.py`.
+The OpenClaw shim additionally proxies to the full 64-tool MCP server
+via JSON-RPC over stdio. If you add a tool to `src/mcp_server.py`'s
+TOOLS list or to the thin surface, both surfaces pick it up.
+
+> **v0.15.0 note:** the previous `python -m
+> src.extensions.duckbot_brain.adapter` entry was marketed as the
+> OpenClaw native plugin, but it wasn't — OpenClaw plugins run
+> in-process in the Node gateway and can't load Python. The real
+> native OpenClaw plugin is now `extensions/duckbot-memory/` (a
+> zero-dependency Node.js shim). The Python JSON-RPC adapter stays
+> in place as a generic MCP client adapter for Claude Code / Cursor
+> / Codex / mcporter.
 
 ## How to verify discovery from an agent
 
-### OpenClaw (MCP stdio JSON-RPC)
+### OpenClaw (native plugin)
 
-Send a newline-delimited JSON-RPC request on stdin, get a response on stdout:
+The native plugin is `extensions/duckbot-memory/` — a Node.js shim that
+spawns the Python MCP server as a subprocess and registers all 64 tools
+plus `session_start` / `session_end` hooks via OpenClaw's plugin SDK.
+See `extensions/duckbot-memory/README.md` for install + config.
+
+Quick check: after bootstrap, restart the gateway and confirm:
+
+```bash
+openclaw plugins list | grep duckbot-memory    # should show "✓ installed"
+```
+
+### OpenClaw (generic JSON-RPC adapter — legacy / advanced)
+
+If you're hand-rolling a custom OpenClaw gateway without the plugin
+SDK, the Python adapter at `src/extensions/duckbot_brain/adapter.py`
+speaks MCP stdio JSON-RPC (12-tool subset):
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
@@ -144,14 +170,18 @@ point's surface.
 ## Adding a new tool
 
 1. Add the schema + dispatch case to `src/extensions/tools.py` (one
-   TOOLS dict entry + one `if name == "..."` block in `dispatch()`).
-2. If it's a 10th core-agent tool (used at runtime), also list it in
-   `src/extensions/duckbot_brain/openclaw.plugin.json` under `tools[]`
-   so OpenClaw clients that read the manifest get it.
+   TOOLS dict entry + one `if name == "..."` block in `dispatch()`)
+   AND/OR to `src/mcp_server.py`'s TOOLS list (the canonical 64-tool
+   surface). Pick whichever surface the tool belongs to.
+2. If it's a core-agent tool (used at runtime), no further work — the
+   thin surface picks it up automatically. The OpenClaw shim
+   dynamically registers whatever `tools/list` returns, so new MCP
+   tools surface to OpenClaw automatically too.
 3. If it has a Hermes-specific shape, also add the function-call
    wrapper to `function_call_schemas()` (it inherits from TOOLS so
    this is usually free).
-4. Add tests in `tests/test_extensions_tools.py`.
-5. Bump the manifest `version` field (`openclaw.plugin.json`,
-   `plugin.yaml`).
+4. Add tests in `tests/test_extensions_tools.py` and/or
+   `tests/test_skill_pipeline.py` as appropriate.
+5. Bump the manifest `version` fields (`extensions/duckbot-memory/openclaw.plugin.json`,
+   `src/plugins/memory/duckbot_brain/plugin.yaml`).
 6. Update CHANGELOG.md.

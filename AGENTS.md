@@ -87,7 +87,8 @@ duckbot-rag-memory/
 |   |-- verbatim_text storage is in chunk.py metadata + VerbatimResult in connectors/base.py (L13)
 |   |-- backends/         # chroma / lancedb / qdrant (pluggable)
 |   `-- connectors/       # openclaw / active_memory / dreaming / learn
-|-- tests/              # pytest suite (512 tests collected; CI skips LM Studio tests)
+|-- extensions/         # native OpenClaw plugin (Node.js shim → Python MCP server, zero deps)
+|-- tests/              # pytest suite (748 tests collected; CI skips LM Studio tests)
 |-- benchmarks/         # golden.jsonl for eval
 |-- scripts/            # install / start / cron / launchers / helpers
 |   |-- install.{ps1,sh,linux.sh,macos.sh}        # bootstrap (venv, deps, .env)

@@ -7,7 +7,7 @@ will:
   - Call `prefetch(query)` before each turn and inject relevant chunks.
   - Call `sync_turn(user, assistant)` after each turn to remember the
     conversation in the background (non-blocking).
-  - Expose all 9 core brain tools (incl. `brain_wake_up`, the
+  - Expose all 12 core brain tools (incl. `brain_wake_up`, the
     canonical session-start call) via `get_tool_schemas()`.
   - Run `on_session_end(messages)` to consolidate high-importance
     session facts into a durable procedural chunk.
@@ -51,6 +51,12 @@ def register(ctx) -> None:
     provider into ctx.register_memory_provider(provider).
     """
     provider = DuckBotBrainProvider()
+    logger.info(
+        "[duckbot-brain] registering MemoryProvider (is_available=%s) — "
+        "hooks: on_session_start, on_session_end, prefetch, sync_turn, "
+        "system_prompt_block",
+        provider.is_available(),
+    )
     if hasattr(ctx, "register_memory_provider"):
         ctx.register_memory_provider(provider)
     else:
@@ -97,10 +103,20 @@ class DuckBotBrainProvider:
     # -- Lifecycle -----------------------------------------------------------
 
     def is_available(self) -> bool:
-        """Cheap check: do we have the Brain module + LM Studio configured?"""
+        """Cheap check: is the Brain importable + reachable?
+
+        Per the Hermes ABC, this should NOT make network calls (it gates
+        activation in MemoryManager before the agent loop starts). We
+        only verify the Brain class imports and the repo root is on
+        the Python path — real readiness (LM Studio reachable, chroma
+        initialized) is deferred to `initialize()` / first tool call,
+        where failures surface as graceful `{"error": ...}` returns.
+        """
         try:
-            # The Brain class exists and is importable.
             from src.connectors.base import Brain as _  # noqa: F401
+            # Touch src/ to confirm the repo path is set up correctly.
+            import src
+            assert hasattr(src, "__file__") and src.__file__
             return True
         except Exception as e:
             logger.debug("DuckBot brain not available: %s", e)

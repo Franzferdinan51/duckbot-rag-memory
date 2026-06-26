@@ -240,42 +240,70 @@ def test_brain_remember_schema_requires_text():
 
 
 # -----------------------------------------------------------------------------
-# openclaw.plugin.json discovery shape
+# Native OpenClaw plugin manifest (extensions/duckbot-memory/openclaw.plugin.json)
+#
+# v0.15.0: the Python "fake" manifest at src/extensions/duckbot_brain/
+# was deleted because OpenClaw plugins run in-process inside the Node
+# gateway and can't load Python. The real native plugin is a Node.js
+# shim at extensions/duckbot-memory/ that spawns the Python MCP server
+# as a subprocess. These tests verify the shim manifest exists + has
+# the right shape.
 # -----------------------------------------------------------------------------
 
 
-def test_openclaw_plugin_json_exists():
-    plugin_dir = ROOT / "src" / "extensions" / "duckbot_brain"
-    assert plugin_dir.is_dir(), f"extension dir missing: {plugin_dir}"
-    manifest = plugin_dir / "openclaw.plugin.json"
-    assert manifest.exists(), "openclaw.plugin.json required for OpenClaw discovery"
+SHIM_PLUGIN_DIR = ROOT / "extensions" / "duckbot-memory"
+SHIM_MANIFEST = SHIM_PLUGIN_DIR / "openclaw.plugin.json"
 
 
-def test_openclaw_plugin_json_required_fields():
+def test_shim_plugin_dir_exists():
+    """The native OpenClaw plugin directory must exist at the repo root."""
+    assert SHIM_PLUGIN_DIR.is_dir(), (
+        f"shim plugin missing: {SHIM_PLUGIN_DIR} — see extensions/duckbot-memory/README.md"
+    )
+
+
+def test_shim_plugin_package_json_points_at_index_js():
     import json as _json
-    manifest = ROOT / "src" / "extensions" / "duckbot_brain" / "openclaw.plugin.json"
-    data = _json.loads(manifest.read_text())
-    assert data["id"] == "duckbot-brain"
+    pkg = SHIM_PLUGIN_DIR / "package.json"
+    assert pkg.is_file(), "package.json required for OpenClaw plugin loader"
+    data = _json.loads(pkg.read_text())
+    assert data["main"] == "index.js"
+    assert data.get("openclaw", {}).get("manifest") == "./openclaw.plugin.json"
+
+
+def test_shim_plugin_index_js_syntax_clean():
+    """index.js must parse — OpenClaw loads it via Node's require()."""
+    import subprocess as _sp
+    res = _sp.run(
+        ["node", "--check", str(SHIM_PLUGIN_DIR / "index.js")],
+        capture_output=True, text=True,
+    )
+    assert res.returncode == 0, f"index.js syntax error: {res.stderr}"
+
+
+def test_shim_manifest_required_fields():
+    """Manifest shape per openclaw/openclaw docs/plugins/manifest.md."""
+    import json as _json
+    assert SHIM_MANIFEST.is_file(), (
+        f"shim manifest missing: {SHIM_MANIFEST} — see extensions/duckbot-memory/README.md"
+    )
+    data = _json.loads(SHIM_MANIFEST.read_text())
+    assert data["id"] == "duckbot-memory"
     assert "name" in data
     assert "description" in data
     assert "configSchema" in data
-    assert "tools" in data
-    # v0.14.0: manifest must list all 12 tools (was 9 before the skill pipeline).
-    tool_names = {t["name"] for t in data["tools"]}
-    expected = {
-        "brain_wake_up", "brain_recall", "brain_recall_verbatim",
-        "brain_remember", "brain_reflect", "brain_stats",
-        "brain_fsrs_review", "brain_decay_status", "brain_search_verbatim",
-        "brain_skills_list", "brain_skills_suggest", "brain_skills_promote",
-    }
-    assert expected <= tool_names, f"manifest missing: {expected - tool_names}"
+    assert data["configSchema"]["type"] == "object"
+    assert "repoPath" in data["configSchema"]["required"]
 
 
-def test_openclaw_plugin_json_entry_point_matches_adapter():
-    """The manifest's entry + entryArgs should point at the adapter."""
+def test_shim_manifest_does_not_claim_python_entry():
+    """The fake manifest claimed `entry: python` which OpenClaw never
+    honored. The new manifest must NOT have an `entry` or `entryArgs`
+    field — OpenClaw plugins load via package.json#main."""
     import json as _json
-    manifest = ROOT / "src" / "extensions" / "duckbot_brain" / "openclaw.plugin.json"
-    data = _json.loads(manifest.read_text())
-    assert data["entry"] == "python"
-    assert "-m" in data["entryArgs"]
-    assert "src.extensions.duckbot_brain.adapter" in data["entryArgs"]
+    data = _json.loads(SHIM_MANIFEST.read_text())
+    assert "entry" not in data, (
+        "Manifest should NOT have an `entry` field — OpenClaw loads via "
+        "package.json#main, not via subprocess spawn from the manifest."
+    )
+    assert "entryArgs" not in data

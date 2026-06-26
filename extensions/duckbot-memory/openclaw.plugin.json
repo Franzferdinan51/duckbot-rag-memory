@@ -1,0 +1,47 @@
+{
+  "$schema": "https://openclaw.dev/schemas/plugin-manifest.json",
+  "id": "duckbot-memory",
+  "name": "DuckBot Memory",
+  "version": "0.1.0",
+  "description": "DuckBot RAG + memory brain. 64 MCP tools (brain_wake_up / brain_recall / brain_remember / brain_palace / brain_skills_* / ...) plus auto-firing session_start and session_end hooks. Pure Node.js shim over the existing Python MCP server (src/mcp_server.py).",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "pythonPath": {
+        "type": "string",
+        "description": "Absolute path to the Python interpreter inside the duckbot-rag-memory .venv. Defaults to '<repoRoot>/.venv/bin/python' on macOS/Linux or '<repoRoot>/.venv/Scripts/python.exe' on Windows."
+      },
+      "repoPath": {
+        "type": "string",
+        "description": "Absolute path to the duckbot-rag-memory repo root. The shim runs `python -m src.mcp_server` from this directory."
+      },
+      "defaultK": {
+        "type": "integer",
+        "default": 5,
+        "minimum": 1,
+        "maximum": 50,
+        "description": "Default top-K for brain_recall when the agent doesn't specify k."
+      },
+      "autoWakeUp": {
+        "type": "boolean",
+        "default": true,
+        "description": "If true, fire brain_wake_up automatically on every session_start and inject the result into the system prompt. Disable if you want to manage wake-up manually."
+      },
+      "autoSync": {
+        "type": "boolean",
+        "default": true,
+        "description": "If true, fire brain_sync on session_end to write the session's high-importance facts back to OpenClaw's MEMORY.md / USER.md / SOUL.md."
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "default": 15000,
+        "description": "Per-tool call timeout (ms). Tools that take longer (e.g. eval, reflect) will return an error so the agent loop doesn't stall."
+      }
+    },
+    "required": ["repoPath"]
+  }
+}

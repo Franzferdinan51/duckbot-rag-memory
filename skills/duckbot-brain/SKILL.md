@@ -162,20 +162,23 @@ agent is the author.
 
 The brain is reachable three ways — pick whichever fits your runtime:
 
-**1. As an OpenClaw extension (stdio JSON-RPC, 12 tools):**
+**1. As an OpenClaw native plugin (recommended for OpenClaw users — 64 tools + auto session hooks):**
 
 ```bash
 # Auto-install via the bootstrap script (recommended)
 ./scripts/openclaw-bootstrap.sh
 
-# Or manually: edit ~/.openclaw/openclaw.json and add under plugins.entries:
-#   "duckbot-brain": {
-#     "enabled": true,
-#     "config": { "repoPath": "$HOME/Desktop/duckbot-rag-memory" }
-#   }
+# This symlinks extensions/duckbot-memory/ into ~/.openclaw/extensions/
+# and prints the next step. The plugin is a pure Node.js shim — zero
+# npm deps — that spawns the Python MCP server and wires session_start /
+# session_end hooks so brain_wake_up fires automatically.
+
+# After bootstrap, activate:
+openclaw gateway restart
+openclaw plugins list | grep duckbot-memory    # should show "✓ installed"
 ```
 
-**2. As a symlinked skill (skill discovery):**
+**2. As a symlinked skill (skill discovery — already done by bootstrap):**
 
 ```bash
 mkdir -p ~/.openclaw/workspace/skills/duckbot-brain/
@@ -183,7 +186,7 @@ ln -sf ~/Desktop/duckbot-rag-memory/skills/duckbot-brain/SKILL.md \
   ~/.openclaw/workspace/skills/duckbot-brain/SKILL.md
 ```
 
-**3. As the canonical MCP server (64 tools, full surface):**
+**3. As the canonical MCP server (for Hermes, Claude Code, Cursor, Codex, or any MCP client):**
 
 ```bash
 hermes mcp add duckbot-memory \

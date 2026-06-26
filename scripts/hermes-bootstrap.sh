@@ -80,6 +80,71 @@ if [ -f "$PLUGIN_SRC_INIT" ]; then
         echo "✓ Plugin installed: $HERMES_PLUGINS_DIR/"
 fi
 
+# Activate the plugin in ~/.hermes/config.yaml. Without this, Hermes
+# never instantiates the provider — the plugin files are on disk but
+# the agent never sees them. Idempotent: re-running on a config that
+# already has memory.provider: duckbot-brain is a no-op.
+HERMES_ROOT_DIR="${HERMES_HOME%/memories}"
+HERMES_CONFIG="$HERMES_ROOT_DIR/config.yaml"
+if [ -f "$HERMES_CONFIG" ]; then
+    if grep -qE '^[[:space:]]*provider:[[:space:]]*duckbot-brain' "$HERMES_CONFIG" 2>/dev/null; then
+        echo "✓ memory.provider: duckbot-brain already set in $HERMES_CONFIG"
+    else
+        # Back up before mutating.
+        BACKUP="$HERMES_CONFIG.bak.$(date +%Y%m%d-%H%M%S)"
+        cp "$HERMES_CONFIG" "$BACKUP"
+        echo "  Backed up: $BACKUP"
+        if grep -qE '^[[:space:]]*memory:[[:space:]]*$' "$HERMES_CONFIG" 2>/dev/null; then
+            # `memory:` block exists but no provider set. Insert
+            # `provider: duckbot-brain` as the first child of that block,
+            # preserving comments and other keys. Pure awk — no Python
+            # import gymnastics.
+            TMP="$(mktemp)"
+            awk '
+                BEGIN { in_mem = 0; inserted = 0 }
+                {
+                    if (!inserted && match($0, /^[[:space:]]*memory:[[:space:]]*$/)) {
+                        print
+                        in_mem = 1
+                        next
+                    }
+                    if (in_mem && !inserted) {
+                        # Skip comments / blank lines under memory: —
+                        # they belong before our provider line.
+                        if ($0 ~ /^[[:space:]]*#/ || $0 ~ /^[[:space:]]*$/) {
+                            print
+                            next
+                        }
+                        # First real child — insert provider at same indent.
+                        match($0, /^[[:space:]]+/)
+                        indent = substr($0, RSTART, RLENGTH)
+                        print indent "provider: duckbot-brain"
+                        inserted = 1
+                        in_mem = 0
+                    }
+                    print
+                }
+                END {
+                    if (!inserted) {
+                        print ""
+                        print "memory:"
+                        print "  provider: duckbot-brain"
+                    }
+                }
+            ' "$HERMES_CONFIG" > "$TMP" && mv "$TMP" "$HERMES_CONFIG"
+        else
+            # No `memory:` block — append one at the end.
+            printf '\nmemory:\n  provider: duckbot-brain\n' >> "$HERMES_CONFIG"
+        fi
+        echo "✓ Activated plugin in $HERMES_CONFIG (memory.provider: duckbot-brain)"
+    fi
+else
+    echo "  ⚠ No config.yaml at $HERMES_CONFIG — create one and add:"
+    echo "      memory:"
+    echo "        provider: duckbot-brain"
+    echo "    (Hermes will pick up the plugin on next start.)"
+fi
+
 echo
 echo "Next: register the brain as an MCP server with Hermes:"
 echo
@@ -94,6 +159,15 @@ echo "    $REPO_ROOT/scripts/hermes-preflight.sh"
 echo
 echo "    And the post-flight hook to consolidate every session:"
 echo "    $REPO_ROOT/scripts/hermes-postflight.sh"
+
+# Verify the plugin can be imported + instantiated.
+echo
+echo "→ Verifying plugin loads..."
+if "$PY" -c "import sys; sys.path.insert(0, '$HERMES_ROOT_DIR'); from plugins.memory.duckbot_brain import DuckBotBrainProvider; print('✓ Plugin loads:', DuckBotBrainProvider().name, '(is_available =', DuckBotBrainProvider().is_available(), ')')" 2>&1; then
+    :
+else
+    echo "  ⚠ Plugin import failed — check the Python path above" >&2
+fi
 
 # 4. Install the pre-commit secret-scan hook (defense in depth: catches
 #    accidental .env / API key commits).

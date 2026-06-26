@@ -1,6 +1,55 @@
 # Changelog
 
-## v0.15.0 — Skill pipeline maturity + eval trends + ingest safety
+## Unreleased — v0.15.0 — Native OpenClaw plugin + Hermes auto-activation
+
+### Added
+
+- **Native OpenClaw plugin** (`extensions/duckbot-memory/`) — pure
+  Node.js shim (zero npm dependencies) that spawns the Python MCP
+  server as a subprocess and proxies 64 tools + `session_start` /
+  `session_end` hooks into OpenClaw's plugin runtime. Replaces the
+  previous `src/extensions/duckbot_brain/openclaw.plugin.json` which
+  claimed Python support that OpenClaw never honored (OpenClaw plugins
+  run in-process in the Node gateway and can't load Python). The shim
+  pattern matches `openclaw/openclaw/extensions/voice-call/` (which
+  uses `child_process.spawn` + JSON-RPC over stdio) and uses the
+  real `openclaw.plugin.json` schema per `docs/plugins/manifest.md`.
+  See `extensions/duckbot-memory/README.md` for install + config.
+- **Hermes plugin auto-activation** (`scripts/hermes-bootstrap.sh`) —
+  after copying the plugin files into `~/.hermes/plugins/memory/duckbot_brain/`,
+  the bootstrap now backs up `~/.hermes/config.yaml` and appends
+  `memory.provider: duckbot-brain` (with backup) so the plugin is
+  actually activated. Idempotent — re-running is a no-op.
+- **Plugin discovery + activation tests**
+  (`tests/test_hermes_plugin_discovery.py`, 9 tests) — verify
+  `register(ctx)`, fallback paths, `is_available()` purity,
+  `plugin.yaml` shape, and that the bootstrap script actually writes
+  the activation line.
+- **Shim unit tests** (`extensions/duckbot-memory/test/shim.test.js`,
+  12 tests, `node --test`) — verify `StdioJsonRpc` framing
+  (Content-Length + newline-delimited fallback), error response
+  handling, exit cleanup, timeout, stderr forwarding, server-initiated
+  notifications, and that `register()` correctly wires spawn + 64
+  tools + session hooks via a mocked `child_process.spawn`.
+
+### Fixed
+
+- **OpenClaw plugin claim** — `src/extensions/duckbot_brain/openclaw.plugin.json`
+  claimed `entry: "python"` + `entryArgs: ["-m", "src.extensions.duckbot_brain.adapter"]`
+  but OpenClaw plugins can't load Python. Deleted; the directory now
+  contains the generic JSON-RPC MCP client adapter used by Claude
+  Code / Cursor / Codex / mcporter (its docstring updated to reflect
+  that). The native OpenClaw plugin is the new Node.js shim at
+  `extensions/duckbot-memory/`.
+
+### Test surface
+
+- 748 Python tests passing (was 737)
+- 12 Node.js tests passing (new — shim unit tests)
+- 64 MCP tools (unchanged)
+- 12 shared-surface tools (unchanged)
+
+## v0.15.0 (earlier) — Skill pipeline maturity + eval trends + ingest safety
 
 ### Added
 

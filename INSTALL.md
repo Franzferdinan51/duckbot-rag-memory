@@ -68,7 +68,34 @@ Re-running is idempotent (content-hash dedup, no duplicates).
 
 ## 4. Register the brain as an MCP server
 
-### OpenClaw
+### OpenClaw — native plugin (recommended)
+
+The OpenClaw bootstrap script auto-installs a native Node.js plugin at
+`~/.openclaw/extensions/duckbot-memory/`. It spawns the existing Python
+MCP server as a subprocess and proxies all 64 tools + session_start /
+session_end hooks via JSON-RPC. Zero npm dependencies.
+
+```bash
+# Already done by the bootstrap script. Just restart the gateway:
+openclaw gateway restart
+openclaw plugins list | grep duckbot-memory    # should show "✓ installed"
+```
+
+The plugin auto-fires `brain_wake_up` on every `session_start` so the
+agent gets full context without being told to call it manually, and
+auto-fires `brain_sync` on every `session_end` so high-importance
+session facts get written back to OpenClaw's MEMORY.md / USER.md /
+SOUL.md.
+
+### OpenClaw — MCP server (fallback)
+
+If the native plugin doesn't suit your setup, register the MCP server
+directly:
+
+```bash
+hermes mcp add duckbot-memory \
+  --command "$HOME/duckbot-rag-memory/scripts/duckbot-memory-mcp.sh"
+```
 
 Edit `~/.openclaw/openclaw.json` and add under `mcp.servers`:
 
@@ -81,17 +108,25 @@ Edit `~/.openclaw/openclaw.json` and add under `mcp.servers`:
 }
 ```
 
-Or use the cross-platform helper:
-
-```bash
-hermes mcp add duckbot-memory \
-  --command "$HOME/duckbot-rag-memory/scripts/duckbot-memory-mcp.sh"
-# (on Windows: --command "C:\Users\you\duckbot-rag-memory\scripts\duckbot-memory-mcp.bat")
-```
-
 Restart OpenClaw / `mcporter list` should now show 64 tools.
 
-### Hermes Agent
+### Hermes Agent — MemoryProvider plugin (recommended)
+
+The Hermes bootstrap script copies `src/plugins/memory/duckbot_brain/`
+into `~/.hermes/plugins/memory/duckbot_brain/` and auto-writes
+`memory.provider: duckbot-brain` into `~/.hermes/config.yaml`. The
+plugin's `on_session_start` hook fires `brain_wake_up` automatically;
+`on_session_end` persists durable user rules into the procedural tier.
+
+```bash
+./scripts/hermes-bootstrap.sh
+grep duckbot-brain ~/.hermes/config.yaml    # memory.provider: duckbot-brain
+```
+
+### Hermes Agent — MCP server (fallback)
+
+If the MemoryProvider plugin doesn't suit your setup, register the MCP
+server directly:
 
 ```bash
 hermes mcp add duckbot-memory \

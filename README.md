@@ -349,10 +349,11 @@ duckbot-rag-memory/
 |   |                      # blocks + temporal graph + entity extraction
 |   |-- backends/         # chroma, lancedb, qdrant interfaces
 |   |-- connectors/       # OpenClaw (legacy + aliases), Active Memory, dreaming, learn
-|   |-- extensions/       # shared agent surface (12 tools) + OpenClaw adapter
+|   |-- extensions/       # shared agent surface (12 tools) + generic JSON-RPC adapter for Claude Code/Cursor/Codex
 |   `-- plugins/          # Hermes MemoryProvider plugin package
 |-- tests/                # pytest suite, currently 737 tests
 |-- benchmarks/           # golden retrieval evals
+|-- extensions/           # native OpenClaw plugin (Node.js shim → Python MCP server)
 |-- scripts/              # install, watcher, MCP launcher, query helpers,
 |                         #   hermes-preflight.sh, hermes-postflight.sh
 |-- skills/               # OpenClaw skill manifests and plugins

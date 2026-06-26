@@ -89,31 +89,43 @@ if [ -f "$SKILL_SRC" ]; then
     fi
 fi
 
+# Install the native OpenClaw plugin (extensions/duckbot-memory/) so
+# brain_wake_up auto-fires on session_start and brain_sync on session_end.
+# The plugin is a pure Node.js shim — zero npm deps — that spawns the
+# Python MCP server as a subprocess and proxies 64 tools + session hooks.
+# Idempotent: re-running replaces the symlink.
+OPENCLAW_PLUGINS_DIR="${OPENCLAW_HOME%/workspace}/extensions/duckbot-memory"
+PLUGIN_SRC="$REPO_ROOT/extensions/duckbot-memory"
+if [ -d "$PLUGIN_SRC" ]; then
+    mkdir -p "$(dirname "$OPENCLAW_PLUGINS_DIR")"
+    rm -rf "$OPENCLAW_PLUGINS_DIR" 2>/dev/null || true
+    if ln -sf "$PLUGIN_SRC" "$OPENCLAW_PLUGINS_DIR" 2>/dev/null; then
+        echo "✓ OpenClaw plugin symlinked: $OPENCLAW_PLUGINS_DIR → $PLUGIN_SRC"
+    else
+        # Fallback: copy (Windows mounts often reject symlinks).
+        cp -R "$PLUGIN_SRC" "$OPENCLAW_PLUGINS_DIR" && \
+            echo "✓ OpenClaw plugin copied: $OPENCLAW_PLUGINS_DIR"
+    fi
+    echo "  Active after: openclaw gateway restart"
+    echo "  Verify with:  openclaw plugins list | grep duckbot-memory"
+else
+    echo "  ⚠ Plugin source missing at $PLUGIN_SRC — skipping native install"
+fi
+
 echo
-echo "Next: register the brain as a memory provider with OpenClaw."
-echo "Two equivalent options — pick one:"
+echo "Next: restart the OpenClaw gateway so it loads the plugin."
+echo "    openclaw gateway restart"
 echo
-echo "  (A) Extension adapter (stdio JSON-RPC, 12-tool core agent surface):"
-echo "      Edit ~/.openclaw/openclaw.json and add under plugins.entries:"
-echo '      {'
-echo '        "duckbot-brain": {'
-echo '          "enabled": true,'
-echo "          \"config\": { \"repoPath\": \"$REPO_ROOT\" }"
-echo '        }'
-echo '      }'
+echo "What the plugin gives you:"
+echo "  ✓ 64 brain tools registered natively (brain_wake_up / brain_recall / ...)"
+echo "  ✓ session_start hook auto-fires brain_wake_up — context loads without"
+echo "    the agent having to remember to call it"
+echo "  ✓ session_end hook auto-fires brain_sync — high-importance facts"
+echo "    get written back to OpenClaw's MEMORY.md / USER.md / SOUL.md"
 echo
-echo "  (B) Canonical MCP server (64-tool full surface):"
-echo "      Edit ~/.openclaw/openclaw.json and add under mcp.servers:"
-echo '      {'
-echo '        "duckbot-brain": {'
-echo "          \"command\": \"$PY\","
-echo '          "args": ["-m", "src.mcp_server"]'
-echo '        }'
-echo '      }'
-echo
-echo "Then in OpenClaw, call brain_wake_up at session start to load"
-echo "the full corpus (memories + blocks + graph + FSRS review queue)"
-echo "in one call. See docs/PLUGIN_SURFACE.md for the full comparison."
+echo "Non-OpenClaw clients (Claude Code / Cursor / Codex) use the generic"
+echo "JSON-RPC adapter at src/extensions/duckbot_brain/adapter.py — see"
+echo "extensions/duckbot-memory/README.md for the per-client JSON snippet."
 
 # 4. Install the pre-commit secret-scan hook (defense in depth: catches
 #    accidental .env / API key commits).

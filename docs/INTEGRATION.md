@@ -6,13 +6,19 @@ OpenClaw, Claude Code, Codex, or anything else that speaks MCP stdio.
 ## TL;DR — for the impatient
 
 ```bash
-# macOS / Linux
+# OpenClaw: use the native Node.js plugin (zero deps, auto session hooks)
+./scripts/openclaw-bootstrap.sh
+openclaw gateway restart
+openclaw plugins list | grep duckbot-memory    # should show "✓ installed"
+
+# Hermes: use the MemoryProvider plugin (auto-wakes on session start)
+./scripts/hermes-bootstrap.sh
+grep duckbot-brain ~/.hermes/config.yaml       # memory.provider: duckbot-brain
+
+# Anything else (Claude Code / Cursor / Codex / mcporter): MCP server via launcher
 hermes mcp add duckbot-memory \
   --command "$HOME/Desktop/duckbot-rag-memory/scripts/duckbot-memory-mcp.sh"
-
-# Windows
-hermes mcp add duckbot-memory ^
-  --command "C:\Users\franz\Desktop\duckbot-rag-memory\scripts\duckbot-memory-mcp.bat"
+# Windows: --command "C:\Users\franz\Desktop\duckbot-rag-memory\scripts\duckbot-memory-mcp.bat"
 ```
 
 The launcher reads your `.env` so the LMSTUDIO_API_KEY stays out of hermes config

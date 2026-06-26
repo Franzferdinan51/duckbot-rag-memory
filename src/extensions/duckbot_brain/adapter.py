@@ -1,17 +1,27 @@
-"""OpenClaw extension adapter for the DuckBot brain.
+"""Generic JSON-RPC MCP adapter for the DuckBot brain.
 
-Speaks JSON-RPC over stdio so OpenClaw (or any MCP-compatible client)
-can drive the brain as a memory provider.
+Speaks JSON-RPC over stdio so any MCP-compatible client can drive the
+brain as a memory provider. Used by:
+  - Claude Code (`~/.claude.json` mcp_servers entry)
+  - Cursor (`~/.cursor/mcp.json`)
+  - Codex CLI (`~/.codex/mcp.json`)
+  - mcporter
+  - Any other MCP client that takes a command + args + env config
 
-This is the Python sibling of the Hermes plugin at
-src/plugins/memory/duckbot_brain/__init__.py — both delegate to the
-shared tool surface at `src.extensions.tools` so they advertise the
-same 12 tools (incl. `brain_wake_up`, the canonical session-start call).
+This is NOT an OpenClaw native plugin — OpenClaw plugins run in-process
+inside the Node gateway and can't load Python. OpenClaw users should
+install the Node.js shim at `extensions/duckbot-memory/` instead, which
+spawns the Python MCP server (`src/mcp_server.py`) as a subprocess.
+
+The 12 tools exposed here delegate to the shared surface at
+`src.extensions.tools`, so an agent author can rely on the same tool
+names regardless of which platform they're on. The full 64-tool surface
+is available via `python -m src.mcp_server` for admin / CLI use.
 
 Pattern sources:
-  - OpenClaw active-memory extension (extensions/active-memory/index.ts)
-    https://github.com/openclaw/openclaw/blob/main/extensions/active-memory/
-  - mcporter's stdio JSON-RPC adapter pattern
+  - MCP spec (Model Context Protocol, Content-Length framed JSON-RPC)
+  - OpenClaw active-memory extension (TypeScript, MIT) — for naming
+    conventions, even though we run as a separate process.
 """
 
 # MIT License — see LICENSE in the repository root.
