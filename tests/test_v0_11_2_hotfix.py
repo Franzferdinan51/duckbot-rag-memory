@@ -206,6 +206,11 @@ class TestEmbedCache:
 # ---------------------------------------------------------------------------
 
 class TestTokenBucket:
+    def test_constructs_without_running_loop(self):
+        """_TokenBucket() should not require an active event loop."""
+        b = _TokenBucket(rate_per_min=60, capacity=60)
+        assert b._lock is None
+
     @pytest.mark.asyncio
     async def test_initial_burst_allows_capacity_tokens(self):
         b = _TokenBucket(rate_per_min=60, capacity=60)
