@@ -211,10 +211,11 @@ pwsh scripts/install.ps1     # Windows Task Scheduler
 | `LMSTUDIO_URL` | `http://127.0.0.1:1234/v1` | LM Studio endpoint |
 | `LMSTUDIO_API_KEY` | `lm-studio` | LM Studio bearer token |
 | `LMSTUDIO_MODEL` | `text-embedding-embeddinggemma-300m` | Embedding model id |
+| `LMSTUDIO_RERANK_MODEL` | `qwen3-reranker-0.6b` | Reranker model id used when `DUCKBOT_RERANK=1` |
 | `MINIMAX_API_KEY` | (none) | MiniMax bearer token (if using MiniMax) |
 | `OPENAI_API_KEY` | (none) | OpenAI bearer token (if using OpenAI) |
 | `DUCKBOT_FSRS_W20` | `0.9` | FSRS-6 forgetting-curve exponent. Tune per deployment. |
-| `DUCKBOT_RERANK` | `0` | Set to `1` to enable cross-encoder rerank (needs `sentence-transformers`). |
+| `DUCKBOT_RERANK` | `0` | Set to `1` to enable cross-encoder rerank (LM Studio Qwen3 reranker or `sentence-transformers`). |
 | `DUCKBOT_DECAY` | `0` | Set to `1` to enable Ebbinghaus decay weighting in recall. |
 | `DUCKBOT_TIER_PRIORS` | `0` | Set to `1` to enable per-tier recall priors. |
 | `DUCKBOT_FSRS` | `0` | Set to `1` to enable FSRS retention in recall. |
@@ -233,7 +234,7 @@ pwsh scripts/install.ps1     # Windows Task Scheduler
 | `doctor` reports no embedding provider | Set `DUCKBOT_EMBEDDING` + the corresponding API key/url. |
 | MCP server starts but tools fail with "Event loop is closed" | You're inside another event loop; restart the host (OpenClaw / Hermes). |
 | Recall returns nothing | The brain was bootstrapped into a different `data/` directory. Check `pwd` of the MCP server. |
-| Cross-encoder rerank times out | Reduce `--max-rank` to keep the rerank set small (< 20). |
+| Cross-encoder rerank times out | Keep `k` small for recall or disable rerank for that query; the reranker scores the current top results only. |
 | FSRS review queue is empty | Means no chunks have `fsrs_stability_days` or `fsrs_last_review_ts` metadata. Re-ingest or run `optimize-fsrs` to populate. |
 | Bootstrap script says "no .md files" | Wrong workspace path; set `OPENCLAW_HOME` or `HERMES_HOME` env var. |
 

@@ -111,7 +111,7 @@ Pattern from Cognee + LangChain + Haystack:
 1. Vector search on dense embeddings
 2. BM25 / keyword search on chunk text
 3. Reciprocal Rank Fusion (RRF) to combine
-4. Optional cross-encoder rerank (Cohere, Jina, or local `bge-reranker`)
+4. Optional cross-encoder rerank (Cohere, Jina, or local `qwen3-reranker`)
 5. Top-K
 
 We skip reranker for v0.1 — RRF alone is good enough at our scale.
@@ -177,7 +177,7 @@ Survey done by OpenClaw on Duckets' instruction: "enhance and upgrade the memory
   scores = reranker.predict([(query, doc) for doc in candidates])
   ranked = sorted(zip(candidates, scores), key=lambda x: -x[1])[:top_k]
   ```
-- **Plug point:** `src/query.py` Phase 6 (after RRF fusion, before truncation). The `maybe_rerank()` function picks the backend automatically — LM Studio via `/v1/score` if available, else `sentence-transformers.CrossEncoder` if installed, else no-op.
+- **Plug point:** `src/query.py` Phase 6 (after RRF fusion, before truncation). The `maybe_rerank()` function picks the backend automatically — LM Studio via `/v1/rerank` if available, else `sentence-transformers.CrossEncoder` if installed, else no-op.
 
 #### Layer 8 candidate: Ebbinghaus-style memory decay
 - **Source:** The math is from Hermann Ebbinghaus, *Memory: A Contribution to Experimental Psychology* (1885). Public domain.

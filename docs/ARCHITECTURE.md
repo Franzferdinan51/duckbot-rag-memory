@@ -80,7 +80,7 @@ For each query:
 
 Why RRF: it doesn't require score normalization (vector cosine distance and BM25 hits aren't on the same scale). It just uses ranks, which are scale-invariant.
 
-**Future:** add a cross-encoder rerank pass (Cohere, Jina, or local `bge-reranker`) before returning final results. Skipped for v0.1 — RRF alone is good enough at our scale.
+**Future:** add a cross-encoder rerank pass (Cohere, Jina, or local `qwen3-reranker`) before returning final results. Skipped for v0.1 — RRF alone is good enough at our scale.
 
 ## Consolidation: episodic -> semantic
 

@@ -5,7 +5,7 @@ Pattern from Cognee + LangChain hybrid retriever:
   1. Vector search (semantic similarity)
   2. BM25/keyword search (lexical match)
   3. Reciprocal Rank Fusion: combine ranks, not raw scores
-  4. Optional rerank pass (LM Studio /score or sentence-transformers
+  4. Optional rerank pass (LM Studio /rerank or sentence-transformers
      CrossEncoder; opt-in via `rerank=True` or `DUCKBOT_RERANK=1`)
 
 RRF formula: score(d) = Σ 1/(k + rank_i(d)) for each retriever i.
