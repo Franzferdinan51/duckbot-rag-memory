@@ -445,6 +445,220 @@ def _validate_tier(args: dict, tool_name: str) -> dict | None:
     return None
 
 
+    {
+        "name": "brain_wake_up",
+        "description": "One-call session-start context load: recent memories + active blocks + graph summary + FSRS queue + stats.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "optional anchor query"},
+                "k": {"type": "integer", "default": 8},
+                "include_blocks": {"type": "boolean", "default": True},
+                "include_graph": {"type": "boolean", "default": True},
+                "include_fsrs_review": {"type": "boolean", "default": True},
+            },
+        },
+    },
+    {
+        "name": "brain_inflate",
+        "description": "Recall relevant memories and format them as a markdown context block for direct agent injection.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "k": {"type": "integer", "default": 10},
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+                "min_importance": {"type": "number", "default": 0.3},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "brain_nudge",
+        "description": "Proactive memory nudge: surface stale-but-important memories the agent might be forgetting.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "context": {"type": "string", "description": "optional current focus"},
+                "k": {"type": "integer", "default": 5},
+                "min_importance": {"type": "number", "default": 0.6},
+                "stale_days": {"type": "integer", "default": 7},
+            },
+        },
+    },
+    {
+        "name": "brain_palace",
+        "description": "Wing/Room/Drawer 2D view of the brain. No args: list wings. With --wing: walk that wing.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "wing": {"type": "string"},
+                "room": {"type": "string"},
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+            },
+        },
+    },
+    {
+        "name": "brain_user_model",
+        "description": "Aggregate user-related facts into a single 'user' memory block. Honcho-inspired.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "block_name": {"type": "string", "default": "user"},
+                "min_importance": {"type": "number", "default": 0.5},
+                "max_facts": {"type": "integer", "default": 30},
+                "k_per_query": {"type": "integer", "default": 50},
+            },
+        },
+    },
+    {
+        "name": "brain_export",
+        "description": "Export the brain to a markdown file (per-tier sections with metadata). Idempotent.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "out_path": {"type": "string"},
+                "include_superseded": {"type": "boolean", "default": False},
+            },
+            "required": ["out_path"],
+        },
+    },
+    {
+        "name": "brain_import",
+        "description": "Import a markdown export file into the brain. Auto-detects tier from section headings.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "in_path": {"type": "string"},
+                "source_path": {"type": "string"},
+            },
+            "required": ["in_path"],
+        },
+    },
+    {
+        "name": "brain_index",
+        "description": "Compact whole-corpus summary using the AAAK dialect. LLM scans in <500 tokens, picks entries to expand.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
+                "max_chunks": {"type": "integer", "default": 5000},
+                "preview_chars": {"type": "integer", "default": 80},
+            },
+        },
+    },
+    {
+        "name": "brain_sync",
+        "description": "Sync stored memories to OpenClaw/Hermes context files (MEMORY.md, USER.md, SOUL.md).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "enum": ["openclaw", "hermes", "both"], "default": "both"},
+                "memory_k": {"type": "integer", "default": 20},
+                "user_k": {"type": "integer", "default": 5},
+                "dry_run": {"type": "boolean", "default": False},
+            },
+        },
+    },
+    {
+        "name": "brain_skill_create",
+        "description": "Auto-generate an agentskills.io SKILL.md from a task description + instructions. Writes skills/<slug>/SKILL.md.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "instructions": {"type": "array", "items": {"type": "string"}},
+                "example": {"type": "string"},
+                "emoji": {"type": "string"},
+                "overwrite": {"type": "boolean", "default": False},
+            },
+            "required": ["name", "description", "instructions"],
+        },
+    },
+    {
+        "name": "brain_skills_list",
+        "description": "List unpromoted skill-candidate chunks. Agent reads these and decides which to promote.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "include_promoted": {"type": "boolean", "default": False},
+                "k": {"type": "integer", "default": 50},
+            },
+        },
+    },
+    {
+        "name": "brain_skills_promote",
+        "description": "Promote a skill candidate to a full SKILL.md. AGENT authors the content (name/description/instructions or instructions_markdown). Pure template, no LLM.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chunk_id": {"type": "string"},
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+                "instructions": {"type": "array", "items": {"type": "string"}},
+                "instructions_markdown": {"type": "string"},
+                "example": {"type": "string"},
+                "emoji": {"type": "string"},
+                "overwrite": {"type": "boolean", "default": False},
+            },
+            "required": ["chunk_id", "name", "description"],
+        },
+    },
+    {
+        "name": "brain_skills_suggest",
+        "description": "Semantic top-N skill candidates matching a query (agent-driven pipeline). No LLM.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "k": {"type": "integer", "default": 5},
+            },
+            "required": ["query"],
+        },
+    },
+    # v0.15.0: skills-aware brain tools (all delegate to the canonical MCP
+    # handlers so the connector and the MCP server stay in lock-step).
+    {
+        "name": "brain_apply_fsrs_w20",
+        "description": "Apply a chosen w20 (persists via DUCKBOT_FSRS_W20 env var). Run after optimize-fsrs picks a value.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "w20": {"type": "number"},
+            },
+            "required": ["w20"],
+        },
+    },
+    {
+        "name": "brain_fsrs_optimize_apply",
+        "description": "Optimize then auto-apply if the new w20 is better than the baseline.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "default_w20": {"type": "number", "default": 0.9},
+                "w20_lo": {"type": "number", "default": 0.1},
+                "w20_hi": {"type": "number", "default": 1.5},
+                "w20_step": {"type": "number", "default": 0.05},
+                "min_improvement_pct": {"type": "number", "default": 1.0},
+            },
+        },
+    },
+    {
+        "name": "brain_optimize_fsrs",
+        "description": "Self-tune the FSRS-6 forgetting-curve exponent. Returns proposed w20 + sweep.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "default_w20": {"type": "number", "default": 0.9},
+                "w20_lo": {"type": "number", "default": 0.1},
+                "w20_hi": {"type": "number", "default": 1.5},
+                "w20_step": {"type": "number", "default": 0.05},
+            },
+        },
+    },
+
+
 def handle(tool_name: str, args: dict) -> dict:
     """
     Dispatch a single MCP tool call to the Brain facade.
@@ -668,6 +882,35 @@ def handle(tool_name: str, args: dict) -> dict:
                 tool=args["tool"],
                 args=args.get("args", {}),
             )
+
+        # v0.15.0: delegate newer MCP tools to their canonical handlers.
+        # The connector is a subset of the MCP surface; rather than
+        # duplicating logic, route these to src.mcp_server.handle_*.
+        import asyncio as _asyncio
+        from src import mcp_server as _mcp
+        _delegated = {
+            "brain_wake_up": _mcp.handle_brain_wake_up,
+            "brain_inflate": _mcp.handle_brain_inflate,
+            "brain_nudge": _mcp.handle_brain_nudge,
+            "brain_palace": _mcp.handle_brain_palace,
+            "brain_user_model": _mcp.handle_brain_user_model,
+            "brain_export": _mcp.handle_brain_export,
+            "brain_import": _mcp.handle_brain_import,
+            "brain_index": _mcp.handle_brain_index,
+            "brain_sync": _mcp.handle_brain_sync,
+            "brain_skill_create": _mcp.handle_brain_skill_create,
+            "brain_skills_list": _mcp.handle_brain_skills_list,
+            "brain_skills_promote": _mcp.handle_brain_skills_promote,
+            "brain_skills_suggest": _mcp.handle_brain_skills_suggest,
+            "brain_apply_fsrs_w20": _mcp.handle_brain_apply_fsrs_w20,
+            "brain_fsrs_optimize_apply": _mcp.handle_brain_fsrs_optimize_apply,
+            "brain_optimize_fsrs": _mcp.handle_brain_optimize_fsrs,
+        }
+        if tool_name in _delegated:
+            try:
+                return _asyncio.run(_delegated[tool_name](args))
+            except Exception as exc:
+                return {"error": f"{type(exc).__name__}: {exc}", "tool": tool_name}
 
         return {"error": f"unknown tool: {tool_name}"}
     except Exception as e:
