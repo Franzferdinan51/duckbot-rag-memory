@@ -683,9 +683,10 @@ def _daemon_posix(paths: list[str], args) -> int:
     except Exception:
         pass
     try:
-        # os.devnull is /dev/null on POSIX and nul on Windows
-        dn = open(os.devnull, "r")
-        os.dup2(dn.fileno(), 0)
+        # os.devnull is /dev/null on POSIX and nul on Windows.
+        # dup2 makes the fd copy permanent; close the original handle.
+        with open(os.devnull, "r") as dn:
+            os.dup2(dn.fileno(), 0)
     except Exception:
         pass
 
