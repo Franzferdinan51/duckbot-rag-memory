@@ -31,9 +31,9 @@ Activation: opt-in via env var `DUCKBOT_RERANK=1` or per-call argument.
 Default OFF — keeps current RRF behavior identical for callers that
 don't ask for it.
 
-Cost: a 278M-param cross-encoder on M-series Mac takes ~50-100ms per
-batch of 32 (query, doc) pairs. Negligible vs the 200ms vector + BM25
-already in the hot path.
+Cost: the Qwen3 reranker default is still local and modest-sized; on an
+M-series Mac it typically lands in the same sub-200ms/query bucket as
+the vector + BM25 hot path, depending on batch size and hardware.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ DEFAULT_RERANK_MODEL = os.environ.get(
 MAX_DOC_CHARS = 1500
 
 # Max query/doc pair batch size for predict(). 32 fits comfortably in
-# ~2GB RAM for a 278M cross-encoder.
+# memory for the default local reranker on typical developer hardware.
 DEFAULT_BATCH_SIZE = 32
 
 
@@ -145,7 +145,8 @@ class SentenceTransformersBackend:
         pairs = [(query, d) for d in truncated]
         # predict() returns a numpy array of floats.
         raw = self.model.predict(pairs, batch_size=DEFAULT_BATCH_SIZE, show_progress_bar=False)
-        # BGE rerankers output logits (can be negative). Sigmoid to 0..1.
+        # Cross-encoder rerankers often output logits (can be negative).
+        # Sigmoid to 0..1 for a stable score scale.
         try:
             import math
 

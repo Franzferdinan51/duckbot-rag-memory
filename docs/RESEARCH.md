@@ -169,7 +169,7 @@ Survey done by OpenClaw on Duckets' instruction: "enhance and upgrade the memory
 - **Why:** The biggest single recall win we can add. **Already wired** in `src/rerank.py` (`CrossEncoder` + `LMStudioBackend`) with a plug point in `src/query.py` Phase 6.
 - **Status:** Plug point is live; opt-in via `rerank=True` kwarg or `DUCKBOT_RERANK=1` env var. Default OFF because cross-encoder adds ~50–200ms per query depending on model size.
 - **Cost:** Free, runs locally. `pip install sentence-transformers` is Apache-2.0.
-- **Risk:** Low. The model is small (278M params), inference is fast on M-series.
+- **Risk:** Low. The default reranker is compact enough for local use, and inference is fast on M-series.
 - **Pattern (from sentence-transformers docs):**
   ```python
   from sentence_transformers import CrossEncoder
