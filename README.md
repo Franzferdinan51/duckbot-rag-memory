@@ -2,8 +2,8 @@
 
 Persistent, searchable memory that dramatically expands the limited default memory of OpenClaw and Hermes Agent. Drop-in replacement for the flat chat-history buffers both agents ship with — adds a 4-tier CoALA memory model, hybrid retrieval, entity graph, verbatim recall, FSRS-6 spaced repetition, dreaming consolidation, and a Wing/Room/Drawer 2D hierarchy on top.
 
-[![Status](https://img.shields.io/badge/latest_changelog-0.15.0-yellow)]()
-[![MCP](https://img.shields.io/badge/MCP_server-0.15.0-green)]()
+[![Status](https://img.shields.io/badge/latest_changelog-0.15.1-yellow)]()
+[![MCP](https://img.shields.io/badge/MCP_server-0.15.1-green)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 [![CI](https://github.com/Franzferdinan51/duckbot-rag-memory/actions/workflows/ci.yml/badge.svg)]()
 
@@ -58,7 +58,7 @@ The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs,
 - **Proactive memory nudges:** surface stale-but-important memories before they're forgotten, via `brain_nudge` MCP tool.
 - **Local-first embeddings:** LM Studio works well locally; MiniMax, OpenAI, and sentence-transformers are also supported.
 - **Watcher daemon:** polls markdown sources every five minutes by default and dedups unchanged content by hash.
-- **MCP stdio server:** 64 tools for recall, remember, reflect, graph, blocks, dreaming, learning, quarantine, sync, wake-up, palace, index, nudge, skillgen, user modeling, agent-driven skill pipeline, export/import, and demo seeding.
+- **MCP stdio server:** 66 tools for recall, remember, reflect, graph, blocks, dreaming, learning, quarantine, sync, wake-up, palace, index, nudge, skillgen, user modeling, agent-driven skill pipeline, export/import, and demo seeding.
 - **Shell wrappers:** `scripts/duckbot-ask`, `scripts/brain-recall.sh`, `scripts/hermes-preflight.sh`, `scripts/hermes-postflight.sh`, and the one-command bootstraps `scripts/openclaw-bootstrap.sh` / `scripts/hermes-bootstrap.sh` for first-time setup.
 
 > If you (or an agent) just want to install this without reading the README, see [INSTALL.md](INSTALL.md) for a single-page copy-paste recipe (prereqs → install → bootstrap → register MCP → cron).
@@ -208,14 +208,14 @@ hermes mcp add duckbot-memory `
 
 Prefer the launcher scripts over passing env vars directly to MCP config. They load `.env` at process start, set unbuffered output, and choose the correct venv path per OS.
 
-The current MCP server exposes 64 tools:
+The current MCP server exposes 66 tools:
 
 | Area | Tools |
 | --- | --- |
 | Core memory | `remember`, `recall`, `reflect`, `forget`, `stats`, `watch`, `doctor` |
 | Retrieval maintenance | `recall_verbatim`, `search_verbatim`, `fsrs_review`, `decay_status`, `forget_by_query` |
 | Enhanced brain | `brain_wake_up`, `brain_inflate`, `brain_sync`, `brain_recall`, `brain_remember`, `brain_reflect`, `brain_stats`, `brain_index`, `brain_nudge`, `brain_skill_create`, `brain_skills_list`, `brain_skills_suggest`, `brain_skills_promote`, `brain_user_model`, `brain_palace`, `brain_optimize_fsrs`, `brain_apply_fsrs_w20`, `brain_export`, `brain_import`, `brain_seed_demo` |
-| Graph | `brain_graph_entity`, `brain_graph_relate`, `brain_graph_query`, `brain_graph_relationships`, `brain_graph_history` |
+| Graph | `brain_graph_entity`, `brain_graph_relate`, `brain_graph_query`, `brain_graph_relationships`, `brain_graph_history`, `brain_graph_precursors`, `brain_graph_blind_spots` |
 | Blocks | `brain_block_read`, `brain_block_write`, `brain_block_append`, `brain_block_delete`, `brain_block_list`, `brain_seed_blocks` |
 | Safety | `brain_injection_scan`, `brain_quarantine_list`, `brain_quarantine_review` |
 | Connectors | `dreaming_read`, `dreaming_cycle`, `learn`, `active_memory`, plus `brain_*` aliases |
@@ -347,7 +347,7 @@ duckbot-rag-memory/
 |   |-- memory.py         # unified Memory facade
 |   |-- query.py          # hybrid retrieval + RRF + keyword/temporal boost
 |   |-- consolidate.py    # episodic -> semantic distillation
-|   |-- mcp_server.py     # MCP stdio server (64 tools)
+|   |-- mcp_server.py     # MCP stdio server (66 tools)
 |   |-- watcher.py        # polling watcher daemon
 |   |-- cli.py            # command-line interface
 |   |-- dialect.py        # AAAK compression dialect (brain_index)
@@ -362,7 +362,7 @@ duckbot-rag-memory/
 |   |-- connectors/       # OpenClaw (legacy + aliases), Active Memory, dreaming, learn
 |   |-- extensions/       # shared agent surface (12 tools) + generic JSON-RPC adapter for Claude Code/Cursor/Codex
 |   `-- plugins/          # Hermes MemoryProvider plugin package
-|-- tests/                # pytest suite, currently 737 tests
+|-- tests/                # pytest suite, currently 849 tests
 |-- benchmarks/           # golden retrieval evals
 |-- extensions/           # native OpenClaw plugin (Node.js shim → Python MCP server)
 |-- scripts/              # install, watcher, MCP launcher, query helpers,
@@ -409,7 +409,7 @@ pytest --collect-only -q
 bash scripts/secret-scan.sh
 ```
 
-Current local check: **737 tests passing**. The suite is exercised in CI on every push.
+Current local check: **849 tests passing**. The suite is exercised in CI on every push.
 
 Eval trend detection (`compute_trend`) reads `data/eval_history.jsonl` and reports recent-vs-prior deltas on `mean_recall_at_5`, `mean_mrr`, and `p95_latency`. `python -m src.cli eval benchmarks/golden.jsonl` prints the trend alongside the summary.
 
