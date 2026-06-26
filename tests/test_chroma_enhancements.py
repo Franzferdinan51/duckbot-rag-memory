@@ -172,6 +172,131 @@ def test_cli_compact_uses_chroma_backend(monkeypatch):
     assert rc == 1
 
 
+def test_cli_compact_handles_bad_batch_env(monkeypatch, tmp_path):
+    """compact() should fall back to 32 when the batch env is garbage."""
+    from src.cli import cmd_compact
+
+    class FakeCollection:
+        def __init__(self):
+            self.upsert_batches: list[int] = []
+            self._rows = {
+                "dup": {"document": "old dup", "metadata": {"ingested_at": 1}},
+                "keep1": {"document": "keep1", "metadata": {"ingested_at": 10}},
+                "keep2": {"document": "keep2", "metadata": {"ingested_at": 20}},
+                "keep3": {"document": "keep3", "metadata": {"ingested_at": 30}},
+            }
+
+        def get(self, ids=None, include=None):
+            if ids is None:
+                return {
+                    "ids": ["dup", "dup", "keep1", "keep2", "keep3"],
+                    "documents": ["old dup", "new dup", "keep1", "keep2", "keep3"],
+                    "embeddings": [[0.0], [1.0], [2.0], [3.0], [4.0]],
+                    "metadatas": [
+                        {"ingested_at": 1},
+                        {"ingested_at": 2},
+                        {"ingested_at": 10},
+                        {"ingested_at": 20},
+                        {"ingested_at": 30},
+                    ],
+                }
+            ids = list(ids)
+            return {
+                "ids": ids,
+                "documents": [self._rows[i]["document"] for i in ids],
+                "embeddings": [[float(idx)] for idx, _ in enumerate(ids)],
+                "metadatas": [self._rows[i]["metadata"] for i in ids],
+            }
+
+        def upsert(self, *, ids, documents, embeddings, metadatas):
+            self.upsert_batches.append(len(ids))
+
+    class FakeBackend:
+        name = "chroma"
+        supported_tiers = ["semantic"]
+        persist_dir = tmp_path / "persist"
+
+        def __init__(self):
+            self._client = object()
+            self._coll = FakeCollection()
+
+        def collection_for(self, tier):
+            return self._coll
+
+    holder = {}
+
+    class FakeStore:
+        def __init__(self):
+            self.backend = FakeBackend()
+            holder["store"] = self
+
+    monkeypatch.setattr("src.store.MemoryStore", lambda *a, **kw: FakeStore())
+    monkeypatch.setenv("DUCKBOT_CHROMA_UPSERT_BATCH", "not-a-number")
+    rc = cmd_compact(None)
+    assert rc == 0
+    assert holder["store"].backend._coll.upsert_batches == [4]
+
+
+def test_cli_compact_batches_reupserts(monkeypatch, tmp_path):
+    """compact() should split large re-upserts into multiple calls."""
+    from src.cli import cmd_compact
+
+    class FakeCollection:
+        def __init__(self):
+            self.upsert_batches: list[int] = []
+
+        def get(self, ids=None, include=None):
+            if ids is None:
+                return {
+                    "ids": ["dup", "dup", "keep1", "keep2", "keep3", "keep4"],
+                    "documents": ["old dup", "new dup", "keep1", "keep2", "keep3", "keep4"],
+                    "embeddings": [[0.0], [1.0], [2.0], [3.0], [4.0], [5.0]],
+                    "metadatas": [
+                        {"ingested_at": 1},
+                        {"ingested_at": 2},
+                        {"ingested_at": 10},
+                        {"ingested_at": 20},
+                        {"ingested_at": 30},
+                        {"ingested_at": 40},
+                    ],
+                }
+            ids = list(ids)
+            return {
+                "ids": ids,
+                "documents": [f"doc:{i}" for i in ids],
+                "embeddings": [[float(idx)] for idx, _ in enumerate(ids)],
+                "metadatas": [{"ingested_at": idx} for idx, _ in enumerate(ids)],
+            }
+
+        def upsert(self, *, ids, documents, embeddings, metadatas):
+            self.upsert_batches.append(len(ids))
+
+    class FakeBackend:
+        name = "chroma"
+        supported_tiers = ["semantic"]
+        persist_dir = tmp_path / "persist"
+
+        def __init__(self):
+            self._client = object()
+            self._coll = FakeCollection()
+
+        def collection_for(self, tier):
+            return self._coll
+
+    holder = {}
+
+    class FakeStore:
+        def __init__(self):
+            self.backend = FakeBackend()
+            holder["store"] = self
+
+    monkeypatch.setattr("src.store.MemoryStore", lambda *a, **kw: FakeStore())
+    monkeypatch.setenv("DUCKBOT_CHROMA_UPSERT_BATCH", "2")
+    rc = cmd_compact(None)
+    assert rc == 0
+    assert holder["store"].backend._coll.upsert_batches == [2, 2, 1]
+
+
 # -----------------------------------------------------------------------------
 # Cross-platform script files
 # -----------------------------------------------------------------------------
