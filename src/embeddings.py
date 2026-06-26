@@ -752,9 +752,10 @@ def make_query_embedder(ingest_embedder: EmbeddingProvider) -> EmbeddingProvider
 
 
 def get_default_provider() -> EmbeddingProvider:
-    """Sync variant of auto_detect_provider. Use only in sync contexts."""
-    import asyncio
-    return asyncio.run(auto_detect_provider())
+    """Sync variant of auto_detect_provider. Safe inside a running event loop
+    (uses _run_async from connectors.base which handles the loop case)."""
+    from src.connectors.base import _run_async
+    return _run_async(auto_detect_provider())
 
 
 async def is_lmstudio_reachable(url: str | None = None, timeout: float = 2.0) -> bool:
