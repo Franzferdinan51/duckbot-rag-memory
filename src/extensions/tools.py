@@ -440,7 +440,10 @@ def dispatch(name: str, args: dict) -> dict:
                 tier_priors_overrides=tpo,
                 fsrs=bool(args.get("fsrs") or False),
             )
-            return {"results": results}
+            # Convert VerbatimResult dataclasses to dicts for JSON
+            # serialization (otherwise the OpenClaw CLI / MCP client sees
+            # the Python repr of the dataclass instead of structured data).
+            return {"results": [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results]}
 
         if name == "brain_remember":
             text = args["text"]
