@@ -190,10 +190,98 @@ def append_history(summary: EvalSummary, history_path: Path | str) -> None:
         }) + "\n")
 
 
+def load_history(history_path: Path | str) -> list[dict]:
+    """Load eval history JSONL. Each line is a summary dict with a `ts` field.
+
+    Returns [] if the file doesn't exist yet.
+    """
+    p = Path(history_path)
+    if not p.exists():
+        return []
+    out: list[dict] = []
+    with p.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return out
+
+
+def compute_trend(history: list[dict], window: int = 5) -> dict:
+    """Compute a simple trend from the eval history.
+
+    Compares the most-recent `window` runs against the previous `window`
+    runs on three metrics: mean_recall_at_5, mean_mrr, p95_latency. Returns
+    a dict like:
+        {
+            "n_runs": int,
+            "mean_recall_at_5_recent": float | None,
+            "mean_recall_at_5_delta": float | None,
+            "mean_mrr_recent": float | None,
+            "mean_mrr_delta": float | None,
+            "p95_latency_recent": float | None,
+            "p95_latency_delta_pct": float | None,
+        }
+
+    Delta is `recent - prior` (positive = improvement for recall/mrr;
+    improvement for latency is a *decrease* so we report percent change
+    and invert the sign). None when there's not enough history.
+    """
+    if len(history) < 2:
+        return {
+            "n_runs": len(history),
+            "mean_recall_at_5_recent": None,
+            "mean_recall_at_5_delta": None,
+            "mean_mrr_recent": None,
+            "mean_mrr_delta": None,
+            "p95_latency_recent": None,
+            "p95_latency_delta_pct": None,
+        }
+    recent = history[-window:]
+    prior = history[-2 * window:-window] if len(history) >= 2 * window else history[:len(history) - len(recent)]
+
+    def _mean(xs: list[float]) -> float | None:
+        return sum(xs) / len(xs) if xs else None
+
+    def _delta(recent_mean, prior_mean) -> float | None:
+        if recent_mean is None or prior_mean is None:
+            return None
+        return round(recent_mean - prior_mean, 4)
+
+    def _pct_delta(recent_val, prior_val) -> float | None:
+        if recent_val is None or prior_val is None or prior_val == 0:
+            return None
+        # Negative pct = latency went down (improvement).
+        return round((recent_val - prior_val) / prior_val * 100.0, 2)
+
+    recent_r5 = _mean([h.get("mean_recall_at_5", 0) for h in recent])
+    prior_r5 = _mean([h.get("mean_recall_at_5", 0) for h in prior])
+    recent_mrr = _mean([h.get("mean_mrr", 0) for h in recent])
+    prior_mrr = _mean([h.get("mean_mrr", 0) for h in prior])
+    recent_p95 = _mean([h.get("p95_latency_seconds", 0) for h in recent])
+    prior_p95 = _mean([h.get("p95_latency_seconds", 0) for h in prior])
+
+    return {
+        "n_runs": len(history),
+        "mean_recall_at_5_recent": round(recent_r5, 3) if recent_r5 is not None else None,
+        "mean_recall_at_5_delta": _delta(recent_r5, prior_r5),
+        "mean_mrr_recent": round(recent_mrr, 3) if recent_mrr is not None else None,
+        "mean_mrr_delta": _delta(recent_mrr, prior_mrr),
+        "p95_latency_recent": round(recent_p95, 3) if recent_p95 is not None else None,
+        "p95_latency_delta_pct": _pct_delta(recent_p95, prior_p95),
+    }
+
+
 __all__ = [
     "EvalEntry",
     "EvalSummary",
     "load_benchmark",
     "run_eval",
     "append_history",
+    "load_history",
+    "compute_trend",
 ]

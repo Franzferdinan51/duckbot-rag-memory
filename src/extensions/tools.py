@@ -137,6 +137,12 @@ TOOLS: list[dict] = [
                 },
                 "summary": {"type": "string", "description": "short label for skill candidates (defaults to truncated text)"},
                 "importance": {"type": "number", "default": 0.6, "description": "0..1 ranking score for skill candidates"},
+                "trust_level": {
+                    "type": "string",
+                    "enum": ["full", "standard"],
+                    "default": "full",
+                    "description": "trust_level='full' (default) skips the injection scan since candidates are agent-authored. 'standard' runs the scan and quarantines suspicious content (use if the agent is processing untrusted input).",
+                },
             },
             "required": ["text"],
         },
@@ -225,6 +231,25 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "brain_skills_suggest",
+        "description": (
+            "Semantic top-N skill candidates matching a query (agent-driven pipeline). "
+            "Uses hybrid retrieval (vector + BM25 + RRF) scoped to the procedural "
+            "tier, then filters to unpromoted skill candidates. Use this when the "
+            "agent is working on a topic and wants to know 'are there candidate "
+            "skills about X?' — the agent reads the results and decides which to "
+            "promote. No LLM call."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "semantic anchor (e.g. 'docker container restart')"},
+                "k": {"type": "integer", "default": 5},
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "brain_skills_promote",
         "description": (
             "Promote a skill candidate to a full agentskills.io SKILL.md. "
@@ -240,12 +265,13 @@ TOOLS: list[dict] = [
                 "chunk_id": {"type": "string", "description": "the candidate chunk to promote"},
                 "name": {"type": "string", "description": "human-readable skill name (agent-authored)"},
                 "description": {"type": "string", "description": "one-line trigger phrase (agent-authored)"},
-                "instructions": {"type": "array", "items": {"type": "string"}, "description": "step-by-step (agent-authored)"},
+                "instructions": {"type": "array", "items": {"type": "string"}, "description": "step-by-step (agent-authored) — flat list. For richer SKILL.md bodies (headings, code, tables) use instructions_markdown instead."},
+                "instructions_markdown": {"type": "string", "description": "rich markdown body (overrides instructions). Lets the agent author full markdown sections instead of a flat list."},
                 "example": {"type": "string", "description": "optional worked example"},
                 "emoji": {"type": "string", "description": "optional emoji override"},
                 "overwrite": {"type": "boolean", "default": False},
             },
-            "required": ["chunk_id", "name", "description", "instructions"],
+            "required": ["chunk_id", "name", "description"],
         },
     },
 ]
@@ -373,12 +399,15 @@ def dispatch(name: str, args: dict) -> dict:
             )
 
         if name == "brain_recall":
+            query = (args.get("query") or "").strip()
+            if not query:
+                return {"error": "query must be a non-empty string"}
             # Validate tier_priors_overrides is a dict (or None) before passing through.
             tpo = args.get("tier_priors_overrides")
             if tpo is not None and not isinstance(tpo, dict):
                 return {"error": "tier_priors_overrides must be a dict"}
             results = brain.recall(
-                query=args["query"],
+                query=query,
                 k=args.get("k", 5),
                 tier=args.get("tier"),
                 min_importance=args.get("min_importance"),
@@ -391,11 +420,14 @@ def dispatch(name: str, args: dict) -> dict:
             return {"results": _serialize_recall(results)}
 
         if name == "brain_recall_verbatim":
+            query = (args.get("query") or "").strip()
+            if not query:
+                return {"error": "query must be a non-empty string"}
             tpo = args.get("tier_priors_overrides")
             if tpo is not None and not isinstance(tpo, dict):
                 return {"error": "tier_priors_overrides must be a dict"}
             results = brain.recall_verbatim(
-                query=args["query"],
+                query=query,
                 k=args.get("k", 5),
                 tier=args.get("tier"),
                 min_importance=args.get("min_importance"),
@@ -423,11 +455,15 @@ def dispatch(name: str, args: dict) -> dict:
                 # Agent-driven pipeline: stamp a candidate (blocking, no LLM).
                 # Returns chunk_id so the agent can promote it later.
                 from src.skill_pipeline import stamp_skill_candidate
+                trust_level = args.get("trust_level", "full")
+                if trust_level not in ("full", "standard"):
+                    return {"error": f"trust_level must be 'full' or 'standard', got {trust_level!r}"}
                 result = stamp_skill_candidate(
                     text=text,
                     source=source,
                     summary=args.get("summary", ""),
                     importance=float(args.get("importance", 0.6)),
+                    trust_level=trust_level,
                     brain=brain,
                 )
                 return {
@@ -491,17 +527,29 @@ def dispatch(name: str, args: dict) -> dict:
                 k=int(args.get("k", 50)),
             )}
 
+        if name == "brain_skills_suggest":
+            query = (args.get("query") or "").strip()
+            if not query:
+                return {"error": "query must be a non-empty string"}
+            from src.skill_pipeline import suggest_candidates
+            return {"candidates": suggest_candidates(
+                brain=brain,
+                query=query,
+                k=int(args.get("k", 5)),
+            )}
+
         if name == "brain_skills_promote":
             from src.skill_pipeline import promote_candidate
             return promote_candidate(
                 chunk_id=args["chunk_id"],
                 name=args["name"],
                 description=args["description"],
-                instructions=args["instructions"],
+                instructions=args.get("instructions") or [],
                 brain=brain,
                 example=args.get("example", ""),
                 emoji=args.get("emoji"),
                 overwrite=bool(args.get("overwrite", False)),
+                instructions_markdown=args.get("instructions_markdown"),
             )
 
         # Unreachable — guarded by the _TOOL_NAMES check above.

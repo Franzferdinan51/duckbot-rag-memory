@@ -74,6 +74,43 @@ def log(msg: str) -> None:
         f.write(line + "\n")
 
 
+# Last time we logged the unpromoted-skill-candidates report. Lets us
+# throttle the report to once per SKILL_REPORT_INTERVAL_SEC so a busy
+# watcher doesn't spam the log every few seconds.
+_LAST_SKILL_REPORT_TS: float = 0.0
+SKILL_REPORT_INTERVAL_SEC: float = 600.0  # 10 minutes between reports
+
+
+def _log_pending_skills() -> None:
+    """One-shot reminder of unpromoted skill candidates.
+
+    Calls skill_pipeline.list_candidates() and logs a short summary so
+    the operator (or the agent on its next wake-up) knows there are
+    candidates waiting for promotion. Throttled to once per
+    SKILL_REPORT_INTERVAL_SEC — the watcher runs every ~5 minutes by
+    default, and we don't want to spam the log on every cycle.
+    """
+    global _LAST_SKILL_REPORT_TS
+    now = time.time()
+    if now - _LAST_SKILL_REPORT_TS < SKILL_REPORT_INTERVAL_SEC:
+        return
+    try:
+        # Lazy import — keeps the watcher importable without the brain
+        # stack initialized.
+        from src.skill_pipeline import list_candidates
+        cands = list_candidates(include_promoted=False, k=200)
+    except Exception as exc:
+        log(f"skill-candidate report error: {exc}")
+        return
+    if isinstance(cands, dict) and cands.get("error"):
+        log(f"skill-candidate report error: {cands['error']}")
+        return
+    if cands:
+        preview = ", ".join(c.get("summary") or "(no summary)" for c in cands[:3])
+        log(f"{len(cands)} unpromoted skill candidate(s): {preview}")
+        _LAST_SKILL_REPORT_TS = now
+
+
 def load_state() -> dict:
     if STATE_PATH.exists():
         try:
@@ -340,6 +377,7 @@ def start_watchdog_handler(paths: list[str], interval: float = 300.0, initial_sy
                 log("initial sync starting...")
                 stats = await sync_files(paths, state)
                 log(f"initial sync done: added={stats.get('added', 0)} updated={stats.get('updated', 0)} skipped={stats.get('skipped', 0)}")
+                _log_pending_skills()
             except Exception as exc:
                 log(f"initial sync error: {exc}")
         # Event-driven sync loop. Sleeps `interval` seconds between sync passes,
@@ -352,6 +390,7 @@ def start_watchdog_handler(paths: list[str], interval: float = 300.0, initial_sy
                         stats = await sync_files(paths, state)
                         if stats.get("added") or stats.get("updated") or stats.get("deleted"):
                             log(f"sync pass: {stats}")
+                        _log_pending_skills()
                     except Exception as exc:
                         log(f"sync error: {exc}")
                 # Sleep in small slices so we react to stop_event promptly

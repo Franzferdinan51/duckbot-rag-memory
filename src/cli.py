@@ -163,6 +163,18 @@ def cmd_eval(args: argparse.Namespace) -> int:
     summary = asyncio.run(run_eval(args.benchmark))
     append_history(summary, EVAL_HISTORY_PATH)
     print(json.dumps(summary.to_dict(), indent=2))
+    # Compute and print a trend if we have enough history. Surface in
+    # JSON so callers can diff against prior runs without parsing stdout.
+    try:
+        from src.eval import load_history, compute_trend
+        history = load_history(EVAL_HISTORY_PATH)
+        trend = compute_trend(history)
+        if trend["n_runs"] >= 2:
+            print("\n--- trend ---")
+            print(json.dumps({"trend": trend}, indent=2))
+    except Exception as exc:
+        # Non-fatal — trend is a nice-to-have, don't break the eval.
+        print(f"\n(trend unavailable: {exc})", file=sys.stderr)
     return 0
 
 
@@ -618,6 +630,111 @@ def cmd_openclaw(args: argparse.Namespace) -> int:
     return openclaw_shim.main(list(args.verb))
 
 
+def cmd_skills(args: argparse.Namespace) -> int:
+    """Skill pipeline CLI: 'python -m src.cli skills <verb> [args...]'.
+
+    Storage-only — no LLM. Agents use this to inspect and promote
+    skill candidates they previously stamped.
+
+    Verbs:
+      stamp <text>            - stamp a new skill candidate
+      list [-k N] [--include-promoted]  - list unpromoted candidates
+      promote <chunk_id> <name> <description> <instr1> [instr2 ...]
+      promote <chunk_id> --json '<json-args>'
+      suggest <query> [-k N]  - semantic top-N candidates matching a query
+    """
+    import json as _json
+    from .skill_pipeline import stamp_skill_candidate, list_candidates, promote_candidate, suggest_candidates
+    from .connectors.base import _run_async
+
+    verb = args.verb[0]
+    rest = args.verb[1:]
+
+    if verb in ("stamp",):
+        if not rest:
+            print('{"error": "skills stamp requires <text>"}')
+            return 2
+        text = " ".join(rest)
+        result = stamp_skill_candidate(text=text)
+        print(_json.dumps({
+            "chunk_id": result.chunk_id,
+            "tier": result.tier,
+            "stored": result.stored,
+        }, indent=2, default=str))
+        return 0 if result.stored else 2
+
+    if verb in ("list",):
+        args_dict = {}
+        if "--include-promoted" in rest:
+            args_dict["include_promoted"] = True
+        if "-k" in rest:
+            idx = rest.index("-k")
+            if idx + 1 < len(rest):
+                try:
+                    args_dict["k"] = int(rest[idx + 1])
+                except ValueError:
+                    pass
+        out = list_candidates(**args_dict)
+        if isinstance(out, dict) and out.get("error"):
+            print(_json.dumps(out))
+            return 2
+        print(_json.dumps({"candidates": out}, indent=2, default=str))
+        return 0
+
+    if verb in ("promote",):
+        # JSON form: skills promote <chunk_id> --json '<json-args>'
+        if "--json" in rest:
+            idx = rest.index("--json")
+            chunk_id = rest[0] if idx > 0 else ""
+            raw = " ".join(rest[idx + 1:]).strip()
+            if not chunk_id or not raw:
+                print('{"error": "skills promote --json requires <chunk_id> and json-args"}')
+                return 2
+            try:
+                parsed = _json.loads(raw)
+            except _json.JSONDecodeError as e:
+                print(_json.dumps({"error": f"json-args not valid JSON: {e}"}))
+                return 2
+            if not isinstance(parsed, dict):
+                print(_json.dumps({"error": "json-args must be a JSON object"}))
+                return 2
+            parsed["chunk_id"] = chunk_id
+            out = promote_candidate(**parsed)
+        else:
+            # Positional: <chunk_id> <name> <description> <instr1> [instr2 ...]
+            if len(rest) < 4:
+                print('{"error": "positional form requires: skills promote <chunk_id> <name> <description> <instr1> [instr2 ...]"}')
+                return 2
+            chunk_id, name, description, *instructions = rest
+            out = promote_candidate(
+                chunk_id=chunk_id,
+                name=name,
+                description=description,
+                instructions=instructions,
+            )
+        print(_json.dumps(out, indent=2, default=str))
+        return 0 if out.get("promoted") else 2
+
+    if verb in ("suggest",):
+        if not rest:
+            print('{"error": "skills suggest requires <query>"}')
+            return 2
+        args_dict = {"query": " ".join(rest)}
+        if "-k" in rest:
+            idx = rest.index("-k")
+            if idx + 1 < len(rest):
+                try:
+                    args_dict["k"] = int(rest[idx + 1])
+                except ValueError:
+                    pass
+        out = suggest_candidates(**args_dict)
+        print(_json.dumps({"candidates": out}, indent=2, default=str))
+        return 0
+
+    print(_json.dumps({"error": f"unknown skills verb: {verb}", "available": ["stamp", "list", "promote", "suggest"]}))
+    return 1
+
+
 async def _run_brain_sync(target: str, memory_k: int, user_k: int) -> dict:
     """Run brain_sync without needing the MCP stdio transport."""
     from .mcp_server import handle_brain_sync
@@ -824,6 +941,11 @@ def main() -> int:
     p_openclaw = sub.add_parser("openclaw", help="OpenClaw agent CLI shim: openclaw <verb> [args...]")
     p_openclaw.add_argument("verb", nargs="+", help="verb (wake-up, recall, remember, stats, tools, call, etc.) + args")
     p_openclaw.set_defaults(func=cmd_openclaw)
+
+    # Skills pipeline: stamp / list / promote / suggest (no LLM).
+    p_skills = sub.add_parser("skills", help="agent-driven skill pipeline: skills <verb> [args...]")
+    p_skills.add_argument("verb", nargs="+", help="verb (list / promote / suggest) + args")
+    p_skills.set_defaults(func=cmd_skills)
 
     p_dash = sub.add_parser("dashboard", help="brain observability dashboard")
     p_dash.add_argument("--json", action="store_true", help="output as JSON")

@@ -266,7 +266,7 @@ def test_openclaw_plugin_json_required_fields():
         "brain_wake_up", "brain_recall", "brain_recall_verbatim",
         "brain_remember", "brain_reflect", "brain_stats",
         "brain_fsrs_review", "brain_decay_status", "brain_search_verbatim",
-        "brain_skills_list", "brain_skills_promote",
+        "brain_skills_list", "brain_skills_suggest", "brain_skills_promote",
     }
     assert expected <= tool_names, f"manifest missing: {expected - tool_names}"
 

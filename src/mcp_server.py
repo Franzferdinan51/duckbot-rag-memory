@@ -51,6 +51,7 @@ TOOLS = [
                 "kind": {"type": "string", "enum": ["skill_candidate"], "description": "special mode: stamp a skill candidate chunk (no LLM, stored in procedural tier for later promotion via brain_skills_promote)"},
                 "summary": {"type": "string", "description": "short label for skill candidates"},
                 "importance": {"type": "number", "default": 0.6, "description": "0..1 ranking score for skill candidates"},
+                "trust_level": {"type": "string", "enum": ["full", "standard"], "default": "full", "description": "trust_level='full' (default) skips the injection scan. 'standard' runs the scan and quarantines suspicious content."},
             },
             "required": ["text"],
         },
@@ -339,6 +340,18 @@ TOOLS = [
         },
     },
     {
+        "name": "brain_skills_suggest",
+        "description": "Semantic top-N skill candidates matching a query (agent-driven pipeline). Uses hybrid retrieval scoped to the procedural tier, then filters to unpromoted skill candidates. Use this when the agent is working on a topic and wants to know 'are there candidate skills about X?' — the agent reads the results and decides which to promote. No LLM call; just vector + BM25.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "semantic anchor (e.g. 'docker container restart')"},
+                "k": {"type": "integer", "default": 5},
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "brain_skills_promote",
         "description": "Promote a skill candidate to a full agentskills.io SKILL.md. The AGENT authors name/description/instructions using its own LLM context — the brain is pure storage + template (no LLM). Writes skills/<slug>/SKILL.md and marks the candidate chunk as promoted. Pass overwrite=true to re-promote or replace an existing skill file.",
         "inputSchema": {
@@ -347,12 +360,13 @@ TOOLS = [
                 "chunk_id": {"type": "string", "description": "the candidate chunk to promote"},
                 "name": {"type": "string", "description": "human-readable skill name (agent-authored)"},
                 "description": {"type": "string", "description": "one-line trigger phrase (agent-authored)"},
-                "instructions": {"type": "array", "items": {"type": "string"}, "description": "step-by-step (agent-authored)"},
+                "instructions": {"type": "array", "items": {"type": "string"}, "description": "step-by-step (agent-authored) — flat list. For richer SKILL.md bodies (headings, code, tables) use instructions_markdown instead."},
+                "instructions_markdown": {"type": "string", "description": "rich markdown body (overrides instructions). Lets the agent author full markdown sections instead of a flat list."},
                 "example": {"type": "string", "description": "optional worked example"},
                 "emoji": {"type": "string", "description": "optional emoji override"},
                 "overwrite": {"type": "boolean", "default": False},
             },
-            "required": ["chunk_id", "name", "description", "instructions"],
+            "required": ["chunk_id", "name", "description"],
         },
     },
     {
@@ -518,11 +532,15 @@ async def handle_remember(args: dict) -> dict:
     if args.get("kind") == "skill_candidate":
         from src.skill_pipeline import stamp_skill_candidate
         from src.connectors.base import Brain
+        trust_level = args.get("trust_level", "full")
+        if trust_level not in ("full", "standard"):
+            return {"error": f"trust_level must be 'full' or 'standard', got {trust_level!r}"}
         result = stamp_skill_candidate(
             text=text,
             source=args.get("source_path", "agent://skill-candidate"),
             summary=args.get("summary", ""),
             importance=float(args.get("importance", 0.6)),
+            trust_level=trust_level,
             brain=Brain(),
         )
         return {
@@ -1379,6 +1397,22 @@ async def handle_brain_skills_list(args: dict) -> dict:
     return {"candidates": result}
 
 
+async def handle_brain_skills_suggest(args: dict) -> dict:
+    """Semantic top-N skill candidates matching a query (agent-driven pipeline).
+
+    Uses hybrid retrieval (vector + BM25 + RRF) scoped to the procedural
+    tier, then filters to unpromoted skill candidates. Returns top-k
+    candidates sorted by semantic similarity score. No LLM call.
+    """
+    if not args.get("query") or not str(args["query"]).strip():
+        return {"error": "query must be a non-empty string"}
+    from src.skill_pipeline import suggest_candidates
+    return {"candidates": suggest_candidates(
+        query=args["query"],
+        k=int(args.get("k", 5)),
+    )}
+
+
 async def handle_brain_skills_promote(args: dict) -> dict:
     """Promote a skill candidate to a full SKILL.md (agent-driven).
 
@@ -1386,20 +1420,23 @@ async def handle_brain_skills_promote(args: dict) -> dict:
     context — the brain is pure storage + template (no LLM). Writes
     skills/<slug>/SKILL.md and marks the candidate chunk as promoted.
     """
-    # Validate required fields upfront — otherwise KeyError bubbles up
-    # as a generic JSON-RPC -32603 error without a useful message.
-    missing = [k for k in ("chunk_id", "name", "description", "instructions") if not args.get(k)]
-    if missing:
-        return {"error": f"missing required argument(s): {', '.join(missing)}"}
+    # Validate required fields upfront. Either `instructions` (flat list)
+    # OR `instructions_markdown` (rich markdown body) must be provided —
+    # the former for simple skills, the latter for richer bodies.
+    if not args.get("chunk_id") or not args.get("name") or not args.get("description"):
+        return {"error": "chunk_id, name, description are required"}
+    if not (args.get("instructions") or args.get("instructions_markdown")):
+        return {"error": "either instructions (list) or instructions_markdown (string) is required"}
     from src.skill_pipeline import promote_candidate
     return promote_candidate(
         chunk_id=args["chunk_id"],
         name=args["name"],
         description=args["description"],
-        instructions=args["instructions"],
+        instructions=args.get("instructions") or [],
         example=args.get("example", ""),
         emoji=args.get("emoji"),
         overwrite=bool(args.get("overwrite", False)),
+        instructions_markdown=args.get("instructions_markdown"),
     )
 
 
@@ -2058,6 +2095,7 @@ HANDLERS = {
     "brain_nudge": handle_brain_nudge,
     "brain_skill_create": handle_brain_skill_create,
     "brain_skills_list": handle_brain_skills_list,
+    "brain_skills_suggest": handle_brain_skills_suggest,
     "brain_skills_promote": handle_brain_skills_promote,
     "brain_user_model": handle_brain_user_model,
     "brain_palace": handle_brain_palace,

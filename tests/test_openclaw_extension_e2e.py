@@ -100,7 +100,7 @@ def test_tools_list_returns_nine_tools():
         assert resp["id"] == 2
         tools = resp["result"]["tools"]
         names = [t["name"] for t in tools]
-        assert len(names) == 11, f"expected 11 tools, got {len(names)}: {names}"
+        assert len(names) == 12, f"expected 11 tools, got {len(names)}: {names}"
         assert "brain_wake_up" in names, "brain_wake_up must be exposed"
         # All tools have the required MCP fields.
         for t in tools:
@@ -205,7 +205,7 @@ def test_multiple_requests_in_one_session():
                 "jsonrpc": "2.0", "id": i, "method": "tools/list", "params": {},
             })
             assert resp["id"] == i
-            assert len(resp["result"]["tools"]) == 11
+            assert len(resp["result"]["tools"]) == 12
     finally:
         proc.terminate()
         proc.wait(timeout=5)

@@ -178,6 +178,25 @@ def _cmd_skills_list(rest: list[str]) -> Any:
     return _surface.dispatch("brain_skills_list", args)
 
 
+def _cmd_skills_suggest(rest: list[str]) -> Any:
+    """Semantic top-N skill candidates matching a query.
+
+    Usage: skills-suggest <query>... [-k N]
+    """
+    if not rest:
+        return {"error": "skills-suggest requires <query>"}
+    # Rejoin all args as the query (allows multi-word queries without quoting)
+    args: dict = {"query": " ".join(rest)}
+    if "-k" in rest:
+        idx = rest.index("-k")
+        if idx + 1 < len(rest):
+            try:
+                args["k"] = int(rest[idx + 1])
+            except ValueError:
+                pass
+    return _surface.dispatch("brain_skills_suggest", args)
+
+
 def _cmd_skills_promote(rest: list[str]) -> Any:
     """Promote a skill candidate to a full SKILL.md.
 
@@ -266,6 +285,8 @@ _VERBS: dict[str, Any] = {
     "search_verbatim": _cmd_search_verbatim,
     "skills-list": _cmd_skills_list,
     "skills_list": _cmd_skills_list,
+    "skills-suggest": _cmd_skills_suggest,
+    "skills_suggest": _cmd_skills_suggest,
     "skills-promote": _cmd_skills_promote,
     "skills_promote": _cmd_skills_promote,
     "tools": _cmd_tools,

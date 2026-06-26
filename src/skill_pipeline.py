@@ -49,6 +49,7 @@ def stamp_skill_candidate(
     source: str = "agent://skill-candidate",
     summary: str = "",
     importance: float = 0.6,
+    trust_level: str = "full",
     brain: Optional[Brain] = None,
 ) -> RememberResult:
     """Stamp a skill-candidate chunk in the procedural tier.
@@ -64,6 +65,11 @@ def stamp_skill_candidate(
         importance: 0..1 score used for ranking in suggest/list. Default
             0.6 — higher than baseline (0.5) because the agent thought
             it was worth remembering.
+        trust_level: "full" (default) bypasses the injection scan —
+            trust the agent since candidates are agent-authored. "standard"
+            runs the scan and quarantines suspicious content. Use "standard"
+            if the agent is being driven by user input you don't fully
+            trust (e.g. an untrusted skill-generation script).
         brain: optional Brain facade override (used by tests).
 
     Returns:
@@ -73,21 +79,33 @@ def stamp_skill_candidate(
     if brain is None:
         brain = Brain()
 
+    if trust_level not in ("full", "standard"):
+        # Don't raise — return a clear error via a sentinel? Use a
+        # dummy remember() that returns an error chunk_id so the
+        # caller can detect misuse without an exception.
+        # Actually keep it simple: raise ValueError.
+        raise ValueError(
+            f"trust_level must be 'full' or 'standard', got {trust_level!r}"
+        )
+
     metadata = {
         "kind": "skill_candidate",
         "promoted": False,
         "candidate_summary": (summary or text[:200]).strip(),
         "importance": importance,
+        "trust_level": trust_level,
     }
     return brain.remember(
         text=text,
         source_path=source,
         metadata=metadata,
         force_tier="procedural",
-        # skip_scan: candidates are agent-authored, not untrusted user
-        # input. The injection scan would quarantine legitimate code
-        # snippets / shell commands that the agent legitimately learned.
-        skip_scan=True,
+        # trust_level=full: skip the scan (default — candidates are
+        # agent-authored, scan would quarantine legitimate shell
+        # commands and code snippets).
+        # trust_level=standard: run the scan (treat as untrusted input
+        # — e.g. agent reading skill suggestions from a user prompt).
+        skip_scan=(trust_level == "full"),
     )
 
 
@@ -215,12 +233,13 @@ def promote_candidate(
     chunk_id: str,
     name: str,
     description: str,
-    instructions: list[str],
+    instructions: Optional[list[str]] = None,
     brain: Optional[Brain] = None,
     example: str = "",
     emoji: Optional[str] = None,
     overwrite: bool = False,
     skills_dir: Optional[Path] = None,
+    instructions_markdown: Optional[str] = None,
 ) -> dict:
     """Promote a skill candidate to a full SKILL.md file.
 
@@ -236,7 +255,14 @@ def promote_candidate(
         chunk_id: the candidate to promote.
         name: human-readable skill name (agent-authored).
         description: one-line trigger (agent-authored).
-        instructions: step-by-step instructions (agent-authored).
+        instructions: step-by-step instructions (agent-authored). Use
+            this for simple flat lists. For richer SKILL.md bodies
+            (headings, code blocks, tables), pass `instructions_markdown`
+            instead — it overrides the flat list.
+        instructions_markdown: optional rich markdown body. When set,
+            used in place of `instructions` to render the SKILL.md
+            body. Lets the agent author full markdown without going
+            through a flat list.
         brain: unused (kept for API symmetry), the store is accessed
             via Memory() directly.
         example: optional worked example (agent-authored).
@@ -307,10 +333,29 @@ def promote_candidate(
     body = render_from_memory(
         name=effective_name,
         description=description,
-        instructions=instructions,
+        instructions=instructions or [],
         example=example,
         emoji=emoji,
     )
+
+    # If the agent provided instructions_markdown, replace the rendered
+    # body with the rich markdown content. The flat instructions list is
+    # still available as fallback in the body if markdown is empty.
+    if instructions_markdown is not None and instructions_markdown.strip():
+        # Keep the title (# ...) that render_from_memory added; replace
+        # the body content (after the title + the "When to Use" / "Instructions"
+        # sections) with the agent-authored markdown.
+        lines = body.splitlines()
+        title_idx = next(
+            (i for i, ln in enumerate(lines) if ln.startswith("# ")),
+            None,
+        )
+        if title_idx is not None:
+            # Find end of the Instructions section to splice in markdown
+            new_body = lines[:title_idx + 1] + [""] + instructions_markdown.strip().splitlines() + [""]
+            if example:
+                new_body += ["## Example", "", example.strip(), ""]
+            body = "\n".join(new_body)
     if skills_dir is None:
         repo_root = Path(__file__).resolve().parent.parent
         skills_dir = repo_root / "skills"

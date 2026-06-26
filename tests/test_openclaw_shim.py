@@ -74,9 +74,9 @@ def test_tools_verb_lists_eleven_tools(capsys):
     rc = openclaw_shim.main(["tools"])
     assert rc == 0
     data = json.loads(capsys.readouterr().out)
-    assert len(data["tools"]) == 11
+    assert len(data["tools"]) == 12
     assert data["tools"][0]["name"] == "brain_wake_up"
-    assert "11 tools" in data["summary"]
+    assert "12 tools" in data["summary"]
 
 
 # -----------------------------------------------------------------------------

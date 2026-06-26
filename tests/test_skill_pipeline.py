@@ -488,6 +488,7 @@ def test_dispatch_brain_skills_promote(reset_singletons):
         chunk_id="c1", name="My Skill", description="desc",
         instructions=["step1"], brain=surface._BRAIN,
         example="ex", emoji="🔧", overwrite=True,
+        instructions_markdown=None,
     )
 
 
@@ -498,7 +499,7 @@ def test_dispatch_brain_skills_promote(reset_singletons):
 def test_shared_surface_has_11_tools():
     """The shared surface now exposes 11 tools (9 + brain_skills_list + promote)."""
     names = surface.tool_names()
-    assert len(names) == 11
+    assert len(names) == 12
     assert "brain_skills_list" in names
     assert "brain_skills_promote" in names
     assert "brain_remember" in names
@@ -516,10 +517,16 @@ def test_brain_remember_schema_has_kind_param():
 
 
 def test_brain_skills_promote_schema_has_required_fields():
+    """Required fields are chunk_id, name, description. instructions is now
+    optional because instructions_markdown can substitute for it."""
     schemas = surface.tool_schemas()
     promote = next(s for s in schemas if s["name"] == "brain_skills_promote")
     required = promote["inputSchema"]["required"]
-    assert set(required) == {"chunk_id", "name", "description", "instructions"}
+    assert set(required) == {"chunk_id", "name", "description"}
+    # instructions is still in the schema (optional)
+    props = promote["inputSchema"]["properties"]
+    assert "instructions" in props
+    assert "instructions_markdown" in props
 
 
 def test_function_call_schemas_includes_new_tools():
@@ -528,7 +535,7 @@ def test_function_call_schemas_includes_new_tools():
     names = [fc["function"]["name"] for fc in fcs]
     assert "brain_skills_list" in names
     assert "brain_skills_promote" in names
-    assert len(names) == 11
+    assert len(names) == 12
 
 
 def test_system_prompt_describes_agent_driven_pipeline():

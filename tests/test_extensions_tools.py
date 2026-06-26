@@ -78,13 +78,13 @@ def fake_brain():
 
 
 def test_tool_count_is_nine():
-    """Surface is intentionally tight: 11 tools, the core agent subset."""
-    assert len(surface.TOOLS) == 11
+    """Surface is intentionally tight: 12 tools, the core agent subset."""
+    assert len(surface.TOOLS) == 12
 
 
 def test_tool_names_returns_eleven_in_canonical_order():
     names = surface.tool_names()
-    assert len(names) == 11
+    assert len(names) == 12
     # brain_wake_up is the canonical first-call tool — it must be first.
     assert names[0] == "brain_wake_up"
 
@@ -101,7 +101,7 @@ def test_tool_schemas_is_a_copy():
     """tool_schemas() must return a copy so callers can't mutate TOOLS."""
     schemas = surface.tool_schemas()
     schemas.append({"name": "x"})
-    assert len(surface.TOOLS) == 11
+    assert len(surface.TOOLS) == 12
 
 
 def test_brain_wake_up_is_a_listed_tool():
@@ -132,7 +132,7 @@ def test_brain_search_verbatim_requires_needle():
 
 def test_function_call_schemas_match_tool_count():
     schemas = surface.function_call_schemas()
-    assert len(schemas) == 11
+    assert len(schemas) == 12
     for s in schemas:
         assert s["type"] == "function"
         assert "name" in s["function"]
@@ -314,11 +314,11 @@ def test_check_rate_limit_disabled_env():
 # -----------------------------------------------------------------------------
 
 
-def test_summary_mentions_all_eleven_tools():
+def test_summary_mentions_all_twelve_tools():
     out = surface.summary()
     for name in surface.tool_names():
         assert name in out
-    assert "11 tools" in out
+    assert "12 tools" in out
 
 def test_dispatch_brain_search_verbatim_rejects_empty_needle(fake_brain):
     """Empty needle MUST be rejected — `in ""` matches every chunk,

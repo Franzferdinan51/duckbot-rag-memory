@@ -153,6 +153,18 @@
       }
     },
     {
+      "name": "brain_skills_suggest",
+      "description": "Semantic top-N skill candidates matching a query (agent-driven pipeline). Uses hybrid retrieval scoped to the procedural tier and filtered to unpromoted candidates. Use when the agent is working on a topic and wants to know 'are there candidate skills about X?'. No LLM call.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "semantic anchor (e.g. 'docker container restart')" },
+          "k": { "type": "integer", "default": 5 }
+        },
+        "required": ["query"]
+      }
+    },
+    {
       "name": "brain_skills_promote",
       "description": "Promote a skill candidate to a full SKILL.md. The AGENT authors name/description/instructions — the brain is pure storage + template (no LLM). Writes skills/<slug>/SKILL.md and marks the candidate promoted.",
       "parameters": {

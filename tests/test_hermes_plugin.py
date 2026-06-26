@@ -247,19 +247,19 @@ def test_sync_turn_blocking_calls_remember(provider, fake_brain):
 # -----------------------------------------------------------------------------
 
 
-def test_get_tool_schemas_returns_eleven_tools():
-    """v0.14.0: surface expanded to 11 tools (incl. brain_wake_up +
+def test_get_tool_schemas_returns_twelve_tools():
+    """v0.14.0: surface expanded to 12 tools (incl. brain_wake_up +
     brain_skills_list/promote for the agent-driven skill pipeline).
     Same list as the OpenClaw extension adapter."""
     p = DuckBotBrainProvider()
     schemas = p.get_tool_schemas()
-    assert len(schemas) == 11
+    assert len(schemas) == 12
     names = {s["function"]["name"] for s in schemas}
     expected = {
         "brain_wake_up", "brain_recall", "brain_recall_verbatim",
         "brain_remember", "brain_reflect", "brain_stats",
         "brain_fsrs_review", "brain_decay_status", "brain_search_verbatim",
-        "brain_skills_list", "brain_skills_promote",
+        "brain_skills_list", "brain_skills_suggest", "brain_skills_promote",
     }
     assert names == expected
 
