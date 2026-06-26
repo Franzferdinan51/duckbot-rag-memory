@@ -2169,6 +2169,7 @@ def mcp_stdio():
     https://docs.python.org/3/library/sys.html#sys.stdout.reconfigure
     """
     import sys as _s
+    import time as _time
     try:
         # ``line_buffering=True`` flushes after every newline.
         # ``write_through=True`` bypasses any parent TextIOWrapper.

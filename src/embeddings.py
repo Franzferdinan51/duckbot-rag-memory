@@ -34,6 +34,46 @@ import httpx
 
 
 # ---------------------------------------------------------------------------
+# Posthog 7.x API compatibility fix.
+# Posthog 7.x changed capture() from:
+#   capture(user_id, event_name, properties={})
+# to:
+#   capture(event_name, properties={})
+# ChromaDB 0.5.x calls the old API, causing "capture() takes 1
+# positional argument but 3 were given" on every chromadb operation.
+# This patches _direct_capture() at import time so it works regardless
+# of import order.
+# ---------------------------------------------------------------------------
+def _fix_posthog_api() -> None:
+    try:
+        import chromadb.telemetry.product.posthog as _ph
+        _orig = getattr(_ph.Posthog, '_direct_capture', None)
+        if _orig is None or getattr(_orig, '_posthog7_ok', False):
+            return
+
+        def _fixed(self, event) -> None:
+            try:
+                import posthog
+                props = {
+                    **(getattr(event, 'properties', {}) or {}),
+                    **getattr(_ph, 'POSTHOG_EVENT_SETTINGS', {}),
+                    **(getattr(self, 'context', {}) or {}),
+                }
+                posthog.capture(getattr(event, 'name', str(event)), properties=props)
+            except Exception:
+                pass  # telemetry is non-critical
+
+        _fixed._posthog7_ok = True  # type: ignore[attr-defined]
+        _ph.Posthog._direct_capture = _fixed
+    except Exception:
+        pass
+
+
+_fix_posthog_api()
+del _fix_posthog_api
+
+
+# ---------------------------------------------------------------------------
 # Shared HTTP client + rate limiter + result cache.
 #
 # These were added in the v0.11.2 hotfix to fix the LM Studio embedding
