@@ -161,33 +161,28 @@ class LMStudioBackend:
     `/v1/rerank` route (e.g. via the llm-rerank plugin or TEI bridge)."""
 
     def __init__(self, url: str | None = None, model: str | None = None):
-        import httpx  # already a dep
-
         self.url = url or os.environ.get(
             "LMSTUDIO_RERANK_URL", "http://127.0.0.1:1234/v1/rerank"
         )
         self.model = model or os.environ.get(
             "LMSTUDIO_RERANK_MODEL", "qwen3-reranker-0.6b"
         )
-        self._client = httpx.AsyncClient(timeout=30.0)
         self.name = f"lmstudio:{self.url}"
 
     async def _score_async(self, query: str, docs: list[str]) -> list[float]:
         if not docs:
             return []
+        import httpx  # already a dep
         truncated = [(d or "")[:MAX_DOC_CHARS] for d in docs]
         try:
-            resp = await self._client.post(
-                self.url,
-                json={"model": self.model, "query": query, "documents": truncated},
-            )
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    self.url,
+                    json={"model": self.model, "query": query, "documents": truncated},
+                )
             resp.raise_for_status()
             data = resp.json()
-            # OpenAI-style: {"results": [{"index": 0, "relevance_score": 0.91}]}
-            results = data.get("results") or data.get("scores") or []
-            if results and isinstance(results[0], dict):
-                return [float(r.get("relevance_score", r.get("score", 0.0))) for r in results]
-            return [float(x) for x in results]
+            return _parse_cohere_rerank_response(data, len(docs))
         except Exception as e:
             logger.warning("LM Studio rerank failed: %s — falling back to input order", e)
             return [0.0] * len(docs)
@@ -211,6 +206,23 @@ class LMStudioBackend:
         if loop is not None:
             return loop.run_until_complete(self._score_async(query, docs))
         return asyncio.run(self._score_async(query, docs))
+
+
+def _parse_cohere_rerank_response(data: dict, n_docs: int) -> list[float]:
+    """Parse a Cohere-compatible /v1/rerank response into per-document scores.
+
+    LM Studio's /v1/rerank is Cohere-compatible. Results are sorted by
+    relevance_score (highest first), NOT in original document order. Each
+    result has an `index` field pointing back to the input documents array.
+    We map by index so the caller gets scores aligned with their input.
+    """
+    results = data.get("results") or []
+    scores = [0.0] * n_docs
+    for r in results:
+        idx = int(r.get("index", -1))
+        if 0 <= idx < n_docs:
+            scores[idx] = float(r.get("relevance_score", r.get("score", 0.0)))
+    return scores
 
 
 # -----------------------------------------------------------------------------
@@ -475,4 +487,5 @@ __all__ = [
     "rerank_available",
     "reset_backend",
     "DEFAULT_RERANK_MODEL",
+    "_parse_cohere_rerank_response",
 ]

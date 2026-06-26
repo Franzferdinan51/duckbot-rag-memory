@@ -19,6 +19,7 @@ from src.rerank import (
     reset_backend,
     rerank,
     rerank_available,
+    _parse_cohere_rerank_response,
 )
 
 
@@ -402,3 +403,55 @@ def test_lmstudio_backend_explicit_overrides_env(monkeypatch):
     be = LMStudioBackend(url="http://other:8000/v1/rerank", model="x")
     assert be.url == "http://other:8000/v1/rerank"
     assert be.model == "x"
+
+
+def test_lmstudio_backend_maps_cohere_response_by_index(monkeypatch):
+    """_parse_cohere_rerank_response maps results by their `index` field, not
+    by result order. If results come back sorted by relevance (doc1 > doc2 >
+    doc0), scores must be placed at the correct doc index: [0.3, 0.9, 0.6]."""
+    # Cohere returns results sorted by relevance, not in input order.
+    # doc 0 = 0.3, doc 1 = 0.9, doc 2 = 0.6 (but results are [1, 2, 0]).
+    response = {
+        "results": [
+            {"index": 1, "relevance_score": 0.9},
+            {"index": 2, "relevance_score": 0.6},
+            {"index": 0, "relevance_score": 0.3},
+        ]
+    }
+    scores = _parse_cohere_rerank_response(response, n_docs=3)
+    assert scores == [0.3, 0.9, 0.6], f"Expected [0.3, 0.9, 0.6], got {scores}"
+
+
+def test_lmstudio_backend_handles_empty_results(monkeypatch):
+    """Empty results array means no scores returned — treat all as 0.0."""
+    scores = _parse_cohere_rerank_response({"results": []}, n_docs=3)
+    assert scores == [0.0, 0.0, 0.0]
+
+
+def test_lmstudio_backend_handles_partial_results(monkeypatch):
+    """If server only returns top-N results, unscored docs get 0.0."""
+    # Only 2 of 4 docs returned (top 2 by relevance).
+    response = {
+        "results": [
+            {"index": 3, "relevance_score": 0.95},
+            {"index": 0, "relevance_score": 0.88},
+        ]
+    }
+    scores = _parse_cohere_rerank_response(response, n_docs=4)
+    assert scores == [0.88, 0.0, 0.0, 0.95], f"Expected [0.88, 0.0, 0.0, 0.95], got {scores}"
+
+
+def test_lmstudio_backend_score_method(monkeypatch):
+    """LMStudioBackend.score() returns scores for 3 docs."""
+    from unittest.mock import patch
+
+    be = LMStudioBackend(url="http://localhost:1234/v1/rerank", model="qwen3-reranker-0.6b")
+
+    # Mock _score_async to return directly (bypasses real HTTP).
+    async def fake_score_async(query, docs):
+        return [0.1, 0.5, 0.9]
+
+    with patch.object(be, "_score_async", fake_score_async):
+        scores = be.score("query", ["a", "b", "c"])
+
+    assert scores == [0.1, 0.5, 0.9]
