@@ -456,7 +456,10 @@ def handle(tool_name: str, args: dict) -> dict:
                 tier_priors_overrides=args.get("tier_priors_overrides"),
                 fsrs=args.get("fsrs"),
             )
-            return {"results": results}
+            # Convert VerbatimResult dataclasses to dicts so the MCP
+            # server's json.dumps can serialize the response. (The native
+            # mcp_server.py recall_verbatim handler has the same issue.)
+            return {"results": [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results]}
         if tool_name == "brain_recall":
             if not args.get("query"):
                 return {"error": "query is required", "tool": tool_name}
