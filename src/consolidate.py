@@ -90,11 +90,10 @@ def extract_facts_from_chunk(
             ))
 
     # Optional LLM-extraction pass (mem0-inspired). Skipped if:
-    # - DUCKBOT_NO_LLM_EXTRACTION=1
+    # - DUCKBOT_NO_LLM_EXTRACTION=1 (regex-only mode for offline/air-gapped)
     # - chunk too short to be worth an LLM call
     # - LM Studio not reachable
-    import os
-    if os.environ.get("DUCKBOT_NO_LLM_EXTRACTION") not in (None, "", "0", "false", "no"):
+    if os.environ.get("DUCKBOT_NO_LLM_EXTRACTION", "").lower() in ("1", "true", "yes"):
         return facts
     if len(chunk_text) < 200:
         return facts
