@@ -160,7 +160,19 @@ def cmd_stats(args: argparse.Namespace) -> int:
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
-    summary = asyncio.run(run_eval(args.benchmark))
+    # Validate benchmark file exists before launching the async eval
+    # loop — otherwise a missing file surfaces as a raw Python traceback
+    # instead of a clean error.
+    from pathlib import Path as _Path
+    bench_path = _Path(args.benchmark)
+    if not bench_path.exists():
+        print(json.dumps({"error": f"benchmark file not found: {bench_path}"}))
+        return 2
+    try:
+        summary = asyncio.run(run_eval(args.benchmark))
+    except FileNotFoundError as exc:
+        print(json.dumps({"error": str(exc)}))
+        return 2
     append_history(summary, EVAL_HISTORY_PATH)
     print(json.dumps(summary.to_dict(), indent=2))
     # Compute and print a trend if we have enough history. Surface in
@@ -656,7 +668,7 @@ def cmd_skills(args: argparse.Namespace) -> int:
             return 2
         text = " ".join(rest)
         result = stamp_skill_candidate(text=text)
-        print(_json.dumps({
+        print(json.dumps({
             "chunk_id": result.chunk_id,
             "tier": result.tier,
             "stored": result.stored,
@@ -676,9 +688,9 @@ def cmd_skills(args: argparse.Namespace) -> int:
                     pass
         out = list_candidates(**args_dict)
         if isinstance(out, dict) and out.get("error"):
-            print(_json.dumps(out))
+            print(json.dumps(out))
             return 2
-        print(_json.dumps({"candidates": out}, indent=2, default=str))
+        print(json.dumps({"candidates": out}, indent=2, default=str))
         return 0
 
     if verb in ("promote",):
@@ -693,10 +705,10 @@ def cmd_skills(args: argparse.Namespace) -> int:
             try:
                 parsed = _json.loads(raw)
             except _json.JSONDecodeError as e:
-                print(_json.dumps({"error": f"json-args not valid JSON: {e}"}))
+                print(json.dumps({"error": f"json-args not valid JSON: {e}"}))
                 return 2
             if not isinstance(parsed, dict):
-                print(_json.dumps({"error": "json-args must be a JSON object"}))
+                print(json.dumps({"error": "json-args must be a JSON object"}))
                 return 2
             parsed["chunk_id"] = chunk_id
             out = promote_candidate(**parsed)
@@ -712,7 +724,7 @@ def cmd_skills(args: argparse.Namespace) -> int:
                 description=description,
                 instructions=instructions,
             )
-        print(_json.dumps(out, indent=2, default=str))
+        print(json.dumps(out, indent=2, default=str))
         return 0 if out.get("promoted") else 2
 
     if verb in ("suggest",):
@@ -728,10 +740,10 @@ def cmd_skills(args: argparse.Namespace) -> int:
                 except ValueError:
                     pass
         out = suggest_candidates(**args_dict)
-        print(_json.dumps({"candidates": out}, indent=2, default=str))
+        print(json.dumps({"candidates": out}, indent=2, default=str))
         return 0
 
-    print(_json.dumps({"error": f"unknown skills verb: {verb}", "available": ["stamp", "list", "promote", "suggest"]}))
+    print(json.dumps({"error": f"unknown skills verb: {verb}", "available": ["stamp", "list", "promote", "suggest"]}))
     return 1
 
 
