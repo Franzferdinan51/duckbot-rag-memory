@@ -246,7 +246,7 @@ It auto-discovers from `~/.openclaw/workspace/skills/`.
 | `DUCKBOT_WATCH_USE_FSEVENTS` | unset | macOS FSEvents watcher (chromadb+watchdog can segfault). |
 | `LMSTUDIO_URL` | `http://127.0.0.1:1234/v1` | LM Studio base URL. |
 | `LMSTUDIO_MODEL` | `text-embedding-embeddinggemma-300m` | Embedding model to load in LM Studio. |
-| `LMSTUDIO_RERANK_MODEL` | `Qwen/Qwen3-Reranker-0.6B` | Reranker model to load when `DUCKBOT_RERANK=1`. |
+| `LMSTUDIO_RERANK_MODEL` | `qwen3-reranker-0.6b` | Reranker model to load when `DUCKBOT_RERANK=1`. |
 | `LMSTUDIO_API_KEY` | `lm-studio` | Bearer token. LM Studio's recent builds require it. |
 | `OPENCLAW_WORKSPACE` | `~/.openclaw/workspace` | Watch this dir + auto-ingest new files. |
 | `OPENCLAW_MEMORY` | `<workspace>/memory` | Specifically watch this subdir. |

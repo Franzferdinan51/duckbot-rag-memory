@@ -106,7 +106,7 @@ TOOL_DEFINITIONS: list[dict] = [
                 "k": {"type": "integer", "default": 5},
                 "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
                 "min_importance": {"type": "number"},
-                "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank (Qwen/Qwen3-Reranker-0.6B). Default off; pass true to opt in. No paid API."},
+                "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank (qwen3-reranker-0.6b). Default off; pass true to opt in. No paid API."},
                 "decay": {"type": "boolean", "default": False, "description": "Layer 8: apply Ebbinghaus retention weighting. Default off; pass true to opt in. Public-domain math (1885), no LLM call. Boosts recently-recalled chunks."},
                 "tier_priors": {"type": "boolean", "default": False, "description": "Layer 11: apply per-tier multiplicative priors (procedural=1.5, semantic=1.2, episodic=1.0, working=0.8). Default off; pass true to opt in. Boosts procedural rules and demotes working chatter."},
                 "tier_priors_overrides": {"type": "object", "description": "Optional per-tier prior overrides, e.g. {\"procedural\": 2.0}. Tier names not in the dict fall back to defaults."},

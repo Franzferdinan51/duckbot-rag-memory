@@ -7,7 +7,7 @@ boost. This is the single biggest recall improvement we can add at our scale
 (see RESEARCH.md "Layer 7 candidate").
 
 Sources (verified via GitHub REST API 2026-06-23):
-  - Qwen/Qwen3-Reranker-0.6B — local reranker default
+  - qwen3-reranker-0.6b — local reranker default
     https://huggingface.co/Qwen/Qwen3-Reranker-0.6B
   - huggingface/sentence-transformers (CrossEncoder API) — Apache-2.0
     https://github.com/huggingface/sentence-transformers
@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 # Default model. Qwen3 reranker family. Local-first and MIT/Apache-friendly
 # depending on the weights you download via LM Studio or Hugging Face.
 DEFAULT_RERANK_MODEL = os.environ.get(
-    "DUCKBOT_RERANK_MODEL", "Qwen/Qwen3-Reranker-0.6B"
+    "DUCKBOT_RERANK_MODEL", "qwen3-reranker-0.6b"
 )
 
 # Truncate documents to this many chars before scoring. Cross-encoders
@@ -167,7 +167,7 @@ class LMStudioBackend:
             "LMSTUDIO_RERANK_URL", "http://127.0.0.1:1234/v1/rerank"
         )
         self.model = model or os.environ.get(
-            "LMSTUDIO_RERANK_MODEL", "Qwen/Qwen3-Reranker-0.6B"
+            "LMSTUDIO_RERANK_MODEL", "qwen3-reranker-0.6b"
         )
         self._client = httpx.AsyncClient(timeout=30.0)
         self.name = f"lmstudio:{self.url}"

@@ -296,7 +296,7 @@ def test_rerank_available_with_noop():
 
 def test_default_rerank_model_is_qwen3_reranker():
     """Locked-in default for the local Qwen3 reranker path."""
-    assert DEFAULT_RERANK_MODEL == "Qwen/Qwen3-Reranker-0.6B"
+    assert DEFAULT_RERANK_MODEL == "qwen3-reranker-0.6b"
 
 
 # -----------------------------------------------------------------------------
@@ -386,7 +386,7 @@ def test_lmstudio_backend_uses_default_url(monkeypatch):
     monkeypatch.delenv("LMSTUDIO_RERANK_MODEL", raising=False)
     be = LMStudioBackend()
     assert be.url == "http://127.0.0.1:1234/v1/rerank"
-    assert be.model == "Qwen/Qwen3-Reranker-0.6B"
+    assert be.model == "qwen3-reranker-0.6b"
 
 
 def test_lmstudio_backend_respects_env(monkeypatch):

@@ -66,7 +66,7 @@ TOOLS = [
                 "k": {"type": "integer", "default": 5, "description": "number of results"},
                 "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "filter by tier"},
                 "min_importance": {"type": "number", "description": "filter by importance threshold (0..1)"},
-                "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank with Qwen/Qwen3-Reranker-0.6B (local). No paid API. Off by default; pass true to opt in."},
+                "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank with qwen3-reranker-0.6b (local). No paid API. Off by default; pass true to opt in."},
                 "decay": {"type": "boolean", "default": False, "description": "Layer 8: apply Ebbinghaus retention weighting. Public-domain math (1885), no LLM call. Off by default; pass true to opt in."},
                 "tier_priors": {"type": "boolean", "default": False, "description": "Layer 11: apply per-tier multiplicative weights"},
                 "tier_priors_overrides": {"type": "object", "description": "per-tier weight overrides, e.g. {\"procedural\": 2.0}"},

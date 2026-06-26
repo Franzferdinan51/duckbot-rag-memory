@@ -115,7 +115,7 @@ The wrappers load `.env` themselves and detect the local venv, so API keys do no
 DuckBot can run in a reduced mode with embeddings only, but the default local setup expects specific LM Studio models to be downloaded. None of these ship with the repo:
 
 - Embeddings: `text-embedding-embeddinggemma-300m`
-- Reranker: `Qwen/Qwen3-Reranker-0.6B`
+- Reranker: `qwen3-reranker-0.6b`
 - Optional consolidation chat model: `qwen2.5-7b-instruct` or another local LM Studio chat model if you want `reflect()` to use the LLM-assisted fact extraction path
 
 LM Studio is the preferred local path:
@@ -125,7 +125,7 @@ DUCKBOT_EMBEDDING=lmstudio
 LMSTUDIO_URL=http://127.0.0.1:1234/v1
 LMSTUDIO_API_KEY=lm-studio
 LMSTUDIO_MODEL=text-embedding-embeddinggemma-300m
-LMSTUDIO_RERANK_MODEL=Qwen/Qwen3-Reranker-0.6B
+LMSTUDIO_RERANK_MODEL=qwen3-reranker-0.6b
 DUCKBOT_RERANK=1
 ```
 
