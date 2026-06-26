@@ -438,11 +438,8 @@ def cmd_compact(args: argparse.Namespace) -> int:
     PersistentClient handles path translation; on Windows we just
     need a Path (which pathlib does correctly).
     """
-    async def run():
-        from src.store import MemoryStore
-        return MemoryStore()
-
-    store = asyncio.run(run())
+    from src.store import MemoryStore
+    store = MemoryStore()
     backend = store.backend
     if not hasattr(backend, "_client"):
         print("❌ compact only works with the Chroma backend.", file=sys.stderr)

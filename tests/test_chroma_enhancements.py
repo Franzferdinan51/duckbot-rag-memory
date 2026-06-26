@@ -153,16 +153,19 @@ def test_cli_compact_uses_chroma_backend(monkeypatch):
         backend = FakeNonChromaBackend()
 
     def _fake_run(coro):
-        # The compact() function awaits a coroutine that returns MemoryStore().
-        # We just return our FakeStore directly. Close the coro to suppress
-        # the "never awaited" warning.
+        # The compact() function used to call asyncio.run(MemoryStore())
+        # which was wrong (MemoryStore() is sync, not a coroutine). After
+        # the fix, cmd_compact just calls MemoryStore() directly. This
+        # fake is now unused but kept for back-compat with monkeypatch.
         try:
             coro.close()
         except Exception:
             pass
         return FakeStore()
 
-    monkeypatch.setattr("src.cli.asyncio.run", _fake_run, raising=True)
+    # cmd_compact imports MemoryStore lazily from src.store, so patch
+    # it on the source module to redirect to our FakeStore.
+    monkeypatch.setattr("src.store.MemoryStore", lambda *a, **kw: FakeStore())
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         rc = cmd_compact(None)
