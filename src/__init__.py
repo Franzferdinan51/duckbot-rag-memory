@@ -42,3 +42,18 @@ def _patch_posthog() -> None:
 
 _patch_posthog()
 del _patch_posthog
+
+
+# ---------------------------------------------------------------------------
+# ChromaDB logging suppression.
+# ChromaDB 0.5.x logs "Delete of nonexisting embedding ID" as WARNING
+# via the standard `logging` module. Python's lastResort handler sends
+# WARNING+ to stderr when no handlers are configured, polluting stdout
+# (which subprocess callers capture as the "result"). Attaching a
+# NullHandler suppresses this without affecting any real error handling.
+# ---------------------------------------------------------------------------
+import logging
+
+_chroma_log = logging.getLogger("chromadb")
+_chroma_log.setLevel(logging.WARNING)
+_chroma_log.addHandler(logging.NullHandler())
