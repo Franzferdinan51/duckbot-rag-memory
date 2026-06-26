@@ -731,6 +731,7 @@ async def build_doctor_checks_async() -> tuple[list[tuple[str, str, bool]], bool
         import httpx
         headers = {"Authorization": f"Bearer {lm_key}"} if lm_key else {}
         with httpx.Client(timeout=2.0) as c:
+            headers = {"Authorization": f"Bearer {lm_key}"} if lm_key else {}
             r = c.get(f"{lm_url.rstrip('/v1')}/v1/models", headers=headers)
             lm_ok = r.status_code == 200
             lm_info = f"reachable ({r.status_code})" if lm_ok else f"unreachable ({r.status_code})"
