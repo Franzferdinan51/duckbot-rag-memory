@@ -13,6 +13,7 @@ import tempfile
 import pathlib
 import asyncio
 import concurrent.futures
+import argparse
 
 
 def _run_in_thread(coro):
@@ -949,6 +950,30 @@ def test_cli_reflect_subcommand_exists():
     assert r.returncode == 0, f"reflect --help failed: {r.stderr}"
     assert "reflect" in r.stdout
     assert "lookback" in r.stdout.lower() or "consolidat" in r.stdout.lower()
+
+
+def test_cli_consolidate_delegates_to_memory_reflect(monkeypatch):
+    """The consolidate CLI should use the real Memory.reflect() path.
+
+    The command advertises episodic -> semantic distillation, so it should
+    not just print a preview from the episodic collection.
+    """
+    from src import cli
+    from src import memory as memory_module
+
+    called = {}
+
+    class FakeMemory:
+        async def reflect(self, lookback_days: int, max_chunks: int):
+            called["args"] = (lookback_days, max_chunks)
+            return {"scanned": 3, "extracted": 2, "after_dedup": 1, "promoted": 1}
+
+    monkeypatch.setattr(memory_module, "Memory", FakeMemory)
+
+    rc = cli.cmd_consolidate(argparse.Namespace(days=9))
+
+    assert rc == 0
+    assert called["args"] == (9, 200)
 
 
 def test_hermes_hook_scripts_exist_and_executable():

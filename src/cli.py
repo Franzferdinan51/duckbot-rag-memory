@@ -42,7 +42,6 @@ from src.ingest import ingest_paths, write_stats_jsonl, IngestStats
 from src.store import MemoryStore
 from src.query import hybrid_query, format_results
 from src.eval import run_eval, append_history
-from src.consolidate import extract_facts_from_chunk, deduplicate_facts
 
 
 async def _resolve_store_and_embedder() -> tuple[MemoryStore, "EmbeddingProvider"]:
@@ -191,36 +190,12 @@ def cmd_eval(args: argparse.Namespace) -> int:
 
 
 def cmd_consolidate(args: argparse.Namespace) -> int:
-    """Naive consolidation: pull episodic chunks, extract facts, dedupe, log.
-    Doesn't actually add to semantic tier yet (no LLM extraction)."""
+    """Sleep-time consolidation. Wrapper around Memory.reflect()."""
     async def run():
-        store, _ = await _resolve_store_and_embedder()
-        return store
-    store = asyncio.run(run())
-    coll = store.collection_for(__import__("src.tier", fromlist=["Tier"]).Tier.EPISODIC)
-    # Pull last N chunks (sorted by ingested_at desc, where=recent)
-    recent = coll.get(
-        limit=200,
-        include=["documents", "metadatas"],
-    )
-    if not recent or not recent.get("ids"):
-        print("No episodic chunks to consolidate.")
-        return 0
-    all_facts = []
-    for i, chunk_id in enumerate(recent["ids"]):
-        facts = extract_facts_from_chunk(
-            recent["documents"][i],
-            chunk_id,
-            recent["metadatas"][i].get("source_path", "<unknown>"),
-        )
-        all_facts.extend(facts)
-    deduped = deduplicate_facts(all_facts)
-    print(json.dumps({
-        "episodic_chunks_scanned": len(recent["ids"]),
-        "facts_extracted": len(all_facts),
-        "facts_after_dedup": len(deduped),
-        "sample_facts": [f.to_dict() for f in deduped[:10]],
-    }, indent=2))
+        from src.memory import Memory
+        return await Memory().reflect(lookback_days=args.days, max_chunks=200)
+    result = asyncio.run(run())
+    print(json.dumps(result, indent=2))
     return 0
 
 
