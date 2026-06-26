@@ -418,6 +418,23 @@ def _serialize(obj: Any) -> Any:
     return obj
 
 
+_VALID_TIERS = ("working", "episodic", "semantic", "procedural")
+
+
+def _validate_tier(args: dict, tool_name: str) -> dict | None:
+    """Return an error dict if tier is invalid, else None.
+
+    brain.recall(..., tier="invalid") raises ValueError("'invalid' is not
+    a valid Tier") which propagates through _run_async and surfaces to
+    the MCP client as a generic -32603 error. Pre-validating here gives
+    a clear "tier must be one of ..." message instead.
+    """
+    tier = args.get("tier")
+    if tier is not None and tier not in _VALID_TIERS:
+        return {"error": f"tier must be one of {list(_VALID_TIERS)}, got {tier!r}", "tool": tool_name}
+    return None
+
+
 def handle(tool_name: str, args: dict) -> dict:
     """
     Dispatch a single MCP tool call to the Brain facade.
@@ -445,6 +462,9 @@ def handle(tool_name: str, args: dict) -> dict:
         if tool_name == "brain_recall_verbatim":
             if not args.get("query"):
                 return {"error": "query is required", "tool": tool_name}
+            tier_err = _validate_tier(args, tool_name)
+            if tier_err is not None:
+                return tier_err
             # Validate tier_priors_overrides type — non-dict would be
             # silently ignored by maybe_apply_tier_priors, masking the
             # user's intent. Surface as a clear error instead.
@@ -469,6 +489,9 @@ def handle(tool_name: str, args: dict) -> dict:
         if tool_name == "brain_recall":
             if not args.get("query"):
                 return {"error": "query is required", "tool": tool_name}
+            tier_err = _validate_tier(args, tool_name)
+            if tier_err is not None:
+                return tier_err
             # Validate tier_priors_overrides type — non-dict would be
             # silently ignored (see brain_recall_verbatim fix).
             tpo = args.get("tier_priors_overrides")
