@@ -666,6 +666,30 @@ def handle(tool_name: str, args: dict) -> dict:
     Returns a JSON-serializable dict. Errors are caught and returned as
     {"error": "..."} so the MCP client can surface them cleanly.
     """
+    # Map legacy unprefixed names to their brain_-prefixed handlers.
+    # Clients that use the short names (remember, recall, etc.) get
+    # routed to the canonical handlers. Done by rewriting tool_name
+    # BEFORE the if/elif chain so the brain_*-prefixed handlers
+    # below see the canonical name.
+    _legacy_alias = {
+        "remember": "brain_remember",
+        "recall": "brain_recall",
+        "recall_verbatim": "brain_recall_verbatim",
+        "reflect": "brain_reflect",
+        "forget": "brain_forget_by_query",
+        "forget_by_query": "brain_forget_by_query",
+        "stats": "brain_stats",
+        "fsrs_review": "brain_fsrs_review",
+        "decay_status": "brain_decay_status",
+        "brain_decay_apply": "brain_decay_apply",
+        "learn": "brain_learn",
+        "search_verbatim": "brain_search_verbatim",
+        "watch": "brain_wake_up",
+        "doctor": "brain_wake_up",
+        "active_memory": "brain_active_memory",
+    }
+    tool_name = _legacy_alias.get(tool_name, tool_name)
+
     try:
         brain = Brain()
         if tool_name == "brain_stats":
