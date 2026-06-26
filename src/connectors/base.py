@@ -401,26 +401,37 @@ class Brain:
                      "fsrs_review_queue": [], "stats": {}}
 
         # Memories — filter out superseded chunks (those with `superseded_by`).
+        # Over-fetch aggressively: small k (1-3) was returning 0 results
+        # when the top k*2 results were all superseded. Loop with
+        # increasing fetch sizes until we have k non-superseded chunks or
+        # we've tried hard enough.
         try:
-            if query:
-                raw = self.recall(query=query, k=k * 2, rerank=True)
-            else:
-                # Query-less wake-up: pull most-recent episodic + procedural.
-                from src.connectors.base import RecallResult  # local; cheap
-                raw = self.recall(query="recent memory", k=k * 2, rerank=False)
-            kept = []
-            for r in raw:
-                md = r.metadata or {}
-                if md.get("superseded_by"):
-                    continue
-                kept.append(r.to_dict() if hasattr(r, "to_dict") else {
-                    "chunk_id": r.chunk_id, "text": r.text, "tier": r.tier,
-                    "importance": getattr(r, "importance", 0.0),
-                    "score": getattr(r, "score", 0.0),
-                    "source_path": getattr(r, "source_path", ""),
-                })
+            kept: list = []
+            fetch_size = max(k * 5, 20)  # first pass: 5x overshoot
+            max_attempts = 5  # cap to bound worst-case latency
+            for attempt in range(max_attempts):
+                if query:
+                    raw = self.recall(query=query, k=fetch_size, rerank=True)
+                else:
+                    raw = self.recall(query="recent memory", k=fetch_size, rerank=False)
+                for r in raw:
+                    md = r.metadata or {}
+                    if md.get("superseded_by"):
+                        continue
+                    if any(k["chunk_id"] == r.chunk_id for k in kept):
+                        continue
+                    kept.append(r.to_dict() if hasattr(r, "to_dict") else {
+                        "chunk_id": r.chunk_id, "text": r.text, "tier": r.tier,
+                        "importance": getattr(r, "importance", 0.0),
+                        "score": getattr(r, "score", 0.0),
+                        "source_path": getattr(r, "source_path", ""),
+                    })
+                    if len(kept) >= k:
+                        break
                 if len(kept) >= k:
                     break
+                # Not enough yet — try fetching more.
+                fetch_size *= 2
             out["memories"] = kept
         except Exception as e:
             out["memories_error"] = str(e)
