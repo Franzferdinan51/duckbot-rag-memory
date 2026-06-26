@@ -7,11 +7,10 @@ boost. This is the single biggest recall improvement we can add at our scale
 (see RESEARCH.md "Layer 7 candidate").
 
 Sources (verified via GitHub REST API 2026-06-23):
-  - FlagOpen/FlagEmbedding (BGE reranker family) — MIT
-    https://github.com/FlagOpen/FlagEmbedding
+  - Qwen/Qwen3-Reranker-0.6B — local reranker default
+    https://huggingface.co/Qwen/Qwen3-Reranker-0.6B
   - huggingface/sentence-transformers (CrossEncoder API) — Apache-2.0
     https://github.com/huggingface/sentence-transformers
-  - BAAI/bge-reranker-base on HuggingFace — MIT weights
 
 We re-implement the integration pattern rather than copy code, so the
 LICENSE stays clean. The pattern itself is from the sentence-transformers
@@ -49,14 +48,15 @@ from typing import Any, Protocol
 logger = logging.getLogger(__name__)
 
 
-# Default model. MIT weights. 278M params. ~1GB RAM.
+# Default model. Qwen3 reranker family. Local-first and MIT/Apache-friendly
+# depending on the weights you download via LM Studio or Hugging Face.
 DEFAULT_RERANK_MODEL = os.environ.get(
-    "DUCKBOT_RERANK_MODEL", "BAAI/bge-reranker-base"
+    "DUCKBOT_RERANK_MODEL", "Qwen/Qwen3-Reranker-0.6B"
 )
 
 # Truncate documents to this many chars before scoring. Cross-encoders
-# are token-bounded (512 tokens for bge-reranker-base). Roughly 1500
-# chars ≈ 400 tokens with our typical chunk text, leaving headroom.
+# are token-bounded. Roughly 1500 chars ≈ 400 tokens with our typical
+# chunk text, leaving headroom for the default Qwen3 reranker.
 MAX_DOC_CHARS = 1500
 
 # Max query/doc pair batch size for predict(). 32 fits comfortably in
@@ -165,7 +165,9 @@ class LMStudioBackend:
         self.url = url or os.environ.get(
             "LMSTUDIO_RERANK_URL", "http://127.0.0.1:1234/v1/rerank"
         )
-        self.model = model or os.environ.get("LMSTUDIO_RERANK_MODEL", "bge-reranker-base")
+        self.model = model or os.environ.get(
+            "LMSTUDIO_RERANK_MODEL", "Qwen/Qwen3-Reranker-0.6B"
+        )
         self._client = httpx.AsyncClient(timeout=30.0)
         self.name = f"lmstudio:{self.url}"
 

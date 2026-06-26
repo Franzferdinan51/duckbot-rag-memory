@@ -294,9 +294,9 @@ def test_rerank_available_with_noop():
     assert isinstance(result, bool)
 
 
-def test_default_rerank_model_is_bge_reranker_base():
-    """Locked-in default per Duckets' zero-cost constraint."""
-    assert DEFAULT_RERANK_MODEL == "BAAI/bge-reranker-base"
+def test_default_rerank_model_is_qwen3_reranker():
+    """Locked-in default for the local Qwen3 reranker path."""
+    assert DEFAULT_RERANK_MODEL == "Qwen/Qwen3-Reranker-0.6B"
 
 
 # -----------------------------------------------------------------------------
@@ -386,7 +386,7 @@ def test_lmstudio_backend_uses_default_url(monkeypatch):
     monkeypatch.delenv("LMSTUDIO_RERANK_MODEL", raising=False)
     be = LMStudioBackend()
     assert be.url == "http://127.0.0.1:1234/v1/rerank"
-    assert be.model == "bge-reranker-base"
+    assert be.model == "Qwen/Qwen3-Reranker-0.6B"
 
 
 def test_lmstudio_backend_respects_env(monkeypatch):

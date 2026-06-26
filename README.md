@@ -39,7 +39,7 @@ It is designed for a practical loop:
 5. Surface stale-but-important memories via proactive nudges.
 6. Distill successful tasks into reusable agentskills.io SKILL.md manifests.
 
-The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs, Hermes Agent, and the CoALA memory taxonomy, but it keeps the runtime small: no general agent framework, no hosted database requirement, no secrets in client config.
+The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs, Hermes Agent, and the CoALA memory taxonomy, but it keeps the runtime small: no general agent framework, no hosted database requirement, no secrets in client config. OpenClaw and Hermes are the agent runtimes that call into this brain; this repo is the memory layer they use.
 
 ## Core Capabilities
 
@@ -110,7 +110,13 @@ From any shell:
 
 The wrappers load `.env` themselves and detect the local venv, so API keys do not need to be placed in MCP or shell history.
 
-## Recommended Embedding Setup
+## Local Model Requirements
+
+DuckBot can run in a reduced mode with embeddings only, but the default local setup expects specific LM Studio models to be downloaded. None of these ship with the repo:
+
+- Embeddings: `text-embedding-embeddinggemma-300m`
+- Reranker: `Qwen/Qwen3-Reranker-0.6B`
+- Optional consolidation chat model: `qwen2.5-7b-instruct` or another local LM Studio chat model if you want `reflect()` to use the LLM-assisted fact extraction path
 
 LM Studio is the preferred local path:
 
@@ -118,7 +124,9 @@ LM Studio is the preferred local path:
 DUCKBOT_EMBEDDING=lmstudio
 LMSTUDIO_URL=http://127.0.0.1:1234/v1
 LMSTUDIO_API_KEY=lm-studio
-LMSTUDIO_MODEL=text-embedding-nomic-embed-text-v1.5
+LMSTUDIO_MODEL=text-embedding-embeddinggemma-300m
+LMSTUDIO_RERANK_MODEL=Qwen/Qwen3-Reranker-0.6B
+DUCKBOT_RERANK=1
 ```
 
 Other supported providers:
@@ -137,6 +145,8 @@ DUCKBOT_EMBEDDING=local
 ```
 
 If `DUCKBOT_EMBEDDING` is unset, the code auto-detects from available credentials and local services. Keep real keys only in `.env`; it is gitignored and protected by the secret-scan scripts.
+
+If you do not install the reranker model, rerank stays available as a no-op fallback. If you do not install a chat model for consolidation, `reflect()` falls back to regex-only extraction and still works, but with lower-quality semantic promotion.
 
 ## Watcher
 

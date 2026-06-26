@@ -88,10 +88,10 @@ Every project we cribbed from, why we cribbed it, and what we stole vs rejected.
 |-------|----------|-----|----------------|---------|------|
 | `text-embedding-3-small` | OpenAI | 1536 | $0.02 | High | **PRIMARY** |
 | `text-embedding-3-large` | OpenAI | 3072 | $0.13 | Highest | optional upgrade |
-| `bge-small-en-v1.5` | BAAI | 384 | free (local) | Good | future local mode |
-| `nomic-embed-text-v1.5` | Nomic | 768 | free | Good | future local mode |
+| `text-embedding-embeddinggemma-300m` | Google | 768 | free (local) | Good | **CURRENT LOCAL DEFAULT** |
+| `bge-small-en-v1.5` | BAAI | 384 | free (local) | Good | alternative local mode |
 
-**Choice:** `text-embedding-3-small` for now. Switch to local (`bge-small`) only if we hit API cost concerns.
+**Choice:** `text-embedding-embeddinggemma-300m` for local-first setups. Switch to OpenAI only if you explicitly want cloud embeddings.
 
 ## Chunking strategies
 
@@ -165,7 +165,7 @@ Survey done by OpenClaw on Duckets' instruction: "enhance and upgrade the memory
 ### What we can integrate (MIT/Apache, self-hostable, zero paid APIs)
 
 #### Layer 7 (implemented in v0.1): cross-encoder rerank pass
-- **Source:** `BAAI/bge-reranker-base` / `bge-reranker-v2-m3` via `FlagOpen/FlagEmbedding` (MIT) or `huggingface/sentence-transformers` (Apache-2.0). Also `LMStudioBackend` for LM Studio.
+- **Source:** `Qwen/Qwen3-Reranker-0.6B` as the local default, with `BAAI/bge-reranker-base` / `bge-reranker-v2-m3` still available via `FlagOpen/FlagEmbedding` (MIT) or `huggingface/sentence-transformers` (Apache-2.0). Also `LMStudioBackend` for LM Studio.
 - **Why:** The biggest single recall win we can add. **Already wired** in `src/rerank.py` (`CrossEncoder` + `LMStudioBackend`) with a plug point in `src/query.py` Phase 6.
 - **Status:** Plug point is live; opt-in via `rerank=True` kwarg or `DUCKBOT_RERANK=1` env var. Default OFF because cross-encoder adds ~50–200ms per query depending on model size.
 - **Cost:** Free, runs locally. `pip install sentence-transformers` is Apache-2.0.
@@ -173,7 +173,7 @@ Survey done by OpenClaw on Duckets' instruction: "enhance and upgrade the memory
 - **Pattern (from sentence-transformers docs):**
   ```python
   from sentence_transformers import CrossEncoder
-  reranker = CrossEncoder("BAAI/bge-reranker-base", max_length=512)
+  reranker = CrossEncoder("Qwen/Qwen3-Reranker-0.6B", max_length=512)
   scores = reranker.predict([(query, doc) for doc in candidates])
   ranked = sorted(zip(candidates, scores), key=lambda x: -x[1])[:top_k]
   ```
@@ -203,7 +203,7 @@ Survey done by OpenClaw on Duckets' instruction: "enhance and upgrade the memory
 #### Layer 10 candidate: HyDE (Hypothetical Document Embeddings)
 - **Source:** Gao et al., "Precise Zero-Shot Dense Retrieval without Relevance Labels" (2022). Algorithm is public.
 - **Why:** For conceptual queries ("how do I feel about X?"), the query embedding is in a different space than the chunk embeddings. HyDE generates a *hypothetical answer* with a small LM, embeds *that*, and retrieves against the centroid. Big win on short / vague queries.
-- **Cost:** Free. Uses our existing LM Studio `qwen3.5-9b` (already loaded for the watcher).
+- **Cost:** Free. Uses a local LM Studio chat model when available.
 - **Risk:** Low — opt-in feature flag. Skips LLM call if `DUCKBOT_HYDE=0`.
 - **Plug point:** New `src/hyde.py`. Wire into `src/query.py` before the embed step.
 

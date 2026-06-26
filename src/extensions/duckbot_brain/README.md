@@ -104,7 +104,7 @@ server (`src/mcp_server.py`).
 
 ## Layer attribution
 
-- Layer 7 — cross-encoder rerank (`BAAI/bge-reranker-base`, MIT)
+- Layer 7 — cross-encoder rerank (`Qwen/Qwen3-Reranker-0.6B`, local)
 - Layer 8 — Ebbinghaus decay (public-domain math, 1885)
 - Layer 13 — verbatim-first storage
 - Layer 15 — pre-commit secret-scan (in this repo)

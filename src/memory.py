@@ -545,7 +545,7 @@ class Memory:
         available) promote to semantic tier. This is the 'dream' pass.
 
         For v0.1 we use regex-based extraction (cheap, runs locally). A future
-        version will call LM Studio's qwen3.5-9b for higher-quality extraction.
+        version can call a local LM Studio chat model for higher-quality extraction.
         """
         store, embedder = await self._ensure_initialized()
         episodic = store.collection_for(Tier.EPISODIC)

@@ -66,7 +66,7 @@ TOOLS = [
                 "k": {"type": "integer", "default": 5, "description": "number of results"},
                 "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "filter by tier"},
                 "min_importance": {"type": "number", "description": "filter by importance threshold (0..1)"},
-                "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank with BAAI/bge-reranker-base (MIT, local). No paid API. Off by default; pass true to opt in."},
+                "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank with Qwen/Qwen3-Reranker-0.6B (local). No paid API. Off by default; pass true to opt in."},
                 "decay": {"type": "boolean", "default": False, "description": "Layer 8: apply Ebbinghaus retention weighting. Public-domain math (1885), no LLM call. Off by default; pass true to opt in."},
                 "tier_priors": {"type": "boolean", "default": False, "description": "Layer 11: apply per-tier multiplicative weights"},
                 "tier_priors_overrides": {"type": "object", "description": "per-tier weight overrides, e.g. {\"procedural\": 2.0}"},
@@ -1977,7 +1977,7 @@ async def handle_brain_seed_demo(args: dict) -> dict:
     # remembered chunk with auto-detected tier.
     DEMO = [
         ("Project: DuckBot", "DuckBot is the personal AI assistant I'm building. Stack: Python 3.12, ChromaDB, FastMCP. Currently focused on RAG + long-term memory.", "working"),
-        ("Decision: local-first embeddings", "I'm using LM Studio (nomic-embed-text-v1.5) for embeddings. Decision rationale: privacy + zero API cost. Re-evaluate if recall quality drops below 0.9.", "semantic"),
+        ("Decision: local-first embeddings", "I'm using LM Studio (text-embedding-embeddinggemma-300m) for embeddings. Decision rationale: privacy + zero API cost. Re-evaluate if recall quality drops below 0.9.", "semantic"),
         ("Rule: never commit secrets", "Always run scripts/secret-scan.sh before committing. If it fails, fix the leak. The .env file is gitignored for a reason.", "procedural"),
         ("How to restart the BATMAN container", "1. docker ps | grep batman 2. docker restart <id> 3. tail -f /var/log/batman.log. If still down, check data/chroma/ for lock files.", "procedural"),
         ("Duckets prefers dark mode", "User explicitly stated dark mode preference in 2026-05. Don't ask again. Apply to all UIs and themes going forward.", "semantic"),
