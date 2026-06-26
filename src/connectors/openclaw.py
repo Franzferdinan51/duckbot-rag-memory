@@ -271,6 +271,16 @@ TOOL_DEFINITIONS: list[dict] = [
         "description": "Seed the default memory blocks (persona, user, today_focus) if missing.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "brain_seed_demo",
+        "description": "Seed a small demo memory (idempotent — skips if already present unless force=true). Useful for verifying the brain round-trip end-to-end.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "force": {"type": "boolean", "default": False, "description": "re-store even if already present"},
+            },
+        },
+    },
 
     # ----- Injection scan (Layer 4) -----
     {
@@ -583,6 +593,13 @@ def handle(tool_name: str, args: dict) -> dict:
             return {"blocks": brain.block_list()}
         if tool_name == "brain_seed_blocks":
             return {"seeded": brain.seed_default_blocks()}
+        if tool_name == "brain_seed_demo":
+            # Delegate to the canonical MCP handler which inlines the
+            # curated demo corpus (the Brain class doesn't have a seed_demo
+            # method). Same as-run semantics as the MCP server.
+            import asyncio
+            from src.mcp_server import handle_brain_seed_demo
+            return asyncio.run(handle_brain_seed_demo(args))
 
         # Quarantine
         if tool_name == "brain_injection_scan":
