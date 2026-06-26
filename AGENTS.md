@@ -111,18 +111,23 @@ duckbot-rag-memory/
 
 ## Cron schedule
 
-The OpenClaw cron entry (added 2026-06-22, replaced by watcher in v0.10):
+**scripts/cron.sh is DEPRECATED as of v0.15.0** — moved to
+`scripts/archive/cron.sh.deprecated`. Use the watcher daemon instead
+(`scripts/start-watcher.{ps1,sh,bat}`).
 
+The watcher has been the recommended path since v0.10:
+- Polls every 5 minutes (vs cron every 90 minutes)
+- Dedups by content hash (no re-ingesting identical files)
+- Daemonized with `start_new_session` (no orphan processes)
+- Logs to `data/watcher.log`
+
+If you still want the original cron-style nightly batch (consolidate +
+eval + sync), run these manually:
 ```bash
-0 22-23,0-9 * * *  bash /Users/duckets/Desktop/duckbot-rag-memory/scripts/cron.sh
+python -m src.cli reflect   # episodic → semantic consolidation
+python -m src.cli eval benchmarks/golden.jsonl
+python -m src.cli sync      # write to OpenClaw/Hermes context files
 ```
-
-**Prefer the watcher daemon over cron** (since v0.10). The watcher polls
-every 5 minutes, dedups by content hash, and is much cheaper than the
-90-minute cron. Use `scripts/start-watcher.{ps1,sh}` (or the
-`scripts/install-*.sh` family for OS-level service integration).
-
-If you still want the cron: 12 invocations: 22:00, 23:00, 00:00-09:00.
 The script handles:
 1. Ingest from `~/.openclaw/workspace/memory` + project docs
 2. Consolidate episodic -> semantic (heuristic)

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# DEPRECATED — moved to scripts/archive/cron.sh.deprecated on 2026-06-26.
+#
+# The script/cron.sh nightly ingest+eval+commit pattern was replaced by the
+# watcher daemon (scripts/start-watcher.{sh,ps1,bat}) in v0.10 (2026-06-22).
+# The watcher:
+#   - Polls every 5 minutes (vs cron every 90 minutes)
+#   - Dedups by content hash (vs re-ingesting identical files every cycle)
+#   - Is daemonized with start_new_session (no orphan processes)
+#   - Logs to data/watcher.log
+#
+# For the original cron-style nightly batch (consolidate + eval + commit),
+# use:
+#   python -m src.cli reflect   # episodic → semantic consolidation
+#   python -m src.cli eval benchmarks/golden.jsonl
+#   python -m src.cli sync      # write to OpenClaw/Hermes context files
+#
+# Or just keep the watcher running 24/7 — it's idempotent and cheap.
+#
+# This file is kept for historical reference and in case anyone has a
+# pre-existing crontab referencing it.
+exec echo "scripts/cron.sh is deprecated — see scripts/start-watcher.{sh,ps1,bat}" 1>&2
+exit 1

@@ -14,6 +14,9 @@ Pattern sources:
   - mcporter's stdio JSON-RPC adapter pattern
 """
 
+# MIT License — see LICENSE in the repository root.
+
+
 from __future__ import annotations
 
 import json

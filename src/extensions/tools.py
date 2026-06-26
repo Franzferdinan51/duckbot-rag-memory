@@ -26,6 +26,9 @@ This module is the dispatch layer: every entry point calls
 No LLM, no paid APIs. Local stdlib + the Brain facade only.
 """
 
+# MIT License — see LICENSE in the repository root.
+
+
 from __future__ import annotations
 
 import logging

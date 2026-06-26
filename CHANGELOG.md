@@ -1,5 +1,69 @@
 # Changelog
 
+## v0.15.0 — Skill pipeline maturity + eval trends + ingest safety
+
+### Added
+
+- **`brain_skills_suggest` (MCP + shared surface + OpenClaw CLI)** —
+  semantic top-N skill candidates by query. Uses hybrid retrieval
+  scoped to the procedural tier and filtered to unpromoted candidates.
+  Lets the agent ask 'are there candidate skills about X?' before
+  promoting.
+
+- **`trust_level` param on `brain_remember(kind="skill_candidate")`** —
+  "full" (default, skip injection scan — agents are trusted) or
+  "standard" (run scan, quarantine suspicious content for untrusted
+  callers like user-driven skill scripts).
+
+- **`instructions_markdown` field on `brain_skills_promote`** —
+  rich markdown body that overrides the flat `instructions` list.
+  Lets the agent author full markdown sections (headings, code
+  blocks, tables) instead of a flat numbered list. `instructions` is
+  now optional as long as `instructions_markdown` is provided.
+
+- **`python -m src.cli skills <verb>`** — standalone CLI for the
+  skill pipeline. Verbs: `stamp` (new candidate), `list` (unpromoted
+  candidates), `promote` (chunk_id + name + description + instructions
+  [--json form for scripted use]), `suggest <query>` (semantic top-N).
+  Output is JSON so callers can parse.
+
+- **Eval trend detection** — `src/eval.py` adds
+  `load_history()` and `compute_trend()` that read the eval_history
+  JSONL and report recent-vs-prior deltas on mean_recall_at_5,
+  mean_mrr, and p95_latency. `python -m src.cli eval` now prints
+  the trend alongside the summary.
+
+- **Watcher pending-skill-candidate report** — every 10 minutes the
+  watcher logs how many unpromoted skill candidates are waiting, so
+  operators (or the agent on its next wake-up) notice the skill pipeline
+  has work pending. Throttled so a busy watcher doesn't spam the log.
+
+### Fixed
+
+- **brain_recall / brain_recall_verbatim (shared surface)** now
+  reject empty/whitespace query with a clear error instead of returning
+  5 random semantically-similar chunks. Search semantics: use
+  `brain_search_verbatim` for exact substring match.
+
+- **Memory.remember() concurrent ingest** — added a per-Memory
+  `asyncio.Lock` around the conflict-detection + add_chunks sequence.
+  Multiple ingest workers (OpenClaw adapter + watcher) can now run
+  in parallel without racing on near-duplicate detection. On lock
+  failure (rare), fall back to unlocked add_chunks — the actual write
+  is idempotent (content-hash chunk_id) so racing duplicates are
+  recoverable.
+
+- **scripts/cron.sh** moved to `scripts/archive/cron.sh.deprecated`.
+  The watcher daemon has been the recommended path since v0.10.
+  Manual fallback for the original cron-style nightly batch:
+  `python -m src.cli reflect && python -m src.cli eval <bench> && python -m src.cli sync`.
+
+### Test surface
+
+- 737 passing
+- 12 shared-surface tools (was 11; added `brain_skills_suggest`)
+- 64 MCP tools (was 63)
+
 ## Unreleased — v0.14.0 — Agent plugin parity + wake-up wiring
 
 The four skill files (`skills/duckbot-brain/`, `skills/openclaw-imports/`,

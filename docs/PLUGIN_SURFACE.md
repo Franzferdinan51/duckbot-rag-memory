@@ -6,7 +6,7 @@ agent tools" — so an agent author can write one set of `brain_*`
 calls and have it work on OpenClaw, Hermes, Codex, Cursor, and the
 canonical MCP server.
 
-## The 11 core tools
+## The 12 core tools
 
 | # | Tool | What it does |
 |---|---|---|
@@ -20,7 +20,8 @@ canonical MCP server.
 | 8 | `brain_decay_status` | Ebbinghaus retention scoring for recent chunks. Public-domain math (1885), no LLM. |
 | 9 | `brain_search_verbatim` | Exact substring match against the verbatim (pre-overlap) text. |
 | 10 | `brain_skills_list` | List unpromoted skill candidates (agent-driven pipeline). The agent reads these and decides which to promote. No LLM. |
-| 11 | `brain_skills_promote` | Promote a candidate to a full SKILL.md. The AGENT authors the content; the brain is pure template. No LLM. |
+| 11 | `brain_skills_suggest` | Semantic top-N skill candidates matching a query (agent-driven pipeline). Use when the agent is working on a topic and wants to know 'are there candidate skills about X?'. No LLM. |
+| 12 | `brain_skills_promote` | Promote a candidate to a full SKILL.md. The AGENT authors the content; the brain is pure template. `instructions_markdown` lets the agent author full markdown (overrides the flat `instructions` list). No LLM. |
 
 The first entry is intentional: `brain_wake_up` is the canonical
 session-start call.
@@ -104,7 +105,7 @@ scripts/brain-recall "BATMAN worker offline"
 
 ## The 52 tools the MCP server has but the thin entry points don't
 
-The thin 11-tool surface is intentional — it's the portable stdio subset
+The thin 12-tool surface is intentional — it's the portable stdio subset
 that works across all three thin entry points without bringing in heavy
 deps (graph, blocks, quarantine, dreaming, active-memory, etc.). The
 remaining 47 tools are admin / CLI tools that an agent shouldn't be

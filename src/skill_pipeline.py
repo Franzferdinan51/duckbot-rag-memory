@@ -29,6 +29,9 @@ Design constraint:
   is a procedure the agent wants to re-use. This also keeps episodic clean.
 """
 
+# MIT License — see LICENSE in the repository root.
+
+
 from __future__ import annotations
 
 import time
