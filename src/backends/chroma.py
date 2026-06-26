@@ -46,6 +46,14 @@ class ChromaBackend(VectorBackend):
     #              normalize_embeddings=True at ingest).
     SUPPORTED_DISTANCE_METRICS = ("cosine", "l2", "ip")
 
+    # Max chunks per coll.upsert() call. Larger batches risk segfaulting
+    # ChromaDB's hnswlib/sqlite3 native bindings on macOS — verified by
+    # ingesting a 696-line MEMORY.md (~60 chunks) which crashed at the
+    # old single-call upsert; splitting in half worked. 32 matches the
+    # LM Studio embedder batch size so memory + vector writes stay in
+    # sync. Override with DUCKBOT_CHROMA_UPSERT_BATCH.
+    DEFAULT_UPSERT_BATCH = 32
+
     def __init__(
         self,
         persist_dir: Optional[Path | str] = None,
@@ -141,8 +149,17 @@ class ChromaBackend(VectorBackend):
                 f"{len(metadata_override)} overrides"
             )
         coll = self._collections[tier]
-        ids = [c.id for c in chunks]
-        metadatas = []
+        # Read the upsert batch size once per call so operators can tune
+        # without restarting. Clamp to [1, len(chunks)].
+        try:
+            batch_size = int(os.environ.get("DUCKBOT_CHROMA_UPSERT_BATCH", self.DEFAULT_UPSERT_BATCH))
+        except (TypeError, ValueError):
+            batch_size = self.DEFAULT_UPSERT_BATCH
+        batch_size = max(1, min(batch_size, len(chunks)))
+
+        ids_all = [c.id for c in chunks]
+        documents_all = [c.text for c in chunks]
+        metadatas_all: list[dict[str, Any]] = []
         for i, c in enumerate(chunks):
             m = {
                 "source_path": c.source_path,
@@ -162,13 +179,36 @@ class ChromaBackend(VectorBackend):
             m["verbatim_text"] = verbatim
             if metadata_override is not None:
                 m.update(metadata_override[i])
-            m = {k: _coerce(v) for k, v in m.items()}
-            metadatas.append(m)
-        documents = [c.text for c in chunks]
-        coll.upsert(ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas)
+            metadatas_all.append({k: _coerce(v) for k, v in m.items()})
+
+        # v0.15.1: batch the upsert. A single coll.upsert() with hundreds
+        # of vectors segfaults ChromaDB's hnswlib/sqlite3 bindings on
+        # macOS (verified on a 696-line MEMORY.md). 32 per call matches
+        # the LM Studio embedder batch size and keeps each native call
+        # under the allocation threshold that triggers the segfault.
+        added = 0
+        for start in range(0, len(chunks), batch_size):
+            end = min(start + batch_size, len(chunks))
+            try:
+                coll.upsert(
+                    ids=ids_all[start:end],
+                    embeddings=embeddings[start:end],
+                    documents=documents_all[start:end],
+                    metadatas=metadatas_all[start:end],
+                )
+                added += end - start
+            except Exception as exc:
+                # Surface which batch failed so a caller can retry just
+                # that slice instead of the whole ingest. The next batch
+                # still attempts — partial-success > total-fail.
+                raise RuntimeError(
+                    f"chroma upsert failed for tier={tier} batch={start}..{end} "
+                    f"(of {len(chunks)} chunks, batch_size={batch_size}): {exc}"
+                ) from exc
+
         # Track the last-ingest timestamp so stats() doesn't have to scan.
         self._last_ingest_ts = time.time()
-        return len(chunks)
+        return added
 
     def query(
         self,

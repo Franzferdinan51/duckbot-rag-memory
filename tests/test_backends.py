@@ -317,6 +317,147 @@ def test_chroma_backend_verbatim_text_truncated_at_8kb(temp_chroma_backend):
 
 
 # -----------------------------------------------------------------------------
+# Batched upsert (v0.15.1) — guards against the macOS ChromaDB segfault
+# when a single coll.upsert() carries too many vectors.
+# -----------------------------------------------------------------------------
+
+
+def _make_n_chunks(n: int) -> list[Chunk]:
+    """Build n small chunks with unique ids + a tag for retrieval."""
+    return [
+        Chunk(
+            text=f"chunk #{i} about {['cats', 'dogs', 'birds'][i % 3]}",
+            source_path=f"/tmp/mass_{i}.md",
+            start_char=0,
+            end_char=10,
+            chunk_index=i,
+            total_chunks=n,
+        )
+        for i in range(n)
+    ]
+
+
+def test_chroma_add_chunks_batches_upserts(tmp_path, monkeypatch):
+    """Verify add_chunks splits a large ingest into multiple coll.upsert
+    calls. We patch the collection's upsert to count invocations."""
+    from src.backends.chroma import ChromaBackend, ChromaBackend as CB
+    backend = ChromaBackend(persist_dir=tmp_path / "chroma")
+
+    coll = backend._collections["semantic"]
+    call_sizes: list[int] = []
+    real_upsert = coll.upsert
+
+    def spy_upsert(*, ids, embeddings, **kw):
+        call_sizes.append(len(ids))
+        return real_upsert(ids=ids, embeddings=embeddings, **kw)
+
+    monkeypatch.setattr(coll, "upsert", spy_upsert)
+
+    # 75 chunks → with default batch=32 → ceil(75/32) = 3 calls
+    # (32 + 32 + 11).
+    chunks = _make_n_chunks(75)
+    embs = [_embed(c.text) for c in chunks]
+    n = backend.add_chunks(chunks, embs, tier="semantic")
+
+    assert n == 75
+    assert call_sizes == [32, 32, 11], (
+        f"expected 3 batches of [32, 32, 11], got {call_sizes} — the "
+        f"macOS segfault fix depends on actual batching"
+    )
+
+
+def test_chroma_add_chunks_env_override_batch_size(tmp_path, monkeypatch):
+    """DUCKBOT_CHROMA_UPSERT_BATCH overrides the default 32."""
+    from src.backends.chroma import ChromaBackend
+    backend = ChromaBackend(persist_dir=tmp_path / "chroma")
+    coll = backend._collections["semantic"]
+    call_sizes: list[int] = []
+
+    def spy_upsert(*, ids, embeddings, **kw):
+        call_sizes.append(len(ids))
+
+    monkeypatch.setattr(coll, "upsert", spy_upsert)
+
+    monkeypatch.setenv("DUCKBOT_CHROMA_UPSERT_BATCH", "10")
+    chunks = _make_n_chunks(25)
+    embs = [_embed(c.text) for c in chunks]
+    backend.add_chunks(chunks, embs, tier="semantic")
+    assert call_sizes == [10, 10, 5]
+
+    # Garbage value falls back to default 32.
+    call_sizes.clear()
+    monkeypatch.setenv("DUCKBOT_CHROMA_UPSERT_BATCH", "not-a-number")
+    chunks2 = _make_n_chunks(70)
+    embs2 = [_embed(c.text) for c in chunks2]
+    backend.add_chunks(chunks2, embs2, tier="semantic")
+    assert call_sizes == [32, 32, 6], (
+        f"garbage batch size should fall back to 32, got {call_sizes}"
+    )
+
+
+def test_chroma_add_chunks_single_batch_when_under_threshold(tmp_path, monkeypatch):
+    """≤ 32 chunks → exactly one upsert call (no unnecessary splitting)."""
+    from src.backends.chroma import ChromaBackend
+    backend = ChromaBackend(persist_dir=tmp_path / "chroma")
+    coll = backend._collections["semantic"]
+    call_count = {"n": 0}
+
+    def spy_upsert(*, ids, embeddings, **kw):
+        call_count["n"] += 1
+
+    monkeypatch.setattr(coll, "upsert", spy_upsert)
+
+    chunks = _make_n_chunks(10)
+    embs = [_embed(c.text) for c in chunks]
+    backend.add_chunks(chunks, embs, tier="semantic")
+    assert call_count["n"] == 1
+
+
+def test_chroma_add_chunks_upsert_failure_raises_with_batch_range(tmp_path, monkeypatch):
+    """If coll.upsert() raises, add_chunks surfaces a useful error
+    identifying which batch failed so a caller can retry just that
+    slice instead of re-ingesting the whole file."""
+    from src.backends.chroma import ChromaBackend
+    backend = ChromaBackend(persist_dir=tmp_path / "chroma")
+    coll = backend._collections["semantic"]
+
+    def boom(**kw):
+        raise RuntimeError("simulated native crash")
+
+    monkeypatch.setattr(coll, "upsert", boom)
+    monkeypatch.setenv("DUCKBOT_CHROMA_UPSERT_BATCH", "10")
+
+    chunks = _make_n_chunks(25)
+    embs = [_embed(c.text) for c in chunks]
+    with pytest.raises(RuntimeError, match=r"batch=0\.\.10"):
+        backend.add_chunks(chunks, embs, tier="semantic")
+
+
+def test_chroma_add_chunks_preserves_idempotency_across_batches(tmp_path):
+    """Re-ingesting the same chunks (same ids) must not duplicate or
+    segfault — content-hash chunk_ids + upsert semantics guarantee this."""
+    from src.backends.chroma import ChromaBackend
+    backend = ChromaBackend(persist_dir=tmp_path / "chroma")
+    chunks = _make_n_chunks(50)
+    embs = [_embed(c.text) for c in chunks]
+
+    # First pass
+    n1 = backend.add_chunks(chunks, embs, tier="semantic")
+    assert n1 == 50
+
+    # Second pass — same ids, must upsert in place, no duplicates
+    n2 = backend.add_chunks(chunks, embs, tier="semantic")
+    assert n2 == 50
+
+    # Verify stats reflect 50 unique chunks (no duplication).
+    stats = backend.stats()
+    semantic_count = sum(
+        s.chunk_count for s in stats.tiers if s.name == "semantic"
+    )
+    assert semantic_count == 50
+
+
+# -----------------------------------------------------------------------------
 # Stub backends (Qdrant, LanceDB) raise helpful errors without deps
 # -----------------------------------------------------------------------------
 
