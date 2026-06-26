@@ -445,6 +445,12 @@ def handle(tool_name: str, args: dict) -> dict:
         if tool_name == "brain_recall_verbatim":
             if not args.get("query"):
                 return {"error": "query is required", "tool": tool_name}
+            # Validate tier_priors_overrides type — non-dict would be
+            # silently ignored by maybe_apply_tier_priors, masking the
+            # user's intent. Surface as a clear error instead.
+            tpo = args.get("tier_priors_overrides")
+            if tpo is not None and not isinstance(tpo, dict):
+                return {"error": "tier_priors_overrides must be a dict", "tool": tool_name}
             results = brain.recall_verbatim(
                 query=args["query"],
                 k=args.get("k", 5),
@@ -453,7 +459,7 @@ def handle(tool_name: str, args: dict) -> dict:
                 rerank=args.get("rerank"),
                 decay=args.get("decay"),
                 tier_priors=args.get("tier_priors"),
-                tier_priors_overrides=args.get("tier_priors_overrides"),
+                tier_priors_overrides=tpo,
                 fsrs=args.get("fsrs"),
             )
             # Convert VerbatimResult dataclasses to dicts so the MCP
@@ -463,6 +469,11 @@ def handle(tool_name: str, args: dict) -> dict:
         if tool_name == "brain_recall":
             if not args.get("query"):
                 return {"error": "query is required", "tool": tool_name}
+            # Validate tier_priors_overrides type — non-dict would be
+            # silently ignored (see brain_recall_verbatim fix).
+            tpo = args.get("tier_priors_overrides")
+            if tpo is not None and not isinstance(tpo, dict):
+                return {"error": "tier_priors_overrides must be a dict", "tool": tool_name}
             results = brain.recall(
                 query=args["query"],
                 k=args.get("k", 5),
@@ -471,7 +482,7 @@ def handle(tool_name: str, args: dict) -> dict:
                 rerank=args.get("rerank"),
                 decay=args.get("decay"),
                 tier_priors=args.get("tier_priors"),
-                tier_priors_overrides=args.get("tier_priors_overrides"),
+                tier_priors_overrides=tpo,
                 fsrs=args.get("fsrs"),
             )
             return {"results": _serialize(results)}
