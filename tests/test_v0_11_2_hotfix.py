@@ -261,6 +261,20 @@ class TestSharedClient:
         c2 = await _get_http_client()
         assert c1 is not c2
 
+    @pytest.mark.asyncio
+    async def test_reset_rate_limiter_clears_shared_http_client(self):
+        import src.embeddings as embeddings
+        from src.embeddings import _get_http_client, reset_rate_limiter
+
+        await _get_http_client()
+        assert embeddings._http_client is not None
+        assert embeddings._http_client_lock is not None
+
+        reset_rate_limiter()
+
+        assert embeddings._http_client is None
+        assert embeddings._http_client_lock is None
+
 
 # ---------------------------------------------------------------------------
 # 4. Watcher content-hash dedup

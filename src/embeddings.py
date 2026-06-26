@@ -178,7 +178,15 @@ class _TokenBucket:
     capacity: int = 60
     _tokens: float = field(init=False, default=0.0)
     _last_refill: float = field(init=False, default=0.0)
-    _lock: asyncio.Lock = field(init=False, default_factory=asyncio.Lock)
+    # Lazily created lock (avoids asyncio event-loop requirement at construction
+    # time; critical for tests that call reset_rate_limiter() from a setup
+    # hook with no running loop, and for the Memory._write_lock fix).
+    _lock: asyncio.Lock | None = field(init=False, default=None)
+
+    def _get_lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     def __post_init__(self) -> None:
         env_rpm = os.environ.get("DUCKBOT_EMBED_RPM", "").strip()
@@ -192,7 +200,7 @@ class _TokenBucket:
         self._last_refill = time.monotonic()
 
     async def acquire(self) -> None:
-        async with self._lock:
+        async with self._get_lock():
             now = time.monotonic()
             elapsed = now - self._last_refill
             refill = (elapsed / 60.0) * self.rate_per_min
@@ -211,12 +219,20 @@ _rate_limiter = _TokenBucket()
 
 
 def reset_rate_limiter(rpm=None) -> None:
-    """Reset the global rate limiter. Tests use this; production rarely does."""
-    global _rate_limiter
+    """Reset the global rate limiter (and HTTP client/lock).
+
+    Tests use this to get a clean slate. Also clears the shared httpx
+    client and its lock so the next embed call recreates both with the
+    current event loop — critical for pytest where each test gets its own
+    loop and asyncio.Lock() must not be reused across loop boundaries.
+    """
+    global _rate_limiter, _http_client, _http_client_lock
     if rpm is not None:
         _rate_limiter = _TokenBucket(rate_per_min=rpm, capacity=rpm)
     else:
         _rate_limiter = _TokenBucket()
+    _http_client = None
+    _http_client_lock = None
 
 
 @dataclass
