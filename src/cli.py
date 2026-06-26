@@ -489,7 +489,22 @@ def cmd_compact(args: argparse.Namespace) -> int:
             kr_docs = keep_resp["documents"]
             kr_embs = keep_resp["embeddings"]
             kr_metas = keep_resp["metadatas"]
-            coll.upsert(ids=kr_ids, documents=kr_docs, embeddings=kr_embs, metadatas=kr_metas)
+            # Batch the upsert to avoid segfaulting ChromaDB's hnswlib/sqlite3
+            # native bindings on macOS with large tier re-upserts (same
+            # threshold as add_chunks). Override with DUCKBOT_CHROMA_UPSERT_BATCH.
+            try:
+                batch_size = int(os.environ.get("DUCKBOT_CHROMA_UPSERT_BATCH", 32))
+            except (TypeError, ValueError):
+                batch_size = 32
+            batch_size = max(1, min(batch_size, len(keep_ids)))
+            for start in range(0, len(kr_ids), batch_size):
+                end = min(start + batch_size, len(kr_ids))
+                coll.upsert(
+                    ids=kr_ids[start:end],
+                    documents=kr_docs[start:end],
+                    embeddings=kr_embs[start:end],
+                    metadatas=kr_metas[start:end],
+                )
             total_dups += len(dup_ids)
             total_kept += len(keep_ids)
         else:
