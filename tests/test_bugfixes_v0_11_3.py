@@ -1927,6 +1927,56 @@ def test_memory_singleton_does_not_affect_constructor_with_args():
     assert again is no_arg
 
 
+def test_memory_write_lock_is_lazy(monkeypatch):
+    """Memory() construction should not require a running event loop.
+
+    The write lock must be created lazily inside remember(), not in
+    __init__(), so synchronous construction works during import-time
+    and test setup.
+    """
+    from src import memory as memory_module
+
+    lock_calls = {"count": 0}
+
+    class DummyLock:
+        def __init__(self):
+            lock_calls["count"] += 1
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeColl:
+        def query(self, *args, **kwargs):
+            return {"ids": [[]], "distances": [[1.0]], "metadatas": [[{}]]}
+        def update(self, *args, **kwargs):
+            return None
+
+    class FakeStore:
+        def collection_for(self, tier):
+            return FakeColl()
+        async def add_chunks(self, *args, **kwargs):
+            return 1
+        def mark_ingested(self):
+            return None
+
+    class FakeEmbedder:
+        name = "mock"
+        dim = 2
+        async def embed(self, texts):
+            return [[0.0, 0.0] for _ in texts]
+
+    monkeypatch.setattr(memory_module.asyncio, "Lock", DummyLock)
+    m = memory_module.Memory(store=FakeStore(), embedder=FakeEmbedder())
+    assert lock_calls["count"] == 0
+
+    async def run():
+        await m.remember("hello")
+
+    _run_in_thread(run())
+    assert lock_calls["count"] == 1
+
+
 def test_rate_limiter_allows_until_burned():
     """RateLimiter.check consumes one token per call; once exhausted
     returns (False, info) with a positive retry_after. DUCKBOT_RATELIMIT_DISABLE

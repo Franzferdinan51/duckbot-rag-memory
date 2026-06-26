@@ -178,14 +178,11 @@ class Memory:
         self._store = store
         self._embedder = embedder
         self._persist_dir = persist_dir
-        # Serialize concurrent remember() calls so conflict detection
-        # (query -> check -> update superseded_by -> add_chunks) stays
-        # consistent. Without this, two parallel ingests can race and
-        # both believe they're the canonical version of a near-duplicate
-        # fact, leaving the graph in an inconsistent state. One lock per
-        # Memory instance; the singleton Memory() shares one lock.
-        import asyncio
-        self._write_lock = asyncio.Lock()
+        # _write_lock is created lazily (inside remember()) on first use
+        # rather than here in __init__ to avoid requiring an asyncio event
+        # loop at construction time. Tests that instantiate Memory()
+        # synchronously (no running loop) would otherwise fail on Python 3.9
+        # with "There is no current event loop in thread 'MainThread'."
 
     async def _ensure_initialized(self) -> tuple[MemoryStore, EmbeddingProvider]:
         if self._store is None:
@@ -361,6 +358,11 @@ class Memory:
             # chunk was added (added > 0 means new chunk_id didn't exist
             # before). Initialize to 0 so the except branch can assign.
             added = 0
+            # Lazily create the write lock on first use (avoids requiring an
+            # asyncio event loop at Memory.__init__ time on Python 3.9).
+            if not hasattr(self, "_write_lock"):
+                import asyncio
+                self._write_lock = asyncio.Lock()
             try:
                 async with self._write_lock:
                     tier_coll_pre = store.collection_for(tier)
