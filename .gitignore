@@ -1,5 +1,6 @@
 # ChromaDB data — not committed (regenerable, large)
 data/chroma/
+data/chroma.bak/
 data/ingest_history.jsonl
 data/eval_history.jsonl
 data/graph.db

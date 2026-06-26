@@ -38,6 +38,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import signal
 import sys
@@ -47,6 +48,16 @@ from pathlib import Path
 
 from .chunk import iter_markdown_files
 from .memory import Memory
+
+# Suppress ChromaDB ERROR-level "Delete of nonexisting embedding ID" spam.
+# ChromaDB 0.5.x logs this as ERROR every time store.delete() is called
+# for a chunk id that no longer exists in the collection. This is
+# expected behaviour during watcher startup (clean slate) and harmless
+# on subsequent runs (file replaced with same chunks). Setting the
+# chromadb logger to WARNING silences it without hiding real errors.
+_chromadb_logger = logging.getLogger("chromadb")
+_chromadb_logger.setLevel(logging.WARNING)
+_chromadb_logger.addHandler(logging.NullHandler())
 from .store import MemoryStore
 from .tier import Tier
 
@@ -188,6 +199,11 @@ async def sync_files(paths: list[str], state: dict) -> dict:
         except Exception as exc:
             stats["errors"].append(f"read {path}: {exc}")
             continue
+
+        # Per-file progress: print immediately so users know we're alive.
+        # sys.stdout.flush() ensures the line appears even when stdout is
+        # buffered (common in daemon/redirected contexts).
+        print(f"  processing {path}...", flush=True)
 
         # Content-hash dedup: if the file's content hash is unchanged from
         # last sync, just update mtime in state and skip. Handles the
