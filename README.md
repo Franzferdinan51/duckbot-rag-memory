@@ -101,10 +101,11 @@ From any shell:
 ./scripts/duckbot-ask -f snippet "BATMAN container restart recipe"
 ./scripts/brain-recall.sh "watcher restart steps"
 
-# One-call session-start context load (for the agent):
-./scripts/hermes-preflight.sh                 # markdown block
+# Manual / cron helpers (NOT auto-invoked by Hermes — the MemoryProvider
+# plugin's on_session_start / on_session_end hooks cover session wiring):
+./scripts/hermes-preflight.sh                 # one-shot wake_up block
 ./scripts/hermes-preflight.sh --query OpenClaw  # anchored on a topic
-./scripts/hermes-postflight.sh                # consolidate at session end
+./scripts/hermes-postflight.sh                # nightly reflect pass
 ```
 
 The wrappers load `.env` themselves and detect the local venv, so API keys do not need to be placed in MCP or shell history.

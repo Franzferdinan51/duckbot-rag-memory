@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
-# scripts/hermes-preflight.sh — Hermes agent session-start hook.
+# scripts/hermes-preflight.sh — manual brain_wake_up wrapper.
 #
 # Calls `brain_wake_up` on the duckbot-memory MCP server and prints a
-# ready-to-paste context block to stdout. Designed to be invoked from
-# ~/.hermesrc or as a SessionStart hook.
+# ready-to-paste context block to stdout.
+#
+# ⚠️  This script is NOT auto-invoked by Hermes. The MemoryProvider
+# plugin (src/plugins/memory/duckbot_brain/) declares on_session_start
+# + on_session_end hooks that fire automatically once it's activated
+# via `memory.provider: duckbot-brain` in ~/.hermes/config.yaml.
+#
+# Use this script for manual / cron / one-shot invocations:
 #
 # Usage:
 #   hermes-preflight.sh            # one-shot, prints context

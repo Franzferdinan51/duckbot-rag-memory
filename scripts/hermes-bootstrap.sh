@@ -151,14 +151,18 @@ echo
 echo "    hermes mcp add duckbot-memory \\"
 echo "      --command \"$REPO_ROOT/scripts/duckbot-memory-mcp.sh\""
 echo
-echo "Then add the pre-flight hook so the brain loads at every session"
-echo "start (one-call context load with brain_wake_up):"
+echo "Session hooks are already wired by the plugin (no extra setup):"
+echo "  - on_session_start fires brain_wake_up → agent gets full context"
+echo "  - on_session_end persists durable user rules as procedural chunks"
 echo
-echo "    Add to ~/.hermesrc or your SessionStart hook:"
-echo "    $REPO_ROOT/scripts/hermes-preflight.sh"
+echo "The hermes-preflight.sh + hermes-postflight.sh scripts are NOT"
+echo "auto-invoked by Hermes. They're for cron / manual use:"
 echo
-echo "    And the post-flight hook to consolidate every session:"
-echo "    $REPO_ROOT/scripts/hermes-postflight.sh"
+echo "    # nightly reflect pass"
+echo "    $REPO_ROOT/scripts/hermes-postflight.sh --days 7"
+echo
+echo "    # one-shot wake_up anchored on a topic"
+echo "    $REPO_ROOT/scripts/hermes-preflight.sh --query OpenClaw"
 
 # Verify the plugin can be imported + instantiated.
 echo

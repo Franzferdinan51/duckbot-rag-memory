@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
-# scripts/hermes-postflight.sh — Hermes agent session-end hook.
+# scripts/hermes-postflight.sh — manual brain_reflect wrapper.
 #
 # Triggers brain_reflect so anything the agent learned this session
-# gets consolidated into the semantic tier. Designed to be invoked
-# from ~/.hermesrc or as a SessionEnd hook.
+# gets consolidated into the semantic tier.
+#
+# ⚠️  This script is NOT auto-invoked by Hermes. The MemoryProvider
+# plugin (src/plugins/memory/duckbot_brain/) declares on_session_start
+# + on_session_end hooks that fire automatically once it's activated
+# via `memory.provider: duckbot-brain` in ~/.hermes/config.yaml. The
+# plugin's on_session_end handles durable-rule extraction already;
+# use THIS script for cron-driven deep consolidation (reflect() over
+# the last N days).
 #
 # Usage:
 #   hermes-postflight.sh            # default reflect (lookback 7 days)

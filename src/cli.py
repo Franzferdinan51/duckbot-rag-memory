@@ -228,9 +228,9 @@ def cmd_wake_up(args: argparse.Namespace) -> int:
     """One-call session-start context load (MemPalace-inspired).
 
     Delegates to Brain.wake_up() and prints a formatted markdown block
-    ready to paste into an agent's context. Designed for use as a
-    Hermes / OpenClaw session-start hook — `scripts/hermes-preflight.sh`
-    shells out to this.
+    ready to paste into an agent's context. The MemoryProvider plugin's
+    on_session_start hook calls this automatically; use this CLI verb
+    for manual / cron invocations via `scripts/hermes-preflight.sh`.
 
     With --json: prints the full wake_up() result as JSON (one line)
     for programmatic consumers (e.g. agent runtimes that pipe the

@@ -133,18 +133,30 @@ hermes mcp add duckbot-memory \
   --command "$HOME/duckbot-rag-memory/scripts/duckbot-memory-mcp.sh"
 ```
 
-Add the pre-flight hook to your `~/.hermesrc` (or SessionStart hook
-config) so the brain loads on every session start:
+### Session hooks — already wired by the plugin
+
+You do NOT need to wire `hermes-preflight.sh` / `hermes-postflight.sh`
+into a Hermes config file. The MemoryProvider plugin declares its own
+`on_session_start` + `on_session_end` hooks in `plugin.yaml` — those
+fire automatically once the plugin is activated (via
+`memory.provider: duckbot-brain` in `~/.hermes/config.yaml`, which the
+bootstrap script writes for you).
+
+| Hook | Behavior |
+|---|---|
+| `on_session_start` | Calls `brain.wake_up(k=8, ...)` and returns the wake-up shape to Hermes so the agent starts with full context — no manual call needed. |
+| `on_session_end` | Regex-scans the session messages for durable user rules (always / never / must / should / prefer / want / don't, 12–800 chars) and persists them as a single `procedural`-tier chunk via `brain_remember`. |
+
+The `hermes-preflight.sh` + `hermes-postflight.sh` scripts still exist
+for cron / manual use cases (e.g. nightly consolidation) — they're
+NOT invoked automatically by Hermes. Use them like:
 
 ```bash
-# ~/.hermesrc or the equivalent config
-$HOME/duckbot-rag-memory/scripts/hermes-preflight.sh
-```
+# Nightly cron: reflect over the last 7 days
+$HOME/duckbot-rag-memory/scripts/hermes-postflight.sh --days 7
 
-And the post-flight hook so the brain consolidates every session:
-
-```bash
-$HOME/duckbot-rag-memory/scripts/hermes-postflight.sh
+# One-shot wake-up anchored on a topic (paste output into agent context)
+$HOME/duckbot-rag-memory/scripts/hermes-preflight.sh --query OpenClaw
 ```
 
 ## 5. First session — verify the brain is wired

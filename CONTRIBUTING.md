@@ -5,11 +5,21 @@ and welcoming to first-time contributors.
 
 ## TL;DR
 
-1. Fork → branch → commit → push → PR
-2. Read the PR template (auto-pops on new PR)
-3. Run `pytest -v` + `bash scripts/secret-scan.sh` before pushing
-4. Update `CHANGELOG.md` (under "Unreleased") + tests
-5. Wait for review. Small PRs merge fast.
+1. **Always `git pull --rebase` before editing.** Multiple agents +
+   humans push to `main` concurrently, so a stale working tree is
+   the #1 cause of conflicts. The fix is mechanical:
+   ```bash
+   git checkout main
+   git pull --rebase            # rebase your in-progress commits onto origin/main
+   # now edit / commit as normal
+   ```
+   If you skip this and `git push` rejects with a non-fast-forward,
+   you will rewrite history (which is fine for branches you own).
+2. Fork → branch → commit → push → PR
+3. Read the PR template (auto-pops on new PR)
+4. Run `pytest -v` + `bash scripts/secret-scan.sh` before pushing
+5. Update `CHANGELOG.md` (under "Unreleased") + tests
+6. Wait for review. Small PRs merge fast.
 
 ## Project values (in priority order)
 
