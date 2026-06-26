@@ -56,12 +56,12 @@ def _run_cli_query(query: str, n: int = 3, max_chars: int = 500) -> str:
         cwd=str(REPO_ROOT),
         env={**__import__("os").environ},
     )
-    # Filter out chromadb posthog telemetry noise from both stdout and
-    # stderr before concatenating. The posthog library logs errors like
-    # "Failed to send telemetry event" to stderr (sometimes stdout) and
-    # these would break JSON parsing. Also filter chromadb's "Number of
-    # requested results N is greater than number of elements in index"
-    # warnings that go to stdout.
+    # Filter out chromadb noise from both stdout and stderr before
+    # concatenating. Patterns include:
+    #   - posthog telemetry errors: "Failed to send telemetry event"
+    #   - chromadb index warnings: "Number of requested results N ..."
+    #   - chromadb deletion noise: "Delete of nonexisting embedding ID"
+    # These go to stdout/stderr and would break json.loads() / formatter output.
     def _clean(text: str) -> str:
         return "\n".join(
             line for line in text.splitlines()
@@ -69,6 +69,8 @@ def _run_cli_query(query: str, n: int = 3, max_chars: int = 500) -> str:
             and "posthog" not in line.lower()
             and "Number of requested results" not in line
             and "updating n_results" not in line
+            and "Delete of nonexisting embedding ID" not in line
+            and "Delete of nonexisting" not in line
             and line.strip()
         )
     # Put stderr FIRST (the JSON header) then stdout (the blocks).
