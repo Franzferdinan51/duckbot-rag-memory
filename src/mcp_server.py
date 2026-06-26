@@ -766,30 +766,12 @@ async def handle_watch(args: dict) -> dict:
 
 async def handle_doctor(args: dict) -> dict:
     """Same as CLI doctor but as a tool."""
-    import importlib
-    checks = []
-    # Python
-    import sys as _s
-    checks.append({"name": "python", "value": f"{_s.version_info.major}.{_s.version_info.minor}.{_s.version_info.micro}", "ok": True})
-    # Critical deps
-    for mod in ["chromadb", "httpx", "numpy"]:
-        try:
-            importlib.import_module(mod)
-            checks.append({"name": mod, "value": "imported", "ok": True})
-        except ImportError as exc:
-            checks.append({"name": mod, "value": str(exc), "ok": False})
-    # Embedder
-    mem = Memory()
-    try:
-        store, emb = await mem._ensure_initialized()
-        checks.append({"name": "embedder", "value": f"{emb.name} ({emb.dim}d)", "ok": True})
-    except Exception as exc:
-        checks.append({"name": "embedder", "value": str(exc), "ok": False})
-    # LM Studio
-    from src.embeddings import is_lmstudio_reachable
-    ok = await is_lmstudio_reachable()
-    checks.append({"name": "lmstudio", "value": "reachable" if ok else "unreachable", "ok": ok})
-    return {"checks": checks}
+    from src.cli import build_doctor_checks_async
+    checks, ok = await build_doctor_checks_async()
+    return {
+        "ok": ok,
+        "checks": [{"name": name, "value": value, "ok": item_ok} for name, value, item_ok in checks],
+    }
 
 
 # -----------------------------------------------------------------------------

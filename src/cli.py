@@ -523,15 +523,14 @@ def cmd_compact(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_doctor(args: argparse.Namespace) -> int:
-    """Sanity check: env, deps, store."""
+async def build_doctor_checks_async() -> tuple[list[tuple[str, str, bool]], bool]:
+    """Build the shared doctor checklist for CLI and MCP surfaces."""
     import importlib
-    required_checks: list[tuple[str, str, bool]] = []
-    info_checks: list[tuple[str, str, bool]] = []
+    checks: list[tuple[str, str, bool]] = []
+    required_names = {"chromadb", "httpx", "numpy", "embedding provider", "chroma store"}
 
-    def add_check(name: str, value: str, ok: bool, *, required: bool = True) -> None:
-        target = required_checks if required else info_checks
-        target.append((name, value, ok))
+    def add_check(name: str, value: str, ok: bool) -> None:
+        checks.append((name, value, ok))
 
     # 1. Python version
     add_check("python", f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}", True)
@@ -543,20 +542,19 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         except ImportError as exc:
             add_check(mod, str(exc), False)
     # 3. Optional deps
-    for mod in ["sentence_transformers"]:
-        try:
-            importlib.import_module(mod)
-            add_check(mod, "imported (local mode available)", True, required=False)
-        except ImportError:
-            add_check(mod, "not installed (local mode disabled)", True, required=False)
+    try:
+        importlib.import_module("sentence_transformers")
+        add_check("sentence_transformers", "imported (local mode available)", True)
+    except ImportError:
+        add_check("sentence_transformers", "not installed (local mode disabled)", True)
 
     explicit_provider = os.environ.get("DUCKBOT_EMBEDDING", "").lower().strip()
     openai_key = bool(os.environ.get("OPENAI_API_KEY"))
     minimax_key = bool(os.environ.get("MINIMAX_API_KEY"))
     lm_url = os.environ.get("LMSTUDIO_URL", "http://127.0.0.1:1234/v1")
-    add_check("OPENAI_API_KEY", "set" if openai_key else "missing", True, required=False)
-    add_check("MINIMAX_API_KEY", "set" if minimax_key else "missing", True, required=False)
-    add_check("LMSTUDIO_URL", lm_url, True, required=False)
+    add_check("OPENAI_API_KEY", "set" if openai_key else "missing", True)
+    add_check("MINIMAX_API_KEY", "set" if minimax_key else "missing", True)
+    add_check("LMSTUDIO_URL", lm_url, True)
 
     # 4. LM Studio reachability
     lm_key = (
@@ -573,13 +571,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             lm_ok = r.status_code == 200
             lm_info = f"reachable ({r.status_code})" if lm_ok else f"unreachable ({r.status_code})"
     except Exception as exc:
-            lm_ok = False
-            lm_info = f"unreachable ({exc})"
-    add_check("LM Studio", lm_info, lm_ok, required=(explicit_provider == "lmstudio"))
+        lm_ok = False
+        lm_info = f"unreachable ({exc})"
+    add_check("LM Studio", lm_info, lm_ok)
 
     # 5. Decide whether any embedding provider path is actually usable.
     try:
-        import sentence_transformers  # noqa: F401
+        importlib.import_module("sentence_transformers")
         local_ok = True
     except ImportError:
         local_ok = False
@@ -616,24 +614,27 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     # 6. Store reachable (default dim)
     try:
-        async def _check():
-            store, emb = await _resolve_store_and_embedder()
-            return store, emb
-        store, emb = asyncio.run(_check())
+        store, emb = await _resolve_store_and_embedder()
         stats = store.stats()
-        tiers_with_data = sum(1 for t in ['working','episodic','semantic','procedural'] if getattr(stats, t, 0) > 0)
+        tiers_with_data = sum(1 for t in ['working', 'episodic', 'semantic', 'procedural'] if getattr(stats, t, 0) > 0)
         add_check("chroma store", f"{stats.total} chunks across {tiers_with_data} tiers (provider={emb.name}, dim={emb.dim})", True)
     except Exception as exc:
         add_check("chroma store", str(exc), False)
 
-    checks = required_checks + info_checks
+    if explicit_provider == "lmstudio":
+        required_names.add("LM Studio")
+
+    all_ok = all(ok for name, _, ok in checks if name in required_names)
+    return checks, all_ok
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Sanity check: env, deps, store."""
+    checks, all_ok = asyncio.run(build_doctor_checks_async())
     max_name = max(len(c[0]) for c in checks)
-    all_ok = True
     for name, value, ok in checks:
         marker = "✓" if ok else "✗"
         print(f"  {marker} {name.ljust(max_name)}  {value}")
-        if name in {c[0] for c in required_checks} and not ok:
-            all_ok = False
     return 0 if all_ok else 1
 
 
