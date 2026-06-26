@@ -943,8 +943,11 @@ def main() -> int:
     p_openclaw.set_defaults(func=cmd_openclaw)
 
     # Skills pipeline: stamp / list / promote / suggest (no LLM).
+    # Use argparse.REMAINDER for the verb+args so the subcommand can parse
+    # its own flags (e.g. skills list -k 3) without argparse rejecting
+    # them as "unrecognized arguments".
     p_skills = sub.add_parser("skills", help="agent-driven skill pipeline: skills <verb> [args...]")
-    p_skills.add_argument("verb", nargs="+", help="verb (list / promote / suggest) + args")
+    p_skills.add_argument("verb", nargs=argparse.REMAINDER, help="verb (list / promote / suggest / stamp) + args")
     p_skills.set_defaults(func=cmd_skills)
 
     p_dash = sub.add_parser("dashboard", help="brain observability dashboard")
