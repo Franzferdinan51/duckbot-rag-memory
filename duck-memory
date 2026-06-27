@@ -6,10 +6,16 @@
 # venv, and hands off to the CLI.
 #
 # Usage:
-#   ./duck-memory                    # show CLI help
-#   ./duck-memory query "my question"
-#   ./duck-memory ingest myfile.md
-#   ./duck-memory --help
+#   ./duck-memory                          # show CLI help
+#   ./duck-memory query "my question"      # recall memories
+#   ./duck-memory ingest myfile.md         # store memories
+#   ./duck-memory stats                    # show chunk counts
+#   ./duck-memory doctor                  # health check
+#
+# Update commands:
+#   ./duck-memory update                  # pull latest + upgrade deps + doctor
+#   ./duck-memory update --check          # check if updates are available
+#   ./duck-memory update --no-deps        # pull only, skip deps upgrade
 #
 # Install on PATH (from the repo root):
 #   ln -s "$(pwd)/duck-memory" ~/bin/duck-memory   # Linux / macOS (~/bin must be on PATH)
@@ -21,7 +27,6 @@
 set -euo pipefail
 
 # Resolve the repo root: this script's directory → duckbot-rag-memory/
-# Handles symlinks too (ln -s creates a symlink, not a copy).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR" && pwd)"
 
@@ -47,5 +52,34 @@ if [[ -f "$ENV_FILE" ]]; then
     set +a
 fi
 
+# Fast background update check — prints a notice if behind origin/main.
+# Throttled: caches result in /tmp/duck-memory-updates for 1 hour so we don't
+# hit git on every single command. Run "duck-memory update --check" to force a check.
+_update_check() {
+    local CACHE_FILE="/tmp/duck-memory-updates"
+    local MAX_AGE=3600  # 1 hour
+
+    # Skip check for update subcommand (it has its own logic)
+    [[ "${1:-}" == "update" ]] && return 0
+
+    # Check cache age
+    if [[ -f "$CACHE_FILE" ]]; then
+        local AGE
+        AGE=$(($(date +%s) - $(stat -f %m "$CACHE_FILE" 2>/dev/null || stat --format %Y "$CACHE_FILE" 2>/dev/null || echo 0)))
+        [[ "$AGE" -lt "$MAX_AGE" ]] && return 0  # still fresh
+    fi
+
+    # Fetch and count commits behind
+    local BEHIND
+    BEHIND=$(git fetch origin 2>/dev/null && git rev-list --count "HEAD..origin/main" 2>/dev/null || echo 0)
+    if [[ "$BEHIND" -gt 0 ]]; then
+        echo -e "\033[1;33mduck-memory: $BEHIND update(s) behind origin/main. Run 'duck-memory update --check' to see details.\033[0m" >&2
+    fi
+    echo "$BEHIND" > "$CACHE_FILE"
+}
+
+# Run update check (fast, throttled to once per hour)
+_update_check "$@" &
+
 # Delegate to the CLI, passing all arguments
-exec "$PYTHON" -m src.cli "$@"
+"$PYTHON" -m src.cli "$@"

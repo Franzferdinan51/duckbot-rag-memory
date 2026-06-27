@@ -3,10 +3,16 @@
 ::
 :: Drop this anywhere on your PATH, or run it from the repo root.
 :: Usage:
-::   duck-memory                    :: show CLI help
-::   duck-memory query "question"
-::   duck-memory ingest myfile.md
-::   duck-memory --help
+::   duck-memory                          :: show CLI help
+::   duck-memory query "my question"      :: recall memories
+::   duck-memory ingest myfile.md         :: store memories
+::   duck-memory stats                   :: show chunk counts
+::   duck-memory doctor                   :: health check
+::
+:: Update commands:
+::   duck-memory update                  :: pull latest + upgrade deps + doctor
+::   duck-memory update --check           :: check if updates are available
+::   duck-memory update --no-deps         :: pull only, skip deps upgrade
 
 :: Find repo root: where this .bat lives
 set "REPO_ROOT=%~dp0"

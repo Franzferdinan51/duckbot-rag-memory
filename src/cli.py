@@ -1012,7 +1012,7 @@ def main() -> int:
     # Update: pull latest from origin/main + upgrade deps + doctor.
     p_update = sub.add_parser("update", help="pull latest from origin/main and upgrade deps")
     p_update.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run", "--check", dest="dry_run", action="store_true",
         help="only check whether updates are available without pulling",
     )
     p_update.add_argument(
