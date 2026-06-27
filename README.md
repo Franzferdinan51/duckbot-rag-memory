@@ -67,13 +67,13 @@ The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs,
 
 **One-command setup** (recommended — picks your OS automatically):
 
-| OS | Command |
-|---|---|
-| macOS | Double-click `scripts/setup.command` in Finder, or run `./scripts/setup.sh` in Terminal |
-| Linux | Run `./scripts/setup.sh` in Terminal |
-| Windows | Double-click `scripts/setup.bat` in Explorer, or run `pwsh .\scripts\setup.ps1` |
+| OS | Setup | Update | Demo | Start watcher |
+|---|---|---|---|---|
+| macOS | Double-click `scripts/setup.command` | Double-click `scripts/update.command` | Double-click `scripts/demo.command` | Double-click `scripts/start.command` |
+| Linux | `./scripts/setup.sh` | `./scripts/update.sh` | `./scripts/demo.sh` | `./scripts/start.sh` |
+| Windows | Double-click `scripts\setup.bat` | Double-click `scripts\update.bat` | Double-click `scripts\demo.bat` | Double-click `scripts\start.bat` |
 
-The setup script creates the venv, installs deps, seeds the demo corpus, runs a sample query, and prints next steps.
+The setup script creates the venv, installs deps, seeds the demo corpus, runs a sample query, and prints next steps. Update pulls the latest from GitHub and upgrades deps.
 
 **What you get in 30 seconds:**
 
@@ -109,6 +109,10 @@ python -m src.cli import data/brain_export.md
 From any shell:
 
 ```bash
+# Update to the latest version
+./scripts/update.sh                              # macOS / Linux
+# Windows: double-click scripts\update.bat
+
 ./scripts/duckbot-ask "What did we decide about cloud-only models?"
 ./scripts/duckbot-ask -f compact -n 3 "Duckets correction style"
 ./scripts/duckbot-ask -f snippet "BATMAN container restart recipe"

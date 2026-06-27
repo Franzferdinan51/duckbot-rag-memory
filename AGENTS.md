@@ -25,6 +25,10 @@ python -m src.cli ingest ~/.openclaw/workspace/memory
 ./scripts/duckbot-ask -f compact -n 3 "Duckets correction style"
 ./scripts/brain-recall "BATMAN worker offline"   # alias for duckbot-ask
 
+# Update to the latest version
+./scripts/update.sh                              # macOS/Linux Terminal
+# Windows: double-click scripts\update.bat
+
 # Real-time ingest via the watcher daemon (recommended over cron)
 ./scripts/start-watcher.sh                       # polls every 5 min, content-hash dedup
 
