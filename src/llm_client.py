@@ -1,9 +1,9 @@
 """
 llm_client.py — minimal chat-completion client for LM Studio.
 
-The brain embeds via LM Studio (src/embeddings.py) but until now
-had no chat-completion client. This file adds one — used by the mem0
-fact-extraction prompts in src/consolidate.py.
+This is an optional helper for consolidation / fact extraction in
+src/consolidate.py. The main agent runtimes are OpenClaw and Hermes;
+this client is only used when a local LM Studio chat model is available.
 
 Design constraints:
 - Local-first: defaults to LM Studio at http://127.0.0.1:1234/v1

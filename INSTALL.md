@@ -18,7 +18,8 @@ server; the agent invokes it as tools.
 - Python 3.12+ (`python3 --version`)
 - pip
 - ~2 GB disk for the venv + ChromaDB index
-- For embeddings: LM Studio (recommended), OR MiniMax / OpenAI API key, OR `pip install sentence-transformers` for local
+- For the default local path: LM Studio with `text-embedding-embeddinggemma-300m` and `qwen3-reranker-0.6b` downloaded
+- For alternate embeddings: LM Studio (recommended), OR MiniMax / OpenAI API key, OR `pip install sentence-transformers` for local
 
 No GPU required. No system packages beyond what Python itself needs.
 
@@ -33,6 +34,8 @@ cd duckbot-rag-memory
 # Configure
 cp .env.example .env
 # Edit .env: set DUCKBOT_EMBEDDING=lmstudio (default) + LMSTUDIO_URL,
+# LMSTUDIO_MODEL=text-embedding-embeddinggemma-300m,
+# LMSTUDIO_RERANK_MODEL=qwen3-reranker-0.6b.
 # OR DUCKBOT_EMBEDDING=minimax + MINIMAX_API_KEY, etc.
 
 # Verify
