@@ -270,6 +270,50 @@ class TestTokenBucket:
         elapsed = time.monotonic() - t0
         assert elapsed < 0.5, f"Refill didn't happen: {elapsed}s"
 
+    @pytest.mark.asyncio
+    async def test_lock_released_during_sleep(self):
+        """The lock must be released during the wait so other coroutines
+        can compute their own waits concurrently. We verify this by checking
+        that a 2nd acquire() called while the 1st is sleeping can also
+        enter the bucket-state critical section (not blocked on the lock)."""
+        # 1 token/sec, capacity 1 → after draining, next acquire waits ~1s.
+        b = _TokenBucket(rate_per_min=60, capacity=1)
+        await b.acquire()  # drain
+        # Spawn two concurrent acquires. The 2nd must NOT be blocked behind
+        # the 1st's sleep — both should be in the wait state together.
+        order: list[str] = []
+
+        async def acquirer(name: str):
+            await b.acquire()
+            order.append(name)
+
+        # Track when each coroutine finishes the wait by patching sleep
+        original_sleep = asyncio.sleep
+
+        in_sleep: dict[str, bool] = {"a": False, "b": False}
+
+        async def tracking_sleep(t):
+            # Mark this coroutine as sleeping. If both end up sleeping
+            # concurrently, the lock was released during sleep.
+            in_sleep["a" if asyncio.current_task().get_name() == "a" else "b"] = True
+            if in_sleep["a"] and in_sleep["b"]:
+                # Both are sleeping at the same time — lock was released.
+                order.append("concurrent_sleep_ok")
+            return await original_sleep(t)
+
+        with patch("asyncio.sleep", new=tracking_sleep):
+            await asyncio.gather(
+                asyncio.create_task(acquirer("a"), name="a"),
+                asyncio.create_task(acquirer("b"), name="b"),
+            )
+
+        # Both coroutines finished successfully.
+        assert "a" in order and "b" in order, f"order={order}"
+        # And the lock was released during sleep (both slept concurrently).
+        assert "concurrent_sleep_ok" in order, (
+            f"Lock held during sleep — coroutines didn't overlap. order={order}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # 3. Shared httpx client (singleton)

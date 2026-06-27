@@ -200,19 +200,24 @@ class _TokenBucket:
         self._last_refill = time.monotonic()
 
     async def acquire(self) -> None:
-        async with self._get_lock():
-            now = time.monotonic()
-            elapsed = now - self._last_refill
-            refill = (elapsed / 60.0) * self.rate_per_min
-            self._tokens = min(float(self.capacity), self._tokens + refill)
-            self._last_refill = now
-            if self._tokens < 1.0:
-                deficit = 1.0 - self._tokens
-                wait = (deficit / self.rate_per_min) * 60.0
-                await asyncio.sleep(wait)
-                self._tokens = 0.0
-            else:
-                self._tokens -= 1.0
+        # Two-phase: mutate bucket state under the lock, then release and
+        # sleep OUTSIDE the lock. Holding the lock during asyncio.sleep would
+        # serialize every concurrent caller — N concurrent acquires would
+        # take N × (wait_time) instead of just (wait_time).
+        while True:
+            async with self._get_lock():
+                now = time.monotonic()
+                elapsed = now - self._last_refill
+                refill = (elapsed / 60.0) * self.rate_per_min
+                self._tokens = min(float(self.capacity), self._tokens + refill)
+                self._last_refill = now
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return
+                wait = ((1.0 - self._tokens) / self.rate_per_min) * 60.0
+            # Lock released — other coroutines can compute their own waits.
+            # asyncio.sleep yields control so the event loop can run them.
+            await asyncio.sleep(wait)
 
 
 _rate_limiter = _TokenBucket()
