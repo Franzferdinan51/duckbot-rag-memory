@@ -10,10 +10,10 @@ Why 12 and not 64 (the full MCP server surface)?
   - These 12 are the ones every skill file (skills/duckbot-brain,
     skills/openclaw-imports, skills/codex-imports, skills/cursor-imports)
     advertises to agents, plus the 2 agent-driven skill-pipeline tools
-  - The full 64 are still available via:
+  - The full 67 are still available via:
       * `python -m src.cli <verb>` (CLI)
       * `scripts/duckbot-ask "..."` (shell wrapper)
-      * The canonical MCP server at `src/mcp_server.py` (66 tools)
+      * The canonical MCP server at `src/mcp_server.py` (67 tools)
   - Keeping the thin surface tight means portable stdio JSON-RPC stays
     lightweight and the OpenClaw adapter doesn't have to bundle the
     graph / blocks / quarantine layers (those are admin concerns).
