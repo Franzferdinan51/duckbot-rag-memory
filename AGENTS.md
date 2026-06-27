@@ -173,6 +173,13 @@ for the full step-by-step.
 - See [docs/INTEGRATION.md § Manual install](docs/INTEGRATION.md) for
   the JSON shape for `mcp.json`, `claude_desktop_config.json`, etc.
 
+## Cross-platform line endings
+
+`.gitattributes` is the source of truth. All `*.sh` / `*.ps1` / `*.py` /
+`*.json` / `*.md` files normalize to LF on commit. Windows editors that
+default to CRLF (Notepad, older VS Code configs) won't poison the repo.
+Run `git diff --check` after editing to catch any stragglers.
+
 ## Design constraints
 
 - **Idempotent ingest.** Re-running on the same file produces the same chunk IDs (content hash).

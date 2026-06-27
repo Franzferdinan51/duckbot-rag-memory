@@ -31,6 +31,7 @@ from pathlib import Path
 import pytest
 
 SCAN_SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "secret-scan.sh"
+SCAN_SCRIPT_POSIX = SCAN_SCRIPT.as_posix()
 
 
 def _run_in_tmp_repo(tmp_path: Path, staged_files: dict[str, str]) -> subprocess.CompletedProcess:
@@ -56,11 +57,18 @@ def _run_in_tmp_repo(tmp_path: Path, staged_files: dict[str, str]) -> subprocess
         full.write_text(content)
         subprocess.check_call(["git", "add", rel_path], cwd=repo)
 
+    # Invoke bash via `bash -c` so MSYS path translation kicks in on
+    # Windows. Direct `["bash", SCAN_SCRIPT_POSIX]` strips the leading
+    # drive letter + colons because MSYS only translates paths passed
+    # through the shell parser, not raw argv. Using `bash -c` (via
+    # shell=True) lets MSYS rewrite C:/Users/foo → /c/Users/foo for us.
+    # POSIX systems (macOS, Linux) pass the path through unchanged.
     return subprocess.run(
-        ["bash", str(SCAN_SCRIPT)],
+        f'bash "{SCAN_SCRIPT_POSIX}"',
         cwd=repo,
         capture_output=True,
         text=True,
+        shell=True,
         env={**os.environ, "DUCKBOT_SKIP_SECRET_SCAN": ""},
     )
 
@@ -236,11 +244,12 @@ def test_skip_env_var_allows_override(tmp_repo):
     subprocess.check_call(["git", "add", "leak.py"], cwd=repo)
 
     r = subprocess.run(
-        ["bash", str(SCAN_SCRIPT)],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "DUCKBOT_SKIP_SECRET_SCAN": "1"},
-    )
+            f'bash "{SCAN_SCRIPT_POSIX}"',
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            shell=True,
+            env={**os.environ, "DUCKBOT_SKIP_SECRET_SCAN": "1"},
+        )
     assert r.returncode == 0
     assert "WARNING" in r.stderr  # operator still sees the warning

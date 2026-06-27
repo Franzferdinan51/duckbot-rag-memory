@@ -70,7 +70,7 @@ for f in $STAGED_FILES; do
     #   // duckbot-secret-scan: allowlist-file
     # Use this for tests, fixtures, or files that intentionally contain
     # example API keys.
-    if printf '%s\n' "$(git show ":$f" 2>/dev/null)" | head -30 | grep -qE "duckbot-secret-scan:[[:space:]]*allowlist-file"; then
+    if git show ":$f" 2>/dev/null | head -30 | grep -qE "duckbot-secret-scan:[[:space:]]*allowlist-file"; then
         continue
     fi
 

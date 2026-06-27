@@ -1,0 +1,102 @@
+# .gitattributes — normalize line endings cross-platform
+#
+# Problem: shell scripts and PowerShell scripts committed from Windows
+# often pick up CRLF line endings (CR + LF). POSIX bash and many
+# downstream tools treat the trailing \r as a syntax error — breaking
+# `bash -n`, shellcheck, and sometimes even runtime execution on
+# strict POSIX systems (GitHub Actions Ubuntu runner, macOS, Linux).
+#
+# Fix: declare LF as the canonical line ending for all script files.
+# Git will rewrite to LF on commit and to native (CRLF on Windows) on
+# checkout. Developers on Windows who need CRLF for their editor can
+# override with `git config core.autocrlf false` per-file.
+#
+# Verified 2026-06-27 — see commit history for the bug-fix chain.
+
+# Shell scripts (POSIX bash + zsh)
+*.sh         text eol=lf
+*.bash       text eol=lf
+
+# PowerShell scripts
+*.ps1        text eol=lf
+
+# Windows command scripts
+*.bat        text eol=crlf
+*.cmd        text eol=crlf
+
+# Python (should always be LF; Windows editors love to add CRLF)
+*.py         text eol=lf
+*.pyi        text eol=lf
+
+# JavaScript / TypeScript / Node
+*.js         text eol=lf
+*.mjs        text eol=lf
+*.cjs        text eol=lf
+*.ts         text eol=lf
+*.tsx        text eol=lf
+*.jsx        text eol=lf
+*.json       text eol=lf
+*.jsonc      text eol=lf
+
+# Web
+*.html       text eol=lf
+*.css        text eol=lf
+*.scss       text eol=lf
+*.sass       text eol=lf
+*.vue        text eol=lf
+*.svelte     text eol=lf
+
+# Config / docs / data
+*.yml        text eol=lf
+*.yaml       text eol=lf
+*.toml       text eol=lf
+*.md         text eol=lf
+*.markdown   text eol=lf
+*.txt        text eol=lf
+*.csv        text eol=lf
+*.tsv        text eol=lf
+*.xml        text eol=lf
+*.ini        text eol=lf
+*.env        text eol=lf
+*.env.*      text eol=lf
+*.example    text eol=lf
+*.tmpl       text eol=lf
+*.template   text eol=lf
+
+# C / C++ / system
+*.c          text eol=lf
+*.cc         text eol=lf
+*.cpp        text eol=lf
+*.cxx        text eol=lf
+*.h          text eol=lf
+*.hpp        text eol=lf
+*.hxx        text eol=lf
+*.go         text eol=lf
+*.rs         text eol=lf
+*.java       text eol=lf
+*.kt         text eol=lf
+*.rb         text eol=lf
+*.php        text eol=lf
+
+# Shell / dotfiles
+*.zsh        text eol=lf
+*.fish       text eol=lf
+
+# Binary assets (do NOT touch line endings)
+*.png        binary
+*.jpg        binary
+*.jpeg       binary
+*.gif        binary
+*.webp       binary
+*.ico        binary
+*.svg        text eol=lf
+*.pdf        binary
+*.zip        binary
+*.tar        binary
+*.gz         binary
+*.tgz        binary
+*.whl        binary
+*.exe        binary
+*.dll        binary
+*.so         binary
+*.dylib      binary

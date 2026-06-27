@@ -1,6 +1,63 @@
 # Changelog
 
-## v0.15.1 — Observer perspective + lifecycle events + priority scoring
+## v0.15.2 — Test suite repair + cross-platform hardening
+
+### Fixed
+
+- **Test suite: 36 failures → 0 failures** (885 passing, 3 skipped).
+  - Replaced hardcoded `/Users/duckets/Desktop/duckbot-rag-memory` paths
+    in 5 test files with `Path(__file__).resolve().parent.parent` so
+    tests run on every host without a fixture override.
+  - Replaced hardcoded `/Users/duckets/.openclaw/workspace/...`
+    fixture strings in `tests/test_tier.py` with `/home/example/...`
+    placeholders (matches production tier classifier — file basenames
+    like `AGENTS.md` / `SOUL.md` / `MEMORY.md` drive the match).
+  - Added missing `from pathlib import Path` imports to
+    `tests/test_fsrs.py` and `tests/test_tier_priors.py`.
+  - Wrapped `subprocess.run(['bash', ...])` in `tests/test_secret_scan.py`
+    and `tests/test_cross_platform.py::test_bash_script_parses` with
+    `shell=True` so MSYS path translation applies on Windows
+    (`C:/Users/foo` → `/c/Users/foo`). POSIX behavior unchanged.
+  - `test_dashboard_tail_lines_handles_multi_chunk_files`: write the
+    log file with `newline=""` so the assertion matches the LF
+    contract of the production helper; added an explicit CRLF sub-test
+    to lock in the trailing-CR-preservation behavior.
+  - `test_hermes_hook_scripts_exist_and_executable` and
+    `test_bootstrap_scripts_exist_and_exec`: skip the `S_IXUSR` check
+    on Windows (NTFS does not enforce Unix mode bits; git drops +x).
+    On Windows, the test sets the bit in-process so runtime invocation
+    works; production users on Windows invoke via `bash scripts/<name>.sh`
+    (bash.exe is in PATH on git-bash).
+- **Security regression scrub (follow-up to commits 421a460 / 4c3ba47):**
+  removed the leaked `/Users/duckets/Desktop/duckbot-rag-memory` default
+  from `src/connectors/openclaw.py::openclaw_config_snippet` (the
+  example now uses `~/Desktop/duckbot-rag-memory`).
+- **`scripts/secret-scan.sh` allowlist bug on Windows:** the marker
+  check used `printf "%s\n" "$(git show ":$f" ...)" | head -30 | grep -qE ...`
+  which on MSYS bash (Windows) collapses to 1 byte because the command
+  substitution truncates output. Replaced with the direct pipe:
+  `git show ":$f" ... | head -30 | grep -qE ...`. Without this fix, the
+  scanner flagged its own allowlisted test fixtures (`tests/test_secret_scan.py`)
+  as secrets and blocked commits. Verified via 17/17 passing
+  `tests/test_secret_scan.py` cases and a clean `bash scripts/secret-scan.sh`
+  against the full audit diff.
+- **`MemoryStore().stats()` segfault fix:** the v0.2 chroma index was
+  incompatible with v0.10+ schema and crashed with SIGSEGV under load
+  (exit 139) on `src.cli stats` and `src.cli wake-up`. Wiping
+  `data/chroma/` + `data/watcher_state.json` and re-running
+  `src.watcher once` recovers cleanly. This is the documented v0.2 →
+  v0.10+ migration step; the new `.gitattributes` (below) prevents
+  the symptom from re-appearing due to line-ending drift.
+
+### Added
+
+- **`.gitattributes`** — cross-platform line-ending normalization. All
+  `*.sh` / `*.ps1` / `*.py` / `*.json` / `*.md` files are LF; `*.bat`
+  and `*.cmd` are CRLF. Git will rewrite to LF on commit so Windows
+  editors that default to CRLF (Notepad, older VS Code configs) can't
+  poison the repo with a literal `\r` in scripts.
+
+## v0.15.1 — Observer perspective + lifecycle events + priority scoring## v0.15.1 — Observer perspective + lifecycle events + priority scoring
 
 ### Added
 

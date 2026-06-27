@@ -1032,7 +1032,7 @@ def handle(tool_name: str, args: dict) -> dict:
 # OpenClaw config snippet (for documentation)
 # -----------------------------------------------------------------------------
 
-def openclaw_config_snippet(repo_path: str = "/Users/duckets/Desktop/duckbot-rag-memory") -> dict:
+def openclaw_config_snippet(repo_path: str = "~/Desktop/duckbot-rag-memory") -> dict:
     """
     Return the JSON snippet Duckets should merge into ~/.openclaw/openclaw.json
     under "mcp.servers.duckbot-brain".

@@ -11,29 +11,29 @@ from src.tier import Tier, classify, classify_by_path, reclassify_for_working
 def test_dated_log_is_episodic():
     from datetime import date, timedelta
     yesterday = (date.today() - timedelta(days=1)).isoformat()
-    a = classify(f"/Users/duckets/.openclaw/workspace/memory/{yesterday}.md", "Some content")
+    a = classify(f"/home/example/.openclaw/workspace/memory/{yesterday}.md", "Some content")
     assert a.tier == Tier.EPISODIC
 
 
 def test_dated_log_with_suffix_is_episodic():
     from datetime import date, timedelta
     yesterday = (date.today() - timedelta(days=1)).isoformat()
-    a = classify(f"/Users/duckets/.openclaw/workspace/memory/{yesterday}-evening.md", "x")
+    a = classify(f"/home/example/.openclaw/workspace/memory/{yesterday}-evening.md", "x")
     assert a.tier == Tier.EPISODIC
 
 
 def test_agents_md_is_procedural():
-    a = classify("/Users/duckets/.openclaw/workspace/AGENTS.md", "rules here")
+    a = classify("/home/example/.openclaw/workspace/AGENTS.md", "rules here")
     assert a.tier == Tier.PROCEDURAL
 
 
 def test_soul_md_is_procedural():
-    a = classify("/Users/duckets/.openclaw/workspace/SOUL.md", "voice rules")
+    a = classify("/home/example/.openclaw/workspace/SOUL.md", "voice rules")
     assert a.tier == Tier.PROCEDURAL
 
 
 def test_memory_md_is_semantic():
-    a = classify("/Users/duckets/.openclaw/workspace/MEMORY.md", "durable facts")
+    a = classify("/home/example/.openclaw/workspace/MEMORY.md", "durable facts")
     assert a.tier == Tier.SEMANTIC
 
 
@@ -46,7 +46,7 @@ def test_today_md_is_working():
     """Today's daily log should be classified as WORKING tier."""
     from datetime import date
     today = date.today().isoformat()
-    a = classify(f"/Users/duckets/.openclaw/workspace/memory/{today}.md", "active session")
+    a = classify(f"/home/example/.openclaw/workspace/memory/{today}.md", "active session")
     assert a.tier == Tier.WORKING
 
 
@@ -62,7 +62,7 @@ def test_imperative_voice_is_procedural():
 
 
 def test_high_confidence_for_path_match():
-    a = classify("/Users/duckets/.openclaw/workspace/AGENTS.md", "anything")
+    a = classify("/home/example/.openclaw/workspace/AGENTS.md", "anything")
     assert a.confidence >= 0.9
 
 
@@ -75,7 +75,7 @@ def test_low_confidence_for_content_only():
 def test_reclassify_working_only_for_today():
     from datetime import date, timedelta
     yesterday = (date.today() - timedelta(days=1)).isoformat()
-    a = classify(f"/Users/duckets/.openclaw/workspace/memory/{yesterday}.md", "x")
+    a = classify(f"/home/example/.openclaw/workspace/memory/{yesterday}.md", "x")
     promoted = reclassify_for_working(a.source_path, a)
     # Yesterday's log is not today → no promotion
     assert promoted.tier == a.tier

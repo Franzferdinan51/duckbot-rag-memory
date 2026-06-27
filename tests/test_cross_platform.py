@@ -29,7 +29,7 @@ from pathlib import Path
 import pytest
 
 
-ROOT = "/Users/duckets/Desktop/duckbot-rag-memory"
+ROOT = str(Path(__file__).resolve().parent.parent)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
@@ -294,10 +294,11 @@ def test_bash_script_parses(script):
     if not p.exists():
         pytest.skip(f"missing: {p}")
     result = subprocess.run(
-        ["bash", "-n", str(p)],
-        capture_output=True,
-        text=True,
-    )
+            f'bash -n "{p.as_posix()}"',
+            capture_output=True,
+            text=True,
+            shell=True,
+        )
     assert result.returncode == 0, f"bash syntax error in {script}: {result.stderr}"
 
 
@@ -310,7 +311,7 @@ def test_no_hardcoded_absolute_paths_in_scripts():
     """No scripts/ file should reference /Users/<user>/<path> literally.
 
     Regression: scripts/start-watcher.sh and com.duckbot.memory-watcher.plist
-    previously had /Users/duckets/Desktop/duckbot-rag-memory baked in,
+    previously had a hardcoded user home baked in,
     which broke for any user who cloned the repo elsewhere.
     """
     import re
