@@ -94,7 +94,6 @@ def test_extract_facts_via_llm_requires_explicit_model(monkeypatch):
     from src import consolidate
     from src import llm_client
 
-    monkeypatch.setenv("DUCKBOT_CHAT_MODEL", "host-agent-chat-model")
     called = []
 
     def fake_chat(messages, **_kw):
