@@ -29,6 +29,7 @@ def brain(tmp_path):
         graph_path=tmp_path / "graph.db",
         blocks_path=tmp_path / "blocks.db",
         quarantine_path=tmp_path / "quarantine.db",
+        persist_dir=tmp_path / "chroma",
         embedder=MockEmbeddings(),
         scan_before_remember=False,  # tests don't want surprise quarantines
     )

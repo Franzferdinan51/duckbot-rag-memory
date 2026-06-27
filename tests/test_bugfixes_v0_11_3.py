@@ -1767,11 +1767,11 @@ def test_bootstrap_scripts_exist_and_exec():
 
 def test_consolidate_extraction_uses_llm_when_available(monkeypatch):
     """extract_facts_from_chunk must supplement regex with mem0-style
-    LLM extraction when LM Studio is reachable. Mocked here so the test
-    doesn't need a live LM Studio."""
+    LLM extraction when a host model is explicitly configured. Mocked
+    here so the test doesn't need a live chat model."""
     from src import consolidate
     from src import llm_client
-    # Force the LLM path on (default behavior when env is unset).
+    monkeypatch.setenv("DUCKBOT_CHAT_MODEL", "host-agent-chat-model")
     monkeypatch.delenv("DUCKBOT_NO_LLM_EXTRACTION", raising=False)
     # Mock chat_completion to return a small mem0-style response.
     def fake_chat(messages, **_kw):
@@ -1788,6 +1788,20 @@ def test_consolidate_extraction_uses_llm_when_available(monkeypatch):
     kinds = {f.text: f.kind for f in facts}
     assert kinds.get("Duckets prefers dark mode.") == "user-said"
     assert kinds.get("Use ChromaDB.") == "decision"
+
+
+def test_consolidate_extraction_stays_regex_only_without_model(monkeypatch):
+    """No explicit chat model should mean no extra LLM pass."""
+    from src import consolidate
+    from src import llm_client
+    monkeypatch.delenv("DUCKBOT_CHAT_MODEL", raising=False)
+    monkeypatch.delenv("DUCKBOT_NO_LLM_EXTRACTION", raising=False)
+    def fake_chat(messages, **_kw):
+        raise AssertionError("chat_completion should not have been called")
+    monkeypatch.setattr(llm_client, "chat_completion", fake_chat)
+    chunk = "Duckets said he prefers dark mode. " * 20
+    facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")
+    assert any(f.kind == "user-said" for f in facts)
 
 
 def test_consolidate_extraction_skips_llm_when_disabled(monkeypatch):

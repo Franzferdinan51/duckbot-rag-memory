@@ -19,6 +19,7 @@ server; the agent invokes it as tools.
 - pip
 - ~2 GB disk for the venv + ChromaDB index
 - For the default local path: LM Studio with `text-embedding-embeddinggemma-300m` and `qwen3-reranker-0.6b` downloaded
+- If you want LLM-assisted consolidation, point `DUCKBOT_CHAT_MODEL` at the same chat model your host agent already loads. DuckBot does not ship or launch a separate consolidation model.
 - For alternate embeddings: LM Studio (recommended), OR MiniMax / OpenAI API key, OR `pip install sentence-transformers` for local
 
 No GPU required. No system packages beyond what Python itself needs.
@@ -36,6 +37,8 @@ cp .env.example .env
 # Edit .env: set DUCKBOT_EMBEDDING=lmstudio (default) + LMSTUDIO_URL,
 # LMSTUDIO_MODEL=text-embedding-embeddinggemma-300m,
 # LMSTUDIO_RERANK_MODEL=qwen3-reranker-0.6b.
+# If the host agent wants LLM-assisted reflect/consolidate, set
+# DUCKBOT_CHAT_MODEL to that agent's existing chat model.
 # OR DUCKBOT_EMBEDDING=minimax + MINIMAX_API_KEY, etc.
 
 # Verify

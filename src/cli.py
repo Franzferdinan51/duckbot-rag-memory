@@ -647,7 +647,10 @@ async def build_doctor_checks_async() -> tuple[list[tuple[str, str, bool]], bool
         store, emb = await _resolve_store_and_embedder()
         stats = store.stats()
         tiers_with_data = sum(1 for t in ['working', 'episodic', 'semantic', 'procedural'] if getattr(stats, t, 0) > 0)
-        add_check("chroma store", f"{stats.total} chunks across {tiers_with_data} tiers (provider={emb.name}, dim={emb.dim})", True)
+        # emb may be None if no provider is available (all detection paths failed).
+        prov_name = getattr(emb, "name", "unconfigured") or "unconfigured"
+        prov_dim = getattr(emb, "dim", 1536) or 1536
+        add_check("chroma store", f"{stats.total} chunks across {tiers_with_data} tiers (provider={prov_name}, dim={prov_dim})", True)
     except Exception as exc:
         add_check("chroma store", str(exc), False)
 

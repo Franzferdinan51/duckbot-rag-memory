@@ -749,11 +749,14 @@ async def auto_detect_provider(prefer: str | None = None) -> EmbeddingProvider:
         provider = LMStudioEmbeddings()
         if await provider._resolve_dim():
             return provider
-        raise EmbeddingError("LM Studio embedding model did not return a usable vector")
-    if explicit == "local":
+        # LM Studio embedding endpoint is down/unavailable — fall back to
+        # the same chain used by auto-detect (MiniMax if key present, etc.)
+        # rather than hard-failing when the user explicitly requested lmstudio.
+        target = "lmstudio"  # triggers the full fallback chain below
+    elif explicit == "local":
         return LocalEmbeddings()
-
-    target = (prefer or "").lower().strip() or "lmstudio"
+    else:
+        target = (prefer or "").lower().strip() or "lmstudio"
 
     def _make_lmstudio():
         lm_url = os.environ.get("LMSTUDIO_URL", "http://127.0.0.1:1234/v1")

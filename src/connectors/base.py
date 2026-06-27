@@ -182,12 +182,14 @@ class Brain:
         graph_path: Optional[Path] = None,
         blocks_path: Optional[Path] = None,
         quarantine_path: Optional[Path] = None,
+        persist_dir: Optional[Path] = None,
         embedder: Any | None = None,
         scan_before_remember: bool = True,
     ):
         self.graph_path = Path(graph_path) if graph_path else DEFAULT_GRAPH_PATH
         self.blocks_path = Path(blocks_path) if blocks_path else DEFAULT_BLOCKS_PATH
         self.quarantine_path = Path(quarantine_path) if quarantine_path else DEFAULT_QUARANTINE_PATH
+        self.persist_dir = Path(persist_dir) if persist_dir else None
         self._embedder = embedder
         self.scan_before_remember = scan_before_remember
         self._scanner = InjectionScanner()
@@ -196,8 +198,8 @@ class Brain:
     def _memory(self):
         from src.memory import Memory
         if self._embedder is not None:
-            return Memory(embedder=self._embedder)
-        return Memory()
+            return Memory(embedder=self._embedder, persist_dir=self.persist_dir)
+        return Memory(persist_dir=self.persist_dir)
 
     # ------------------------------------------------------------------ remember
     def remember(

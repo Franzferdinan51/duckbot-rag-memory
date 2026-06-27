@@ -3,15 +3,18 @@ llm_client.py — minimal chat-completion client for LM Studio.
 
 This is an optional helper for consolidation / fact extraction in
 src/consolidate.py. The main agent runtimes are OpenClaw and Hermes;
-this client is only used when a local LM Studio chat model is available.
+this client is only used when a host agent explicitly points it at an
+already-loaded chat model. DuckBot itself does not launch a second one.
 
 Design constraints:
-- Local-first: defaults to LM Studio at http://127.0.0.1:1234/v1
+- Uses the agent's own LM Studio server (same LMSTUDIO_URL + LMSTUDIO_KEY)
+- Chat model is configured explicitly via DUCKBOT_CHAT_MODEL or passed
+  into the helper by the caller; there is no built-in default model
 - Zero new paid deps: only stdlib + httpx
-- Reuses the shared httpx client in src/embeddings.py when available
-- No API key required (LM Studio ignores auth headers)
 - Sync interface: callers (consolidate) are sync; we run a tiny event loop
   on the existing httpx client
+- Graceful fallback: any failure silently returns None so the caller
+  falls back to the regex-only extraction path
 
 NOT a general-purpose LLM client. For that, use a dedicated package.
 This is just enough to do fact extraction in consolidate.py.
@@ -24,8 +27,8 @@ from typing import Optional
 
 
 def _resolve_url() -> str:
-    """LM Studio base URL. Defaults to localhost:1234/v1. Override with
-    DUCKBOT_LLM_URL env var (also used by DUCKBOT_EMBEDDING=lmstudio)."""
+    """LM Studio base URL. Uses the same server as the embedding provider.
+    Override with DUCKBOT_LLM_URL or LMSTUDIO_URL env var."""
     return (
         os.environ.get("DUCKBOT_LLM_URL")
         or os.environ.get("LMSTUDIO_URL")
@@ -33,13 +36,25 @@ def _resolve_url() -> str:
     )
 
 
-def _resolve_model() -> str:
-    """Default model id. Override with DUCKBOT_LLM_MODEL or LMSTUDIO_MODEL."""
+def _resolve_credential() -> str:
+    """API key for LM Studio. Uses the same key as the embedding provider."""
     return (
-        os.environ.get("DUCKBOT_LLM_MODEL")
-        or os.environ.get("LMSTUDIO_MODEL")
-        or "qwen2.5-7b-instruct"
+        os.environ.get("DUCKBOT_LLM_KEY")
+        or os.environ.get("LMSTUDIO_KEY")
+        or os.environ.get("LMSTUDIO_API_KEY")
+        or os.environ.get("LM_API_TOKEN")
+        or ""
     )
+
+
+def _resolve_model() -> str:
+    """Chat model id for consolidation.
+
+    There is no built-in default. The caller must either pass a model
+    explicitly or set DUCKBOT_CHAT_MODEL to the agent's existing chat
+    model. This keeps DuckBot from loading its own separate LLM.
+    """
+    return os.environ.get("DUCKBOT_CHAT_MODEL") or ""
 
 
 def chat_completion(
@@ -61,16 +76,23 @@ def chat_completion(
     except ImportError:
         return None
     url = _resolve_url().rstrip("/") + "/chat/completions"
+    credential = _resolve_credential()
     payload = {
-        "model": model or _resolve_model(),
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
         "stream": False,
     }
+    resolved_model = (model or _resolve_model()).strip()
+    if not resolved_model:
+        return None
+    payload["model"] = resolved_model
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if credential:
+        headers["Authorization"] = f"Bearer {credential}"
     try:
         with httpx.Client(timeout=timeout) as client:
-            r = client.post(url, json=payload)
+            r = client.post(url, json=payload, headers=headers)
         if r.status_code != 200:
             return None
         data = r.json()
@@ -83,15 +105,22 @@ def chat_completion(
 
 
 def is_llm_available() -> bool:
-    """Cheap health-check: is LM Studio reachable? Used to decide
-    whether to attempt LLM extraction or fall back to regex-only."""
+    """Cheap health-check: is LM Studio reachable at the chat endpoint?
+    Used to decide whether to attempt LLM extraction or fall back to
+    regex-only. Does not verify the model is loaded — that check is
+    deferred to the actual chat_completion call."""
     try:
         import httpx
     except ImportError:
         return False
     try:
+        url = _resolve_url().rstrip("/") + "/models"
+        credential = _resolve_credential()
+        headers = {}
+        if credential:
+            headers["Authorization"] = f"Bearer {credential}"
         with httpx.Client(timeout=2.0) as client:
-            r = client.get(_resolve_url().rstrip("/") + "/models")
+            r = client.get(url, headers=headers)
         return r.status_code == 200
     except Exception:
         return False

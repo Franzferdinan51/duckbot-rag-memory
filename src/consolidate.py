@@ -59,10 +59,9 @@ def extract_facts_from_chunk(
 ) -> list[ExtractedFact]:
     """Extract candidate facts from an episodic chunk using regex heuristics.
 
-    This is the v0.1 heuristic-only path. v0.13.0+ supplements with an
-    LLM-extraction pass when LM Studio is reachable (see
-    `extract_facts_via_llm`). Both paths run; the LLM is the higher-
-    quality one if it succeeds.
+    This is the v0.1 heuristic-first path. If a host agent explicitly
+    provides a chat model, `extract_facts_via_llm` can supplement the
+    regex rules; otherwise the helper stays regex-only and lightweight.
 
     DUCKBOT_NO_LLM_EXTRACTION=1 forces the regex-only path.
     """
@@ -91,13 +90,16 @@ def extract_facts_from_chunk(
 
     # Optional LLM-extraction pass (mem0-inspired). Skipped if:
     # - DUCKBOT_NO_LLM_EXTRACTION=1 (regex-only mode for offline/air-gapped)
+    # - no explicit chat model is configured by the host agent
     # - chunk too short to be worth an LLM call
-    # - LM Studio not reachable
     if os.environ.get("DUCKBOT_NO_LLM_EXTRACTION", "").lower() in ("1", "true", "yes"):
+        return facts
+    model_name = os.environ.get("DUCKBOT_CHAT_MODEL", "").strip()
+    if not model_name:
         return facts
     if len(chunk_text) < 200:
         return facts
-    llm_facts = extract_facts_via_llm(chunk_text, chunk_id, source_path)
+    llm_facts = extract_facts_via_llm(chunk_text, chunk_id, source_path, model=model_name)
     for f in llm_facts:
         if f.text not in seen_text:
             seen_text.add(f.text)
@@ -138,9 +140,9 @@ def extract_facts_via_llm(
     *,
     model: Optional[str] = None,
 ) -> list[ExtractedFact]:
-    """Extract durable facts from `chunk_text` via LM Studio (mem0-style
-    prompts). Returns [] if LM Studio is unreachable or the LLM call
-    fails — the caller should fall back to regex extraction.
+    """Extract durable facts from `chunk_text` via a host-provided chat
+    model (mem0-style prompts). Returns [] if no chat model is configured
+    or the LLM call fails — the caller should fall back to regex extraction.
 
     Pattern source: mem0 paper + open-source implementation (Apache 2.0).
     """
@@ -148,9 +150,8 @@ def extract_facts_via_llm(
         from .llm_client import chat_completion
     except ImportError:
         return []
-    if os.environ.get("DUCKBOT_EMBEDDING", "").lower() == "local" and not os.environ.get("DUCKBOT_LLM_URL"):
-        # User explicitly opted into fully-local mode without an LLM
-        # endpoint configured. Skip silently.
+    model_name = (model or os.environ.get("DUCKBOT_CHAT_MODEL") or "").strip()
+    if not model_name:
         return []
     if len(chunk_text) > 8000:
         # Cap to keep inference latency bounded. The regex path handles
@@ -161,7 +162,7 @@ def extract_facts_via_llm(
             [
                 {"role": "system", "content": MEM0_DEDUCTION_PROMPT.format(chunk=chunk_text)},
             ],
-            model=model,
+            model=model_name,
             temperature=0.1,
             max_tokens=512,
             timeout=30.0,
