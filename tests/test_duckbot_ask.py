@@ -47,6 +47,8 @@ def _run_cli_query(query: str, n: int = 3, max_chars: int = 500) -> str:
     The CLI prints the JSON header to stderr and the numbered blocks
     to stdout (so the blocks show up cleanly in a terminal when stderr
     is filtered out via `2>/dev/null`). We concatenate for tests.
+
+    Raises RuntimeError if the CLI exits non-zero (e.g. LM Studio timeout).
     """
     result = subprocess.run(
         [_python(), "-m", "src.cli", "query", query, "-n", str(n), "--max-chars", str(max_chars)],
@@ -56,6 +58,11 @@ def _run_cli_query(query: str, n: int = 3, max_chars: int = 500) -> str:
         cwd=str(REPO_ROOT),
         env={**__import__("os").environ},
     )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"CLI exited {result.returncode}. "
+            f"stderr={result.stderr[:500]!r}, stdout={result.stdout[:200]!r}"
+        )
     # Filter out chromadb noise from both stdout and stderr before
     # concatenating. Patterns include:
     #   - posthog telemetry errors: "Failed to send telemetry event"
@@ -264,6 +271,8 @@ class TestBrainIntegration:
 
     def test_query_returns_structured_output(self):
         # Use a query matching the seed demo content (DuckBot project)
+        # _run_cli_query raises RuntimeError if the CLI exits non-zero,
+        # so we get a clear diagnostic instead of a cryptic JSON decode error.
         out = _run_cli_query("DuckBot")
         first_line = out.split("\n")[0]
         # First line should be valid JSON
