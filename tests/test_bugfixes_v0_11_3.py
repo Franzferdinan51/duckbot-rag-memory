@@ -916,6 +916,14 @@ def test_brain_wake_up_drops_superseded():
     )
 
 
+def test_brain_wake_up_strips_whitespace_query():
+    """Whitespace-only wake-up queries should behave like blank input."""
+    from src.connectors.base import Brain
+    import inspect
+    src = inspect.getsource(Brain.wake_up)
+    assert "(query or \"\").strip() or None" in src
+
+
 def test_mcp_brain_wake_up_registered():
     """The mcp_server should register brain_wake_up as an MCP tool with a
     matching handler. One-call session-start hook for Hermes/OpenClaw."""

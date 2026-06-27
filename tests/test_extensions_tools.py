@@ -245,6 +245,17 @@ def test_dispatch_brain_wake_up_queryless(fake_brain):
         assert kwargs.get("query") is None
 
 
+def test_dispatch_brain_wake_up_whitespace_queryless(fake_brain):
+    """Whitespace query should behave the same as blank input."""
+    surface._BRAIN = fake_brain
+    surface.dispatch("brain_wake_up", {"query": "   "})
+    args, kwargs = fake_brain.wake_up.call_args
+    if args:
+        assert args[0] is None
+    else:
+        assert kwargs.get("query") is None
+
+
 def test_brain_wake_up_description_matches_queryless_behavior():
     wake = next(t for t in surface.TOOLS if t["name"] == "brain_wake_up")
     desc = wake["description"]

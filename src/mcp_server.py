@@ -1216,7 +1216,7 @@ async def handle_brain_wake_up(args: dict) -> dict:
     from src.connectors.base import Brain
     brain = Brain()
     return brain.wake_up(
-        query=args.get("query"),
+        query=(args.get("query") or "").strip() or None,
         k=args.get("k", 8),
         include_blocks=args.get("include_blocks", True),
         include_graph=args.get("include_graph", True),

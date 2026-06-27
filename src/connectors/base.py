@@ -413,6 +413,7 @@ class Brain:
           include_graph: include graph summary.
           include_fsrs_review: include FSRS review queue.
         """
+        query = (query or "").strip() or None
         out: dict = {"memories": [], "blocks": [], "graph_summary": {},
                      "fsrs_review_queue": [], "stats": {}}
 
