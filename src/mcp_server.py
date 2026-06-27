@@ -646,14 +646,15 @@ async def handle_remember(args: dict) -> dict:
 
 
 async def handle_recall(args: dict) -> dict:
-    if not args.get("query"):
+    query = (args.get("query") or "").strip()
+    if not query:
         return {"error": "query is required"}
     mem = Memory()
     tpo = args.get("tier_priors_overrides")
     if tpo is not None and not isinstance(tpo, dict):
         return {"error": "tier_priors_overrides must be a dict"}
     results, stats = await mem.recall(
-        args["query"],
+        query,
         k=args.get("k", 5),
         tier=args.get("tier"),
         min_importance=args.get("min_importance"),
@@ -690,7 +691,8 @@ async def handle_forget(args: dict) -> dict:
 # ---- v0.10.0 — useful MCP tools extension ----
 
 async def handle_recall_verbatim(args: dict) -> dict:
-    if not args.get("query"):
+    query = (args.get("query") or "").strip()
+    if not query:
         return {"error": "query is required"}
     from src.connectors.base import Brain
     brain = Brain()
@@ -698,7 +700,7 @@ async def handle_recall_verbatim(args: dict) -> dict:
     if tpo is not None and not isinstance(tpo, dict):
         return {"error": "tier_priors_overrides must be a dict"}
     return {"results": brain.recall_verbatim(
-        query=args["query"],
+        query=query,
         k=args.get("k", 5),
         tier=args.get("tier"),
         min_importance=args.get("min_importance"),
@@ -741,12 +743,13 @@ async def handle_brain_decay_apply(args: dict) -> dict:
 
 
 async def handle_forget_by_query(args: dict) -> dict:
-    if not args.get("query"):
+    query = (args.get("query") or "").strip()
+    if not query:
         return {"error": "query is required"}
     from src.connectors.base import Brain
     brain = Brain()
     return brain.forget_by_query(
-        query=args["query"],
+        query=query,
         k=args.get("k", 5),
         tier=args.get("tier"),
     )
@@ -886,10 +889,10 @@ async def handle_brain_inflate(args: dict) -> dict:
       - An agent asks "what do I know about X?"
       - After ingest to surface what was just learned
     """
-    if not args.get("query"):
+    query = (args.get("query") or "").strip()
+    if not query:
         return {"error": "query is required"}
     mem = Memory()
-    query = args["query"]
     k = args.get("k", 10)
     tier_filter = args.get("tier")
     min_imp = args.get("min_importance", 0.3)
@@ -1481,11 +1484,12 @@ async def handle_brain_skills_suggest(args: dict) -> dict:
     tier, then filters to unpromoted skill candidates. Returns top-k
     candidates sorted by semantic similarity score. No LLM call.
     """
-    if not args.get("query") or not str(args["query"]).strip():
+    query = (args.get("query") or "").strip()
+    if not query:
         return {"error": "query must be a non-empty string"}
     from src.skill_pipeline import suggest_candidates
     return {"candidates": suggest_candidates(
-        query=args["query"],
+        query=query,
         k=int(args.get("k", 5)),
     )}
 

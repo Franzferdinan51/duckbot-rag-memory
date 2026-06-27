@@ -15,6 +15,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -151,6 +152,80 @@ def test_forget_by_query_empty(monkeypatch, tmp_mem):
     assert r["deleted_ids"] == []
 
 
+@pytest.mark.asyncio
+async def test_mcp_handle_recall_rejects_whitespace_query():
+    from src.mcp_server import handle_recall
+    import src.memory as mem_mod
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mem_mod, "Memory", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("Memory should not be instantiated")))
+    try:
+        out = await handle_recall({"query": "   "})
+    finally:
+        monkeypatch.undo()
+    assert "error" in out
+    assert "query" in out["error"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_handle_recall_verbatim_rejects_whitespace_query():
+    from src.mcp_server import handle_recall_verbatim
+    import src.connectors.base as base_mod
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(base_mod, "Brain", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("Brain should not be instantiated")))
+    try:
+        out = await handle_recall_verbatim({"query": " \n\t "})
+    finally:
+        monkeypatch.undo()
+    assert "error" in out
+    assert "query" in out["error"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_handle_forget_by_query_rejects_whitespace_query():
+    from src.mcp_server import handle_forget_by_query
+    import src.connectors.base as base_mod
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(base_mod, "Brain", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("Brain should not be instantiated")))
+    try:
+        out = await handle_forget_by_query({"query": "  "})
+    finally:
+        monkeypatch.undo()
+    assert "error" in out
+    assert "query" in out["error"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_handle_brain_inflate_rejects_whitespace_query():
+    from src.mcp_server import handle_brain_inflate
+    import src.memory as mem_mod
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mem_mod, "Memory", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("Memory should not be instantiated")))
+    try:
+        out = await handle_brain_inflate({"query": "  "})
+    finally:
+        monkeypatch.undo()
+    assert "error" in out
+    assert "query" in out["error"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_handle_brain_skills_suggest_strips_whitespace(monkeypatch):
+    from src.mcp_server import handle_brain_skills_suggest
+    import src.skill_pipeline as pipeline
+    captured = {}
+
+    def fake_suggest_candidates(query, k=5, brain=None):
+        captured["query"] = query
+        captured["k"] = k
+        return [{"chunk_id": "c1"}]
+
+    monkeypatch.setattr(pipeline, "suggest_candidates", fake_suggest_candidates)
+    out = await handle_brain_skills_suggest({"query": "  docker compose  ", "k": 2})
+    assert "candidates" in out
+    assert captured["query"] == "docker compose"
+    assert captured["k"] == 2
+
+
 # -----------------------------------------------------------------------------
 # Brain.search_verbatim (L13)
 # -----------------------------------------------------------------------------
@@ -242,6 +317,45 @@ def test_openclaw_connector_dispatches_new_tools():
         # Tools with no args should return a real result.
         if tool in ("brain_fsrs_review", "brain_decay_status"):
             assert "queue" in r or "by_tier" in r or "error" in r, f"{tool} unexpected: {r}"
+
+
+def test_openclaw_handle_recall_verbatim_strips_whitespace(monkeypatch):
+    import src.connectors.openclaw as openclaw
+    brain = MagicMock()
+    brain.recall_verbatim.return_value = []
+    monkeypatch.setattr(openclaw, "Brain", lambda *a, **kw: brain)
+    try:
+        out = openclaw.handle("brain_recall_verbatim", {"query": "   "})
+    finally:
+        monkeypatch.undo()
+    assert "error" in out
+    brain.recall_verbatim.assert_not_called()
+
+
+def test_openclaw_handle_recall_strips_whitespace(monkeypatch):
+    import src.connectors.openclaw as openclaw
+    brain = MagicMock()
+    brain.recall.return_value = []
+    monkeypatch.setattr(openclaw, "Brain", lambda *a, **kw: brain)
+    try:
+        out = openclaw.handle("brain_recall", {"query": "   "})
+    finally:
+        monkeypatch.undo()
+    assert "error" in out
+    brain.recall.assert_not_called()
+
+
+def test_openclaw_handle_forget_by_query_strips_whitespace(monkeypatch):
+    import src.connectors.openclaw as openclaw
+    brain = MagicMock()
+    brain.forget_by_query.return_value = {"deleted": 0, "deleted_ids": []}
+    monkeypatch.setattr(openclaw, "Brain", lambda *a, **kw: brain)
+    try:
+        out = openclaw.handle("brain_forget_by_query", {"query": "  "})
+    finally:
+        monkeypatch.undo()
+    assert "error" in out
+    brain.forget_by_query.assert_not_called()
 
 
 # -----------------------------------------------------------------------------

@@ -760,7 +760,8 @@ def handle(tool_name: str, args: dict) -> dict:
             )
             return _serialize(r)
         if tool_name == "brain_recall_verbatim":
-            if not args.get("query"):
+            query = (args.get("query") or "").strip()
+            if not query:
                 return {"error": "query is required", "tool": tool_name}
             tier_err = _validate_tier(args, tool_name)
             if tier_err is not None:
@@ -772,7 +773,7 @@ def handle(tool_name: str, args: dict) -> dict:
             if tpo is not None and not isinstance(tpo, dict):
                 return {"error": "tier_priors_overrides must be a dict", "tool": tool_name}
             results = brain.recall_verbatim(
-                query=args["query"],
+                query=query,
                 k=args.get("k", 5),
                 tier=args.get("tier"),
                 min_importance=args.get("min_importance"),
@@ -787,7 +788,8 @@ def handle(tool_name: str, args: dict) -> dict:
             # mcp_server.py recall_verbatim handler has the same issue.)
             return {"results": [r.to_dict() if hasattr(r, "to_dict") else dict(r) for r in results]}
         if tool_name == "brain_recall":
-            if not args.get("query"):
+            query = (args.get("query") or "").strip()
+            if not query:
                 return {"error": "query is required", "tool": tool_name}
             tier_err = _validate_tier(args, tool_name)
             if tier_err is not None:
@@ -798,7 +800,7 @@ def handle(tool_name: str, args: dict) -> dict:
             if tpo is not None and not isinstance(tpo, dict):
                 return {"error": "tier_priors_overrides must be a dict", "tool": tool_name}
             results = brain.recall(
-                query=args["query"],
+                query=query,
                 k=args.get("k", 5),
                 tier=args.get("tier"),
                 min_importance=args.get("min_importance"),
@@ -932,10 +934,11 @@ def handle(tool_name: str, args: dict) -> dict:
         if tool_name == "brain_decay_status":
             return brain.decay_status(tier=args.get("tier"), k=args.get("k", 50))
         if tool_name == "brain_forget_by_query":
-            if not args.get("query"):
+            query = (args.get("query") or "").strip()
+            if not query:
                 return {"error": "query is required", "tool": tool_name}
             return brain.forget_by_query(
-                query=args["query"],
+                query=query,
                 k=args.get("k", 5),
                 tier=args.get("tier"),
             )
