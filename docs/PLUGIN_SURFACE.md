@@ -59,7 +59,7 @@ TOOLS list or to the thin surface, both surfaces pick it up.
 ### OpenClaw (native plugin)
 
 The native plugin is `extensions/duckbot-memory/` — a Node.js shim that
-spawns the Python MCP server as a subprocess and registers all 64 tools
+spawns the Python MCP server as a subprocess and registers all 66 tools
 plus `session_start` / `session_end` hooks via OpenClaw's plugin SDK.
 See `extensions/duckbot-memory/README.md` for install + config.
 
@@ -106,7 +106,7 @@ context = provider.on_session_start()   # brain_wake_up shape
 provider.on_session_end(messages)        # persists durable rules as procedural
 ```
 
-### MCP server (canonical, 64 tools)
+### MCP server (canonical, 66 tools)
 
 ```bash
 ./scripts/duckbot-memory-mcp.sh &

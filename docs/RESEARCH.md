@@ -165,7 +165,7 @@ Survey done by OpenClaw on Duckets' instruction: "enhance and upgrade the memory
 ### What we can integrate (MIT/Apache, self-hostable, zero paid APIs)
 
 #### Layer 7 (implemented in v0.1): cross-encoder rerank pass
-- **Source:** `qwen3-reranker-0.6b` as the local default, with `BAAI/bge-reranker-base` / `bge-reranker-v2-m3` still available via `FlagOpen/FlagEmbedding` (MIT) or `huggingface/sentence-transformers` (Apache-2.0). Also `LMStudioBackend` for LM Studio.
+- **Source:** `qwen3-reranker-0.6b` as the LM Studio local default, with `Qwen/Qwen3-Reranker-0.6B` for the Hugging Face / sentence-transformers path and `BAAI/bge-reranker-base` / `bge-reranker-v2-m3` still available via `FlagOpen/FlagEmbedding` (MIT). Also `LMStudioBackend` for LM Studio.
 - **Why:** The biggest single recall win we can add. **Already wired** in `src/rerank.py` (`CrossEncoder` + `LMStudioBackend`) with a plug point in `src/query.py` Phase 6.
 - **Status:** Plug point is live; opt-in via `rerank=True` kwarg or `DUCKBOT_RERANK=1` env var. Default OFF because cross-encoder adds ~50–200ms per query depending on model size.
 - **Cost:** Free, runs locally. `pip install sentence-transformers` is Apache-2.0.
@@ -173,7 +173,7 @@ Survey done by OpenClaw on Duckets' instruction: "enhance and upgrade the memory
 - **Pattern (from sentence-transformers docs):**
   ```python
   from sentence_transformers import CrossEncoder
-  reranker = CrossEncoder("qwen3-reranker-0.6b", max_length=512)
+  reranker = CrossEncoder("Qwen/Qwen3-Reranker-0.6B", max_length=512)
   scores = reranker.predict([(query, doc) for doc in candidates])
   ranked = sorted(zip(candidates, scores), key=lambda x: -x[1])[:top_k]
   ```

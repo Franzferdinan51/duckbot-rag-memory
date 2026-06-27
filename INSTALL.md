@@ -72,7 +72,7 @@ Re-running is idempotent (content-hash dedup, no duplicates).
 
 The OpenClaw bootstrap script auto-installs a native Node.js plugin at
 `~/.openclaw/extensions/duckbot-memory/`. It spawns the existing Python
-MCP server as a subprocess and proxies all 64 tools + session_start /
+MCP server as a subprocess and proxies all 66 tools + session_start /
 session_end hooks via JSON-RPC. Zero npm dependencies.
 
 ```bash
@@ -108,7 +108,7 @@ Edit `~/.openclaw/openclaw.json` and add under `mcp.servers`:
 }
 ```
 
-Restart OpenClaw / `mcporter list` should now show 64 tools.
+Restart OpenClaw / `mcporter list` should now show 66 tools.
 
 ### Hermes Agent — MemoryProvider plugin (recommended)
 
@@ -240,7 +240,7 @@ pwsh scripts/install.ps1     # Windows Task Scheduler
 
 ## 9. What to do next
 
-- Read `README.md` for a tour of all 64 tools.
+- Read `README.md` for a tour of all 66 tools.
 - Read `docs/ARCHITECTURE.md` for the 4-tier CoALA model + hybrid retrieval details.
 - Read `docs/RESEARCH.md` for the upstream-project lineage (mem0, Letta, MemPalace, Graphiti, py-fsrs) and what was borrowed.
 - Read `CHANGELOG.md` for the version-by-version history.

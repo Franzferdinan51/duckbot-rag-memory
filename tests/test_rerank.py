@@ -12,6 +12,7 @@ import pytest
 
 from src.rerank import (
     DEFAULT_RERANK_MODEL,
+    DEFAULT_LMSTUDIO_RERANK_MODEL,
     LMStudioBackend,
     NoopBackend,
     RerankResult,
@@ -295,9 +296,35 @@ def test_rerank_available_with_noop():
     assert isinstance(result, bool)
 
 
-def test_default_rerank_model_is_qwen3_reranker():
-    """Locked-in default for the local Qwen3 reranker path."""
-    assert DEFAULT_RERANK_MODEL == "qwen3-reranker-0.6b"
+def test_default_rerank_model_is_qwen3_hf_repo():
+    """Locked-in default for the Hugging Face / sentence-transformers path."""
+    assert DEFAULT_RERANK_MODEL == "Qwen/Qwen3-Reranker-0.6B"
+
+
+def test_default_lmstudio_rerank_model_is_local_alias():
+    """Locked-in default for the LM Studio rerank path."""
+    assert DEFAULT_LMSTUDIO_RERANK_MODEL == "qwen3-reranker-0.6b"
+
+
+def test_resolve_backend_prefers_lmstudio_first(monkeypatch):
+    """The local LM Studio reranker should win before sentence-transformers."""
+    import src.rerank as rerank_module
+
+    class FakeLMBackend:
+        name = "lmstudio:fake"
+
+        def score(self, query, docs):
+            return [0.0] * len(docs)
+
+    def fail_sentence_backend():
+        raise AssertionError("sentence-transformers should not be selected first")
+
+    monkeypatch.setattr(rerank_module, "LMStudioBackend", lambda: FakeLMBackend())
+    monkeypatch.setattr(rerank_module, "SentenceTransformersBackend", fail_sentence_backend)
+    rerank_module.reset_backend()
+
+    backend = rerank_module._resolve_backend()
+    assert backend.name == "lmstudio:fake"
 
 
 # -----------------------------------------------------------------------------

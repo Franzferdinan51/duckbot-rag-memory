@@ -14,7 +14,7 @@
  * Why a shim and not a native Python plugin: OpenClaw plugins run in-process
  * inside the Node gateway (src/plugins/loader.ts). Python isn't supported
  * natively. So we spawn the existing Python MCP server as a subprocess and
- * bridge the 64 tools via JSON-RPC. No code duplication — the Python
+ * bridge the 66 tools via JSON-RPC. No code duplication — the Python
  * `src/mcp_server.py` IS the brain.
  */
 

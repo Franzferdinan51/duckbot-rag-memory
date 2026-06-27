@@ -2,13 +2,13 @@
 
 A pure Node.js shim that wires [duckbot-rag-memory](../..) into OpenClaw as
 a **natively-installed plugin**. Spawns the existing Python MCP server
-(`src/mcp_server.py`, 64 tools) as a subprocess and proxies tool calls
+(`src/mcp_server.py`, 66 tools) as a subprocess and proxies tool calls
 over JSON-RPC over stdio. Zero npm dependencies; Node stdlib only.
 
 > **Why a shim?** OpenClaw plugins run in-process inside the Node gateway
 > (`openclaw/openclaw/src/plugins/loader.ts`). Python isn't supported
 > natively. So we spawn the existing Python MCP server as a subprocess
-> and bridge the 64 tools via JSON-RPC. No code duplication — the
+> and bridge the 66 tools via JSON-RPC. No code duplication — the
 > Python `src/mcp_server.py` IS the brain. The shim is pure glue.
 
 ## What you get
@@ -72,7 +72,7 @@ openclaw plugins list | grep duckbot-memory     # should show "✓ installed"
 OpenClaw gateway (Node.js)
   │
   │  registerHook('session_start', ...) → api calls our handler
-  │  registerTool(name, factory)       → 64 tools registered
+  │  registerTool(name, factory)       → 66 tools registered
   │
   ▼
 extensions/duckbot-memory/index.js   ← THIS SHIM (~250 lines, zero deps)
@@ -80,7 +80,7 @@ extensions/duckbot-memory/index.js   ← THIS SHIM (~250 lines, zero deps)
   │  spawn(pythonPath, ['-u', '-m', 'src.mcp_server'], { cwd: repoPath })
   │
   ▼
-src/mcp_server.py (Python, 64 tools)
+src/mcp_server.py (Python, 66 tools)
   │
   ▼
 ChromaDB + LM Studio + SQLite

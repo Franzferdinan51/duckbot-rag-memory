@@ -48,11 +48,14 @@ from typing import Any, Protocol
 logger = logging.getLogger(__name__)
 
 
-# Default model. Qwen3 reranker family. Local-first and MIT/Apache-friendly
-# depending on the weights you download via LM Studio or Hugging Face.
-DEFAULT_RERANK_MODEL = os.environ.get(
-    "DUCKBOT_RERANK_MODEL", "qwen3-reranker-0.6b"
-)
+# Default model for sentence-transformers / Hugging Face downloads.
+# Keep this as the canonical repo id so the CrossEncoder path can load it.
+DEFAULT_RERANK_MODEL = "Qwen/Qwen3-Reranker-0.6B"
+
+# Default model for LM Studio's local rerank endpoint. LM Studio uses the
+# model id as exposed by the local server, which in this repo is the
+# lowercase alias the user specified.
+DEFAULT_LMSTUDIO_RERANK_MODEL = "qwen3-reranker-0.6b"
 
 # Truncate documents to this many chars before scoring. Cross-encoders
 # are token-bounded. Roughly 1500 chars ≈ 400 tokens with our typical
@@ -123,7 +126,7 @@ class NoopBackend:
 class SentenceTransformersBackend:
     """Local cross-encoder via `sentence-transformers` (Apache-2.0)."""
 
-    def __init__(self, model_name: str = DEFAULT_RERANK_MODEL):
+    def __init__(self, model_name: str | None = None):
         # Import inside __init__ so the module is optional.
         try:
             from sentence_transformers import CrossEncoder  # type: ignore
@@ -134,6 +137,7 @@ class SentenceTransformersBackend:
             ) from e
         # NB: must be CrossEncoder, NOT SentenceTransformer. mem0 hit this
         # in issue #4033 — cross-encoder models silently fail with mean pooling.
+        model_name = model_name or os.environ.get("DUCKBOT_RERANK_MODEL", DEFAULT_RERANK_MODEL)
         self.model = CrossEncoder(model_name, max_length=512)
         self.name = f"cross-encoder:{model_name}"
 
@@ -165,7 +169,7 @@ class LMStudioBackend:
             "LMSTUDIO_RERANK_URL", "http://127.0.0.1:1234/v1/rerank"
         )
         self.model = model or os.environ.get(
-            "LMSTUDIO_RERANK_MODEL", "qwen3-reranker-0.6b"
+            "LMSTUDIO_RERANK_MODEL", DEFAULT_LMSTUDIO_RERANK_MODEL
         )
         self.name = f"lmstudio:{self.url}"
 
@@ -238,9 +242,9 @@ def _resolve_backend(prefer: str | None = None) -> RerankBackend:
     """Pick the best available backend.
 
     Priority:
-      1. sentence-transformers CrossEncoder (local, no network)
-      2. LM Studio rerank endpoint (if LMSTUDIO_RERANK_URL set or server
-         exposes /v1/rerank on the standard LMSTUDIO_URL)
+      1. LM Studio rerank endpoint (local, no network)
+      2. sentence-transformers CrossEncoder (if `sentence-transformers`
+         is installed and a Hugging Face model is available)
       3. noop
 
     The choice is cached after the first successful init so subsequent
@@ -250,15 +254,6 @@ def _resolve_backend(prefer: str | None = None) -> RerankBackend:
     if _BACKEND is not None:
         return _BACKEND
 
-    if prefer in (None, "sentence-transformers", "auto"):
-        try:
-            be = SentenceTransformersBackend()
-            _BACKEND = be
-            logger.info("rerank backend: %s", be.name)
-            return _BACKEND
-        except Exception as e:
-            logger.debug("sentence-transformers backend unavailable: %s", e)
-
     if prefer in (None, "lmstudio", "auto"):
         try:
             be = LMStudioBackend()
@@ -267,6 +262,15 @@ def _resolve_backend(prefer: str | None = None) -> RerankBackend:
             return _BACKEND
         except Exception as e:
             logger.debug("LM Studio rerank backend unavailable: %s", e)
+
+    if prefer in (None, "sentence-transformers", "auto"):
+        try:
+            be = SentenceTransformersBackend()
+            _BACKEND = be
+            logger.info("rerank backend: %s", be.name)
+            return _BACKEND
+        except Exception as e:
+            logger.debug("sentence-transformers backend unavailable: %s", e)
 
     logger.info("rerank backend: noop (no local model; pass-through)")
     _BACKEND = NoopBackend()
@@ -487,5 +491,6 @@ __all__ = [
     "rerank_available",
     "reset_backend",
     "DEFAULT_RERANK_MODEL",
+    "DEFAULT_LMSTUDIO_RERANK_MODEL",
     "_parse_cohere_rerank_response",
 ]

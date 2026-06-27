@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — v0.15.1 — Observer perspective + lifecycle events + priority scoring
+## v0.15.1 — Observer perspective + lifecycle events + priority scoring
 
 ### Added
 
@@ -44,13 +44,13 @@
   - `brain_graph_precursors(entity, max_depth, include_inactive, min_influence)` — runs `trace_precursors` against the live graph.
   - `brain_graph_blind_spots(max_results, include_inactive)` — runs `find_blind_spots`.
 
-## Unreleased — v0.15.0 — Native OpenClaw plugin + Hermes auto-activation
+## v0.15.0 — Native OpenClaw plugin + Hermes auto-activation
 
 ### Added
 
 - **Native OpenClaw plugin** (`extensions/duckbot-memory/`) — pure
   Node.js shim (zero npm dependencies) that spawns the Python MCP
-  server as a subprocess and proxies 64 tools + `session_start` /
+  server as a subprocess and proxies 66 tools + `session_start` /
   `session_end` hooks into OpenClaw's plugin runtime. Replaces the
   previous `src/extensions/duckbot_brain/openclaw.plugin.json` which
   claimed Python support that OpenClaw never honored (OpenClaw plugins
@@ -70,7 +70,7 @@
   `plugin.yaml` shape, and that the bootstrap script actually writes
   the activation line.
 - **Shim unit tests** (`extensions/duckbot-memory/test/shim.test.js`,
-  12 tests, `node --test`) — verify `StdioJsonRpc` framing
+  15 tests, `node --test`) — verify `StdioJsonRpc` framing
   (Content-Length + newline-delimited fallback), error response
   handling, exit cleanup, timeout, stderr forwarding, server-initiated
   notifications, and that `register()` correctly wires spawn + 64
@@ -88,10 +88,9 @@
 
 ### Test surface
 
-- 748 Python tests passing (was 737)
-- 12 Node.js tests passing (new — shim unit tests)
-- 64 MCP tools (unchanged)
-- 12 shared-surface tools (unchanged)
+- 849 Python tests passing (was 748)
+- 15 Node.js tests passing (was 12)
+- 66 MCP tools (was 64)
 
 ## v0.15.0 (earlier) — Skill pipeline maturity + eval trends + ingest safety
 
