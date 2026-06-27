@@ -76,6 +76,43 @@ TOOLS = [
         },
     },
     {
+        "name": "brain_recall",
+        "description": "Hybrid retrieval over all chunks. Returns top-k with tier, source, importance, score. Alias: recall.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "the search query"},
+                "k": {"type": "integer", "default": 5, "description": "number of results"},
+                "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "filter by tier"},
+                "min_importance": {"type": "number", "description": "filter by importance threshold (0..1)"},
+                "rerank": {"type": "boolean", "default": False, "description": "Layer 7: run cross-encoder rerank with qwen3-reranker-0.6b (local). No paid API. Off by default; pass true to opt in."},
+                "decay": {"type": "boolean", "default": False, "description": "Layer 8: apply Ebbinghaus retention weighting. Public-domain math (1885), no LLM call. Off by default; pass true to opt in."},
+                "tier_priors": {"type": "boolean", "default": False, "description": "Layer 11: apply per-tier multiplicative weights"},
+                "tier_priors_overrides": {"type": "object", "description": "per-tier weight overrides, e.g. {\"procedural\": 2.0}"},
+                "fsrs": {"type": "boolean", "default": False, "description": "Layer 9: use FSRS-6 power-law forgetting instead of Ebbinghaus"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "brain_remember",
+        "description": "Persist text to the brain. By default NON-BLOCKING (returns status=queued, ingest runs on a daemon thread). Rate-limited (10/min). Pass kind='skill_candidate' to stamp a lightweight skill candidate (agent-driven pipeline, no LLM, stored in procedural tier with metadata.kind='skill_candidate'). Returns chunk_id, tier, importance.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "the memory content"},
+                "source_path": {"type": "string", "description": "where this came from (e.g. file path, conversation id)", "default": "<brain_remember>"},
+                "metadata": {"type": "object", "description": "arbitrary metadata to attach"},
+                "force_tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"], "description": "override auto tier"},
+                "kind": {"type": "string", "enum": ["skill_candidate"], "description": "special mode: stamp a skill candidate chunk (no LLM, stored in procedural tier for later promotion via brain_skills_promote)"},
+                "summary": {"type": "string", "description": "short label for skill candidates"},
+                "importance": {"type": "number", "default": 0.6, "description": "0..1 ranking score for skill candidates"},
+                "trust_level": {"type": "string", "enum": ["full", "standard"], "default": "full", "description": "trust_level='full' (default) skips the injection scan. 'standard' runs the scan and quarantines suspicious content."},
+            },
+            "required": ["text"],
+        },
+    },
+    {
         "name": "reflect",
         "description": "Consolidate episodic chunks into semantic memory. Returns summary of what was merged.",
         "inputSchema": {
@@ -2191,6 +2228,8 @@ def _check_rate_limit_or_error(tool_name: str) -> dict | None:
 HANDLERS = {
     "remember": handle_remember,
     "recall": handle_recall,
+    "brain_remember": handle_remember,
+    "brain_recall": handle_recall,
     "reflect": handle_reflect,
     "forget": handle_forget,
     "stats": handle_stats,

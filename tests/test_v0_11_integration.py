@@ -564,6 +564,22 @@ def test_mcp_server_has_handlers_for_v0_11():
         assert callable(HANDLERS[required])
 
 
+def test_brain_remember_and_brain_recall_in_mcp_server():
+    """brain_remember and brain_recall must be registered in both TOOLS and HANDLERS.
+
+    Regression: these were in openclaw.TOOL_DEFINITIONS but were never added to
+    the MCP server's own TOOLS list or HANDLERS dict, causing direct MCP calls
+    to fail with 'coroutine was expected' or 'NoneType is not callable'.
+    """
+    from src.mcp_server import TOOLS, HANDLERS
+
+    tool_names = {t["name"] for t in TOOLS}
+    for name in ("brain_remember", "brain_recall"):
+        assert name in tool_names, f"brain_* alias not in MCP TOOLS: {name}"
+        assert name in HANDLERS, f"brain_* alias not in MCP HANDLERS: {name}"
+        assert callable(HANDLERS[name])
+
+
 # -----------------------------------------------------------------------------
 # OpenClaw connector tool registration
 # -----------------------------------------------------------------------------
