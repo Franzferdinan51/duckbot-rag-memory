@@ -834,8 +834,29 @@ async def handle_watch(args: dict) -> dict:
         cmd.append("run")
     if paths:
         cmd.extend(paths)
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return {"pid": proc.pid, "command": " ".join(cmd)}
+    # Spawn detached so the parent (this MCP server) doesn't keep the
+    # Popen handle open for the watcher's lifetime. start_new_session
+    # puts the watcher in its own process group on POSIX; DETACHED_PROCESS
+    # on Windows does the equivalent.
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = subprocess.DETACHED_PROCESS
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=(sys.platform != "win32"),
+        creationflags=creationflags,
+    )
+    pid = proc.pid
+    # Release the parent's Popen handle so we don't leak fds. close()
+    # doesn't kill the child — it only releases the Python/parent side.
+    try:
+        proc.close()
+    except Exception:
+        pass
+    return {"pid": pid, "command": " ".join(cmd)}
 
 
 async def handle_doctor(args: dict) -> dict:

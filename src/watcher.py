@@ -620,11 +620,24 @@ def _daemon_windows(paths: list[str], args) -> int:
             current = PID_PATH.read_text().strip()
             if current and current != "starting" and current.isdigit():
                 print(f"Watcher daemonized: pid={current}")
+                # Close our parent-side copies — Popen duped the fds to the
+                # child and we no longer need them. Without this, the
+                # parent's fds stay open until process exit.
+                try:
+                    log_out.close()
+                    log_err.close()
+                except Exception:
+                    pass
                 return 0
         except (OSError, FileNotFoundError):
             pass
     # Child didn't write a pid within 4s; assume it started OK.
     print(f"Watcher daemonized: pid={p.pid} (status file not yet updated)")
+    try:
+        log_out.close()
+        log_err.close()
+    except Exception:
+        pass
     return 0
 
 
@@ -691,6 +704,9 @@ def _daemon_posix(paths: list[str], args) -> int:
         logf = open(str(LOG_PATH), "a+")
         os.dup2(logf.fileno(), 1)
         os.dup2(logf.fileno(), 2)
+        # dup2 copies the fd to stdout/stderr; close the Python handle
+        # so we don't leak it for the rest of the daemon's life.
+        logf.close()
     except Exception:
         pass
     try:
