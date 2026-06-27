@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src import __version__ as PACKAGE_VERSION
 from src.memory import Memory
-from src.tier import Tier
+from src.tier import Tier, coerce_optional_tier
 
 
 # -----------------------------------------------------------------------------
@@ -625,7 +625,7 @@ async def handle_remember(args: dict) -> dict:
 
     mem = Memory()
     ft = args.get("force_tier")
-    force = Tier(ft) if ft else None
+    force = coerce_optional_tier(ft)
     r = await mem.remember(
         args["text"],
         source_path=args.get("source_path", "<remember>"),
@@ -683,8 +683,7 @@ async def handle_forget(args: dict) -> dict:
     if not chunk_id:
         return {"error": "chunk_id is required"}
     mem = Memory()
-    from src.tier import Tier
-    tier = Tier((args["tier"] or "").strip()) if args.get("tier") else None
+    tier = coerce_optional_tier(args.get("tier"))
     ok = await mem.forget(chunk_id, tier=tier)
     return {"deleted": ok}
 
@@ -895,7 +894,7 @@ async def handle_brain_inflate(args: dict) -> dict:
         return {"error": "query is required"}
     mem = Memory()
     k = args.get("k", 10)
-    tier_filter = args.get("tier")
+    tier_filter = coerce_optional_tier(args.get("tier"))
     min_imp = args.get("min_importance", 0.3)
     agent_name = args.get("agent_name", "agent")
 
@@ -1236,10 +1235,7 @@ async def handle_brain_index(args: dict) -> dict:
     Returns the compressed string + a small parse hint (total count).
     """
     from src.dialect import compress_corpus
-    from src.tier import Tier
-    tier = args.get("tier")
-    if tier is not None:
-        tier = Tier(tier)
+    tier = coerce_optional_tier(args.get("tier"))
     max_chunks = int(args.get("max_chunks", 5000))
     preview_chars = int(args.get("preview_chars", 80))
 
@@ -1675,7 +1671,7 @@ async def handle_brain_palace(args: dict) -> dict:
     wing = args.get("wing")
     if wing:
         room = args.get("room")
-        tier = args.get("tier")
+        tier = coerce_optional_tier(args.get("tier"))
         max_drawers = int(args.get("max_drawers", 100))
         drawers = pi.walk(wing, room=room, tier=tier, max_drawers=max_drawers)
         return {
@@ -1814,12 +1810,9 @@ async def handle_brain_export(args: dict) -> dict:
     is brain_import — together they let you round-trip the brain as
     plain markdown.
     """
-    from src.tier import Tier
     from pathlib import Path
     from src.memory import Memory
-    tier_filter = args.get("tier")
-    if tier_filter is not None:
-        tier_filter = Tier(tier_filter)
+    tier_filter = coerce_optional_tier(args.get("tier"))
     include_super = bool(args.get("include_superseded", False))
     out_path = Path(args.get("out_path") or "data/brain_export.md")
     out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -15,8 +15,8 @@ Design references:
   - mem0: hook-based auto-capture (we expose remember() for that)
   - Letta: 3-tier (core/recall/archival) — we have 4 tiers (CoALA)
   - Cognee: ECL pipeline (Extract → Cognify → Load) — `remember()` is ECL+store
-  - Hermes Agent: FTS5 + LLM hybrid + periodic nudge (we use LM Studio primary,
-    MiniMax fallback per Duckets 2026-06-23 directive)
+  - Hermes Agent: FTS5 + periodic nudge (DuckBot keeps chat-model work in
+    the agent; embeddings/rerank stay local-first here)
 
 The API is async. All public methods are coroutines. The CLI wraps them in
 asyncio.run() for sync entry points.
@@ -47,7 +47,7 @@ from .embeddings import (
 from .ingest import IngestStats
 from .query import QueryResult, QueryStats, hybrid_query
 from .store import MemoryStore
-from .tier import Tier, classify, reclassify_for_working
+from .tier import Tier, classify, reclassify_for_working, coerce_optional_tier
 
 
 # -----------------------------------------------------------------------------
@@ -310,7 +310,7 @@ class Memory:
                 # surfaces both pass tier as a string from JSON-RPC). Without
                 # this, `force_tier="episodic"` would crash at store.add_chunks
                 # with `'str' object has no attribute 'value'`.
-                tier = Tier(force_tier) if isinstance(force_tier, str) else force_tier
+                tier = coerce_optional_tier(force_tier)
                 confidence = 1.0
             else:
                 assignment = classify(chunk.source_path, chunk.text)
@@ -530,10 +530,7 @@ class Memory:
             raise ValueError("query must be a non-empty string")
         qe = make_query_embedder(embedder)
         tier_filter = None
-        if isinstance(tier, str):
-            tier_filter = Tier(tier)
-        elif isinstance(tier, Tier):
-            tier_filter = tier
+        tier_filter = coerce_optional_tier(tier)
         results, stats = await hybrid_query(
             query, store, qe, n_results=k, tier=tier_filter,
             rerank=rerank, decay=decay,
@@ -549,7 +546,9 @@ class Memory:
         # Bump recall counters
         for r in results:
             try:
-                tier_obj = Tier(r.tier) if isinstance(r.tier, str) else r.tier
+                tier_obj = coerce_optional_tier(r.tier)
+                if tier_obj is None:
+                    continue
                 coll = store.collection_for(tier_obj)
                 cur = coll.get(ids=[r.chunk_id], include=["metadatas"])
                 if cur and cur["ids"]:
@@ -695,10 +694,8 @@ class Memory:
         """Delete a specific memory by id. If tier is given, only search that
         tier. Returns True if deleted."""
         store, _ = await self._ensure_initialized()
-        if tier is not None:
-            tiers = [Tier(tier)] if isinstance(tier, str) else [tier]
-        else:
-            tiers = list(Tier)
+        tier_obj = coerce_optional_tier(tier)
+        tiers = [tier_obj] if tier_obj is not None else list(Tier)
         for t in tiers:
             coll = store.collection_for(t)
             try:

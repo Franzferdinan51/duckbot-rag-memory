@@ -94,6 +94,13 @@ async def test_recall_filters_by_tier(mem):
 
 
 @pytest.mark.asyncio
+async def test_recall_ignores_whitespace_tier(mem):
+    await mem.remember("Always commit before pushing.", source_path="AGENTS.md")
+    results, _ = await mem.recall("rule", k=5, tier="   ")
+    assert isinstance(results, list)
+
+
+@pytest.mark.asyncio
 async def test_reflect_runs(mem):
     await mem.remember("Duckets installed cua-driver.")
     await mem.remember("Duckets uses LM Studio for inference.")

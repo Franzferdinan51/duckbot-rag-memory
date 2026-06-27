@@ -25,6 +25,34 @@ class Tier(str, Enum):
     SEMANTIC = "semantic"        # Distilled facts, user prefs, entities
     PROCEDURAL = "procedural"    # Rules, behavioral norms, patterns
 
+    @classmethod
+    def _missing_(cls, value):
+        """Coerce tier strings with surrounding whitespace or case noise."""
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized:
+                for member in cls:
+                    if member.value == normalized:
+                        return member
+        return None
+
+
+def coerce_optional_tier(value: Tier | str | None) -> Tier | None:
+    """Normalize an optional tier input.
+
+    Blank strings become ``None`` so callers can treat whitespace-only input
+    as "no tier filter" instead of raising a ValueError.
+    """
+    if value is None:
+        return None
+    if isinstance(value, Tier):
+        return value
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+    return Tier(value)
+
 
 # File patterns → tier. Order matters (first match wins).
 PATH_RULES: list[tuple[re.Pattern[str], Tier]] = [

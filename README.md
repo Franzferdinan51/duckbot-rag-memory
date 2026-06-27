@@ -147,9 +147,9 @@ The wrappers load `.env` themselves and detect the local venv, so API keys do no
 
 DuckBot does **not** ship model weights. If you want the default local LM Studio path to work, you must load these models in LM Studio yourself first. Without them, the default local setup will not run as documented:
 
-- Required embeddings model: `text-embedding-embeddinggemma-300m`
-- Required reranker model: `qwen3-reranker-0.6b`
-- **Fact extraction is the agent's job.** When your agent (OpenClaw/Hermes/your LLM) extracts facts from a memory, pass them via `brain_remember(facts=[...])` or `reflect(extract_callback=...)` and they're stored as semantic-tier chunks. The brain never loads a chat model for consolidation — only the embedding + reranker run. `reflect()` uses lightweight regex heuristics when no agent facts are provided.
+- Required embedding model: Gemma `text-embedding-embeddinggemma-300m`
+- Required reranker model: Qwen3 `qwen3-reranker-0.6b` (the default local rerank model id)
+- **Fact extraction is the agent's job.** When your agent (OpenClaw/Hermes/your LLM) extracts facts from a memory, pass them via `brain_remember(facts=[...])` or `reflect(extract_callback=...)` and they're stored as semantic-tier chunks. DuckBot does not load a separate consolidation chat model. The brain only runs the embedding path and, when enabled, the reranker; `reflect()` uses lightweight regex heuristics when no agent facts are provided.
 
 OpenClaw and Hermes are the agent runtimes that call into this repo. This repo is the memory layer they use; it does not provide its own chat model.
 

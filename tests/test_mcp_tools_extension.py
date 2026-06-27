@@ -209,6 +209,26 @@ async def test_mcp_handle_forget_rejects_whitespace_chunk_id():
 
 
 @pytest.mark.asyncio
+async def test_mcp_handle_forget_ignores_whitespace_tier(monkeypatch):
+    from src.mcp_server import handle_forget
+    import src.mcp_server as mcp_mod
+
+    captured = {}
+
+    class _FakeMemory:
+        async def forget(self, chunk_id, tier=None):
+            captured["chunk_id"] = chunk_id
+            captured["tier"] = tier
+            return True
+
+    monkeypatch.setattr(mcp_mod, "Memory", lambda *a, **kw: _FakeMemory())
+    out = await handle_forget({"chunk_id": "c1", "tier": "   "})
+    assert out == {"deleted": True}
+    assert captured["chunk_id"] == "c1"
+    assert captured["tier"] is None
+
+
+@pytest.mark.asyncio
 async def test_mcp_handle_brain_inflate_rejects_whitespace_query():
     from src.mcp_server import handle_brain_inflate
     import src.memory as mem_mod

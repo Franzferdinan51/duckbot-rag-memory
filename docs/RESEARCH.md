@@ -203,7 +203,7 @@ Survey done by OpenClaw on Duckets' instruction: "enhance and upgrade the memory
 #### Layer 10 candidate: HyDE (Hypothetical Document Embeddings)
 - **Source:** Gao et al., "Precise Zero-Shot Dense Retrieval without Relevance Labels" (2022). Algorithm is public.
 - **Why:** For conceptual queries ("how do I feel about X?"), the query embedding is in a different space than the chunk embeddings. HyDE generates a *hypothetical answer* with a small LM, embeds *that*, and retrieves against the centroid. Big win on short / vague queries.
-- **Cost:** Free. Uses a local LM Studio chat model when available.
+- **Cost:** Free if your agent runtime already has a local chat model loaded. DuckBot itself does not load one for this path.
 - **Risk:** Low — opt-in feature flag. Skips LLM call if `DUCKBOT_HYDE=0`.
 - **Plug point:** New `src/hyde.py`. Wire into `src/query.py` before the embed step.
 

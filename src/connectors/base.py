@@ -220,7 +220,7 @@ class Brain:
         as its own semantic-tier chunk with metadata.kind="agent_fact" — no
         extra model load. The agent owns extraction; the brain owns storage.
         """
-        from src.tier import Tier
+        from src.tier import Tier, coerce_optional_tier
 
         # Pre-remember: scan for injection
         if self.scan_before_remember and not skip_scan:
@@ -241,7 +241,7 @@ class Brain:
 
         async def _remember() -> RememberResult:
             mem = self._memory()
-            ft = Tier(force_tier) if force_tier else None
+            ft = coerce_optional_tier(force_tier)
             r = await mem.remember(
                 text,
                 source_path=source_path,
@@ -302,11 +302,11 @@ class Brain:
                 metadata. Replaces L8 Ebbinghaus retention with FSRS-6
                 power-law. Public-domain algorithm spec.
         """
-        from src.tier import Tier
+        from src.tier import Tier, coerce_optional_tier
 
         async def _recall() -> list[RecallResult]:
             mem = self._memory()
-            tier_enum = Tier(tier) if tier else None
+            tier_enum = coerce_optional_tier(tier)
             results, _ = await mem.recall(
                 query, k=k, tier=tier_enum,
                 min_importance=min_importance,
@@ -805,7 +805,7 @@ class Brain:
         entity = (entity or "").strip()
         if not entity:
             return {"error": "entity is required"}
-        from src.tier import Tier
+        from src.tier import Tier, coerce_optional_tier
         from src.graph import Graph
         from src.memory import Memory
         from src.blocks import BlockStore
@@ -1151,12 +1151,12 @@ class Brain:
                                 difficulty, last_review_ts, urgency}.
         """
         from src.memory import Memory
-        from src.tier import Tier
+        from src.tier import Tier, coerce_optional_tier
         from src.fsrs import fsrs_retrievability
 
         async def _queue() -> list[dict]:
             mem = self._memory()
-            tier_enum = Tier(tier) if tier else None
+            tier_enum = coerce_optional_tier(tier)
             t = now if now is not None else time.time()
             # Get a wide net of recent chunks; the FSRS filter is cheap.
             # 100 is enough for the "due for review" view.
@@ -1220,12 +1220,12 @@ class Brain:
         Returns: dict with totals + per-tier breakdown + sample chunks.
         """
         from src.memory import Memory
-        from src.tier import Tier
+        from src.tier import Tier, coerce_optional_tier
         from src.decay import ebbinghaus_retention
 
         async def _status() -> dict:
             mem = self._memory()
-            tier_enum = Tier(tier) if tier else None
+            tier_enum = coerce_optional_tier(tier)
             t = now if now is not None else time.time()
             results, _ = await mem.recall(
                 "recent memory decay status",
@@ -1303,13 +1303,13 @@ class Brain:
         Returns: dict with {dry_run, tier, retention_floor, scanned,
         would_prune, actually_pruned, ids, most_decayed_sample}.
         """
-        from src.tier import Tier
+        from src.tier import Tier, coerce_optional_tier
         from src.memory import Memory
         from src.decay import ebbinghaus_retention
 
         async def _apply() -> dict:
             mem = self._memory()
-            tier_enum = Tier(tier) if tier else None
+            tier_enum = coerce_optional_tier(tier)
             t = now if now is not None else time.time()
             # Walk each tier (overfetch a bit so we don't bias to one tier).
             per_tier: dict[str, int] = {}
@@ -1392,11 +1392,11 @@ class Brain:
 
         Returns: {deleted: int, deleted_ids: list[str], results: list}.
         """
-        from src.tier import Tier
+        from src.tier import Tier, coerce_optional_tier
 
         async def _forget() -> dict:
             mem = self._memory()
-            tier_enum = Tier(tier) if tier else None
+            tier_enum = coerce_optional_tier(tier)
             results, _ = await mem.recall(query, k=k, tier=tier_enum)
             deleted = []
             for r in results:

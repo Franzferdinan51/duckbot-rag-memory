@@ -89,6 +89,13 @@ def test_tier_enum_values():
     assert Tier.PROCEDURAL.value == "procedural"
 
 
+def test_tier_enum_accepts_whitespace_and_case_noise():
+    assert Tier(" working ") == Tier.WORKING
+    assert Tier("Procedural") == Tier.PROCEDURAL
+    with pytest.raises(ValueError):
+        Tier("   ")
+
+
 def test_classify_by_path_returns_none_for_unknown():
     result = classify_by_path("/totally/unknown/path.md")
     assert result is None
