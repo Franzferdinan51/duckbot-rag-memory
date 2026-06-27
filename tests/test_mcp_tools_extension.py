@@ -410,7 +410,7 @@ def test_openclaw_handle_recall_ignores_whitespace_tier(monkeypatch):
     out = openclaw.handle("brain_recall", {"query": "what changed", "tier": "   "})
     assert "error" not in out
     brain.recall.assert_called_once()
-    assert brain.recall.call_args.kwargs["tier"] == "   "
+    assert brain.recall.call_args.kwargs["tier"] is None
 
 
 def test_openclaw_handle_recall_rejects_invalid_tier(monkeypatch):

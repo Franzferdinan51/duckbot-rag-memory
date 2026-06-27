@@ -489,9 +489,10 @@ def _validate_tier(args: dict, tool_name: str) -> dict | None:
     if tier is None:
         return None
     try:
-        coerce_optional_tier(tier)
+        normalized = coerce_optional_tier(tier)
     except ValueError:
         return {"error": f"tier must be one of {list(_VALID_TIERS)}, got {tier!r}", "tool": tool_name}
+    args["tier"] = normalized.value if normalized is not None else None
     return None
 
 
