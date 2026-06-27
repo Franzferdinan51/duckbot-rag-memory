@@ -99,6 +99,12 @@ def render_skill_md(
     Returns:
         A complete SKILL.md string ready to write to disk.
     """
+    name = (name or "").strip()
+    description = (description or "").strip()
+    if not name:
+        raise ValueError("name is required")
+    if not description:
+        raise ValueError("description is required")
     slug = _slugify(name)
     if emoji is None:
         emoji = _guess_emoji(f"{name} {description} {body_markdown}")
@@ -110,7 +116,7 @@ def render_skill_md(
     frontmatter_lines = [
         "---",
         f"name: {slug}",
-        f"description: {description.strip()}",
+        f"description: {description}",
         "metadata:",
         f"  {json.dumps(metadata)}",
         "---",
@@ -119,10 +125,9 @@ def render_skill_md(
     frontmatter = "\n".join(frontmatter_lines)
 
     # If the body doesn't already start with a title, add one.
-    body = body_markdown.strip()
+    body = (body_markdown or "").strip()
     if not body.startswith(f"# "):
-        title = name.strip()
-        body = f"# {title}\n\n{body}"
+        body = f"# {name}\n\n{body}"
 
     # Footer with provenance.
     today = date.today().isoformat()
@@ -160,6 +165,12 @@ def write_skill(
         requires_bins: list of binary deps.
         overwrite: if False and the file exists, raise FileExistsError.
     """
+    name = (name or "").strip()
+    description = (description or "").strip()
+    if not name:
+        raise ValueError("name is required")
+    if not description:
+        raise ValueError("description is required")
     slug = _slugify(name)
     out_path = Path(skills_dir) / slug / "SKILL.md"
     if out_path.exists() and not overwrite:
@@ -191,10 +202,19 @@ def render_from_memory(
         example: optional worked example
         emoji: optional override
     """
+    name = (name or "").strip()
+    description = (description or "").strip()
+    if not name:
+        raise ValueError("name is required")
+    if not description:
+        raise ValueError("description is required")
+    instructions = [s.strip() for s in instructions if isinstance(s, str) and s.strip()]
+    if not instructions:
+        raise ValueError("instructions are required")
     lines = [
         f"## When to Use",
         "",
-        f"Use this skill when: {description.strip()}",
+        f"Use this skill when: {description}",
         "",
         f"## Instructions",
         "",

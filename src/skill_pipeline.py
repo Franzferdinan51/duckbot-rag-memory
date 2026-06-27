@@ -279,12 +279,15 @@ def promote_candidate(
     """
     from src.skillgen import write_skill, render_from_memory
 
+    name = (name or "").strip()
+    description = (description or "").strip()
     if not name or not description:
         return {"error": "name and description are required"}
     # Either a flat `instructions` list OR a rich `instructions_markdown`
     # body is required — not both, and not neither. The markdown path lets
     # agents author full markdown without going through a numbered list.
-    has_instructions = bool(instructions)
+    clean_instructions = [s.strip() for s in (instructions or []) if isinstance(s, str) and s.strip()]
+    has_instructions = bool(clean_instructions)
     has_markdown = bool(instructions_markdown and instructions_markdown.strip())
     if not has_instructions and not has_markdown:
         return {"error": "either instructions (list) or instructions_markdown (string) is required"}
@@ -348,7 +351,7 @@ def promote_candidate(
         body_lines = [
             f"## When to Use",
             "",
-            f"Use this skill when: {description.strip()}",
+            f"Use this skill when: {description}",
             "",
             instructions_markdown.strip(),
         ]
@@ -359,7 +362,7 @@ def promote_candidate(
         body = render_from_memory(
             name=effective_name,
             description=description,
-            instructions=instructions or [],
+            instructions=clean_instructions,
             example=example,
             emoji=emoji,
         )

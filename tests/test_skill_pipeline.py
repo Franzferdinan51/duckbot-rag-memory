@@ -388,12 +388,43 @@ def test_promote_candidate_requires_name_and_description(fake_procedural, reset_
     assert "error" in out
 
 
+def test_promote_candidate_rejects_whitespace_name_and_description(fake_procedural, reset_singletons):
+    out = pipeline.promote_candidate(
+        chunk_id="x", name="   ", description="  ", instructions=["s"],
+    )
+    assert "error" in out
+    assert "name and description are required" in out["error"]
+
+
 def test_promote_candidate_requires_instructions(fake_procedural, reset_singletons):
     out = pipeline.promote_candidate(
         chunk_id="x", name="n", description="d", instructions=[],
     )
     assert "error" in out
     assert "instructions" in out["error"]
+
+
+def test_promote_candidate_strips_instruction_whitespace(fake_procedural, tmp_path, reset_singletons):
+    fake_store = FakeStore()
+    fake_store._collections["procedural"] = fake_procedural
+    skills_dir = tmp_path / "skills"
+
+    with patch("src.skill_pipeline.Memory") as MockMem, \
+         patch("src.skill_pipeline._run_async") as mock_run:
+        mock_run.return_value = (fake_store, MagicMock())
+        MockMem.return_value = MagicMock()
+        out = pipeline.promote_candidate(
+            chunk_id="cand_new",
+            name="  Trimmed Skill  ",
+            description="  Use this when trimming  ",
+            instructions=["  step one  ", " ", "\tstep two\t"],
+            skills_dir=skills_dir,
+        )
+
+    assert out["slug"] == "trimmed-skill"
+    content = Path(out["path"]).read_text()
+    assert "step one" in content
+    assert "step two" in content
 
 
 # -----------------------------------------------------------------------------

@@ -1416,11 +1416,11 @@ async def handle_brain_skill_create(args: dict) -> dict:
     """
     from src.skillgen import write_skill, render_from_memory
 
-    name = args.get("name")
-    description = args.get("description")
+    name = (args.get("name") or "").strip()
+    description = (args.get("description") or "").strip()
     if not name or not description:
         return {"error": "name and description are required"}
-    instructions = args.get("instructions") or []
+    instructions = [s.strip() for s in (args.get("instructions") or []) if isinstance(s, str) and s.strip()]
     if not instructions:
         return {"error": "instructions list is required (at least one step)"}
 
@@ -1506,13 +1506,17 @@ async def handle_brain_skills_promote(args: dict) -> dict:
     # the former for simple skills, the latter for richer bodies.
     if not args.get("chunk_id") or not args.get("name") or not args.get("description"):
         return {"error": "chunk_id, name, description are required"}
+    name = (args.get("name") or "").strip()
+    description = (args.get("description") or "").strip()
+    if not name or not description:
+        return {"error": "chunk_id, name, description are required"}
     if not (args.get("instructions") or args.get("instructions_markdown")):
         return {"error": "either instructions (list) or instructions_markdown (string) is required"}
     from src.skill_pipeline import promote_candidate
     return promote_candidate(
         chunk_id=args["chunk_id"],
-        name=args["name"],
-        description=args["description"],
+        name=name,
+        description=description,
         instructions=args.get("instructions") or [],
         example=args.get("example", ""),
         emoji=args.get("emoji"),
