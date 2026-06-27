@@ -149,7 +149,7 @@ DuckBot does **not** ship model weights. If you want the default local LM Studio
 
 - Required embeddings model: `text-embedding-embeddinggemma-300m`
 - Required reranker model: `qwen3-reranker-0.6b`
-- Optional: if your host agent already has a chat model loaded and you want LLM-assisted consolidation, point `DUCKBOT_CHAT_MODEL` at that same model. DuckBot itself does not load or own a separate consolidation AI.
+- **Recommended:** point `DUCKBOT_CHAT_MODEL` at your agent's existing chat model. LLM is the **default** fact-extraction engine in `reflect()` — tied to the agent so the semantic promotion matches the agent's perspective. Regex heuristics are the fallback when the LLM is unavailable or `DUCKBOT_REGEX_ONLY=1` is set. DuckBot itself does not load or own a separate model.
 
 OpenClaw and Hermes are the agent runtimes that call into this repo. This repo is the memory layer they use; it does not provide its own chat model.
 
@@ -161,10 +161,13 @@ LMSTUDIO_URL=http://127.0.0.1:1234/v1
 LMSTUDIO_KEY=<your LM Studio key>
 LMSTUDIO_MODEL=text-embedding-embeddinggemma-300m
 LMSTUDIO_RERANK_MODEL=qwen3-reranker-0.6b
-# Optional: set this only if the host agent wants LLM-assisted consolidation.
-# Leave unset for regex-only reflect() with no extra model load.
+# Recommended: tie fact extraction to the agent's existing chat model.
+# LLM is the default extraction engine; regex is the fallback when
+# DUCKBOT_CHAT_MODEL is unset or the LLM call fails.
 DUCKBOT_CHAT_MODEL=<your agent's existing chat model>
 DUCKBOT_RERANK=1
+# Optional: force regex-only reflect() (offline / air-gapped / CI).
+# DUCKBOT_REGEX_ONLY=1
 ```
 
 Other supported providers:
@@ -180,14 +183,14 @@ OPENAI_API_KEY=...
 
 # Offline local model (embeddings via sentence-transformers; no LM Studio needed for embeddings)
 DUCKBOT_EMBEDDING=local
-# To enable LLM-assisted consolidation in local mode, set the chat model
-# to whatever your host agent already loaded. Leave it unset for regex-only.
+# LLM extraction is the default — point at the host agent's existing
+# chat model when one is loaded. Unset → automatic regex fallback.
 # DUCKBOT_CHAT_MODEL=<your agent's existing chat model>
 ```
 
 If `DUCKBOT_EMBEDDING` is unset, the code auto-detects from available credentials and local services. Keep real keys only in `.env`; it is gitignored and protected by the secret-scan scripts.
 
-If you do not install the reranker model, rerank stays available as a no-op fallback. If `DUCKBOT_CHAT_MODEL` is not set, `reflect()` falls back to regex-only extraction and still works, but with lower-quality semantic promotion and no extra VRAM cost.
+If you do not install the reranker model, rerank stays available as a no-op fallback. Fact extraction in `reflect()` is **LLM-first** (tied to the agent's existing chat model via `DUCKBOT_CHAT_MODEL`), with regex heuristics as the automatic fallback when the LLM is unavailable, fails, or `DUCKBOT_REGEX_ONLY=1` is set.
 
 ## Watcher
 

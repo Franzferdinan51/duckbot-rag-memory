@@ -52,19 +52,13 @@ class ExtractedFact:
         }
 
 
-def extract_facts_from_chunk(
+def _extract_via_regex(
     chunk_text: str,
     chunk_id: str,
     source_path: str,
 ) -> list[ExtractedFact]:
-    """Extract candidate facts from an episodic chunk using regex heuristics.
-
-    This is the v0.1 heuristic-first path. If a host agent explicitly
-    provides a chat model, `extract_facts_via_llm` can supplement the
-    regex rules; otherwise the helper stays regex-only and lightweight.
-
-    DUCKBOT_NO_LLM_EXTRACTION=1 forces the regex-only path.
-    """
+    """Regex-only fact extraction. Used as a fallback when LLM is unavailable
+    or as the only path when DUCKBOT_REGEX_ONLY=1 is set."""
     facts: list[ExtractedFact] = []
     seen_text: set[str] = set()
 
@@ -87,24 +81,62 @@ def extract_facts_from_chunk(
                 source_path=source_path,
                 confidence=0.6 if kind in ("user-said", "decision", "rule") else 0.4,
             ))
-
-    # Optional LLM-extraction pass (mem0-inspired). Skipped if:
-    # - DUCKBOT_NO_LLM_EXTRACTION=1 (regex-only mode for offline/air-gapped)
-    # - no explicit chat model is configured by the host agent
-    # - chunk too short to be worth an LLM call
-    if os.environ.get("DUCKBOT_NO_LLM_EXTRACTION", "").lower() in ("1", "true", "yes"):
-        return facts
-    model_name = os.environ.get("DUCKBOT_CHAT_MODEL", "").strip()
-    if not model_name:
-        return facts
-    if len(chunk_text) < 200:
-        return facts
-    llm_facts = extract_facts_via_llm(chunk_text, chunk_id, source_path, model=model_name)
-    for f in llm_facts:
-        if f.text not in seen_text:
-            seen_text.add(f.text)
-            facts.append(f)
     return facts
+
+
+def extract_facts_from_chunk(
+    chunk_text: str,
+    chunk_id: str,
+    source_path: str,
+) -> list[ExtractedFact]:
+    """Extract durable facts from a chunk. LLM-first, regex-fallback.
+
+    The agent's chat model is the default extraction engine (mem0-style
+    prompts) — it ties fact extraction to the agent that's actually using
+    the memory, so the facts come from the same perspective. Regex heuristics
+    are the fallback path for when the LLM is unreachable or air-gapped.
+
+    Resolution order:
+      1. DUCKBOT_REGEX_ONLY=1 (or legacy DUCKBOT_NO_LLM_EXTRACTION=1)
+         → regex-only. Useful for offline / air-gapped / CI / cheap CI runs.
+      2. DUCKBOT_CHAT_MODEL is set AND chunk ≥ MIN_CHUNK_FOR_LLM chars
+         → try the LLM first; on success return those facts.
+      3. LLM unavailable / returns no facts / chunk too short
+         → regex fallback (returns [] only if regex also finds nothing).
+      4. No DUCKBOT_CHAT_MODEL at all → regex fallback.
+
+    Why LLM-first: regex catches obvious phrasing ("Duckets said X") but
+    misses implied facts ("we'll switch to Postgres next quarter" — no
+    decision keyword, but a durable plan). The LLM prompt handles these
+    because it's been trained on memory-extraction patterns; regex can't
+    generalize the way the model can.
+    """
+    # Opt-out: regex-only mode for offline / air-gapped / CI
+    if (
+        os.environ.get("DUCKBOT_REGEX_ONLY", "").lower() in ("1", "true", "yes")
+        or os.environ.get("DUCKBOT_NO_LLM_EXTRACTION", "").lower() in ("1", "true", "yes")
+    ):
+        return _extract_via_regex(chunk_text, chunk_id, source_path)
+
+    # No chat model configured → no LLM path → regex fallback
+    if not os.environ.get("DUCKBOT_CHAT_MODEL", "").strip():
+        return _extract_via_regex(chunk_text, chunk_id, source_path)
+
+    # Chunks below the threshold don't benefit from LLM extraction —
+    # regex is cheap and fast enough for these.
+    if len(chunk_text) < _MIN_CHUNK_FOR_LLM:
+        return _extract_via_regex(chunk_text, chunk_id, source_path)
+
+    # Try LLM extraction first
+    llm_facts = extract_facts_via_llm(chunk_text, chunk_id, source_path)
+    if llm_facts:
+        return llm_facts
+
+    # LLM failed / unreachable / returned no facts → regex fallback
+    return _extract_via_regex(chunk_text, chunk_id, source_path)
+
+
+_MIN_CHUNK_FOR_LLM = 200
 
 
 # mem0-inspired extraction prompts (Apache 2.0, ported from the mem0 paper
