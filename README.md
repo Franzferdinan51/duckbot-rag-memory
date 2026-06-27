@@ -113,6 +113,11 @@ From any shell:
 ./scripts/update.sh                              # macOS / Linux
 # Windows: double-click scripts\update.bat
 
+# Agents use the CLI directly (returns JSON):
+python -m src.cli update                        # pull + upgrade deps + doctor
+python -m src.cli update --dry-run             # check if updates available
+python -m src.cli update --no-deps --no-doctor  # pull only, skip upgrade/checks
+
 ./scripts/duckbot-ask "What did we decide about cloud-only models?"
 ./scripts/duckbot-ask -f compact -n 3 "Duckets correction style"
 ./scripts/duckbot-ask -f snippet "BATMAN container restart recipe"

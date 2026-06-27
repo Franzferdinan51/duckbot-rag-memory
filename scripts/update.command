@@ -17,12 +17,10 @@ step()  { echo ""; echo -e "${CYAN}[${N}]${RESET} ${BOLD}$1${RESET}"; }
 echo ""
 echo -e "${BOLD}🧠  DuckBot RAG + Memory — Update${RESET}"
 echo "    Repo: $REPO_ROOT"
-echo ""
 
 N=1
-step "Step $N: Check git status"
+step "Step $N: Check prerequisites"
 
-# Detect python
 if [[ -x .venv/bin/python ]]; then
     PYTHON=".venv/bin/python"
 elif [[ -x .venv/Scripts/python.exe ]]; then
@@ -33,69 +31,38 @@ else
     exit 1
 fi
 
-# Check for uncommitted changes
-if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
-    warn "You have uncommitted changes — update will stash them"
-fi
+N=$((N + 1))
+step "Step $N: Run update"
 
-# Check remote
-if ! git remote get-url origin >/dev/null 2>&1; then
-    warn "No remote configured. Skipping git pull."
-else
-    N=$((N + 1))
-    step "Step $N: Pull latest changes"
+info "Calling: python -m src.cli update"
+echo ""
 
-    info "Fetching latest from origin/main..."
-    git fetch origin 2>&1
+UPDATE_OUTPUT=$("$PYTHON" -m src.cli update "$@" 2>&1) || true
+echo "$UPDATE_OUTPUT"
 
-    BEHIND=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
-    if [[ "$BEHIND" == "0" ]]; then
-        ok "Already up to date (origin/main)"
-    else
-        info "Your branch is behind origin/main by $BEHIND commit(s)"
-        git stash 2>/dev/null || true
-        git pull --rebase origin main 2>&1
-        ok "Updated to $(git log -1 --oneline origin/main)"
+if echo "$UPDATE_OUTPUT" | python3 -c "import sys,json; json.load(sys.stdin); sys.exit(0)" 2>/dev/null; then
+    WAS_UPDATED=$(echo "$UPDATE_OUTPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('was_updated', 'unknown'))" 2>/dev/null || echo "unknown")
+    BEHIND=$(echo "$UPDATE_OUTPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('commits_behind', 'unknown'))" 2>/dev/null || echo "unknown")
+    DOCTOR=$(echo "$UPDATE_OUTPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('doctor_passed', 'unknown'))" 2>/dev/null || echo "unknown")
+    ERROR=$(echo "$UPDATE_OUTPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error', ''))" 2>/dev/null || echo "")
+
+    if [[ "$ERROR" == "not a git repo" ]]; then
+        error "Not in a git repository."
+    elif [[ "$ERROR" == "no remote" ]]; then
+        warn "No remote configured."
+    elif [[ "$WAS_UPDATED" == "True" ]]; then
+        if [[ "$DOCTOR" == "True" ]]; then
+            ok "Updated — doctor passed"
+        else
+            warn "Updated — some doctor checks failed (see above)"
+        fi
+    elif [[ "$WAS_UPDATED" == "False" ]]; then
+        if [[ "$BEHIND" == "0" ]]; then
+            ok "Already up to date"
+        else
+            warn "Update failed — check above"
+        fi
     fi
-fi
-
-N=$((N + 1))
-step "Step $N: Update dependencies"
-
-info "Upgrading pip..."
-"$PYTHON" -m pip install --quiet --upgrade pip 2>/dev/null
-
-if [[ -f requirements.txt ]]; then
-    info "Installing new dependencies..."
-    "$PYTHON" -m pip install -r requirements.txt
-    ok "Dependencies up to date"
-fi
-
-N=$((N + 1))
-step "Step $N: Verify update"
-
-info "Running doctor..."
-DOCTOR_OUTPUT=$("$PYTHON" -m src.cli doctor 2>&1)
-echo "$DOCTOR_OUTPUT"
-
-if echo "$DOCTOR_OUTPUT" | grep -q "✗"; then
-    warn "Some checks failed — see above"
-else
-    ok "All checks passed"
-fi
-
-N=$((N + 1))
-step "Step $N: Run doctor checks on existing memory"
-
-info "Checking store integrity..."
-STATS=$("$PYTHON" -m src.cli stats 2>&1)
-echo "$STATS"
-
-if echo "$STATS" | grep -q '"total": 0'; then
-    warn "Store is empty — re-seed with:"
-    echo "    .venv/bin/python -m src.cli seed-demo"
-else
-    ok "Store intact: $(echo "$STATS" | grep -o '"total": [0-9]*' | grep -o '[0-9]*') chunks"
 fi
 
 echo ""
@@ -103,14 +70,11 @@ echo "────────────────────────�
 echo -e "  ${BOLD}✅ Update complete!${RESET}"
 echo "─────────────────────────────────────────────────────────"
 echo ""
-echo "Run the demo:"
-echo "    ./scripts/demo.command"
+echo "Run the demo:    ./scripts/demo.command"
+echo "Query the brain: ./scripts/duckbot-ask"
 echo ""
-echo "Query the brain:"
-echo "    ./scripts/duckbot-ask \"your question\""
-echo ""
-echo "Restart the watcher daemon:"
-echo "    ./scripts/start.command"
+echo "For agents / scripts (JSON output):"
+echo "  .venv/bin/python -m src.cli update"
 echo ""
 echo "Press Enter to close..."
 read -p "" _

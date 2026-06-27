@@ -29,6 +29,10 @@ python -m src.cli ingest ~/.openclaw/workspace/memory
 ./scripts/update.sh                              # macOS/Linux Terminal
 # Windows: double-click scripts\update.bat
 
+# Agents use the CLI directly (returns JSON):
+python -m src.cli update                        # pull + upgrade deps + doctor
+python -m src.cli update --dry-run             # check if updates available
+
 # Real-time ingest via the watcher daemon (recommended over cron)
 ./scripts/start-watcher.sh                       # polls every 5 min, content-hash dedup
 

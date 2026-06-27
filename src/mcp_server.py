@@ -119,6 +119,32 @@ TOOLS = [
         "description": "Run health checks: Python version, critical deps, embedder status, vector store health.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "brain_update",
+        "description": "Pull the latest changes from origin/main and upgrade dependencies. "
+            "Safe to re-run — stashes local changes, pulls, upgrades pip + requirements.txt, "
+            "runs doctor, then restores stash. Agents and humans use this to keep the brain up to date.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "dry_run": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "If true, only check whether updates are available without pulling.",
+                },
+                "no_deps": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Skip pip install and requirements.txt upgrade.",
+                },
+                "no_doctor": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Skip doctor check after update.",
+                },
+            },
+        },
+    },
 
     # ---- v0.10.0 — useful MCP tools extension ----
     {
@@ -1962,6 +1988,118 @@ async def handle_brain_import(args: dict) -> dict:
     }
 
 
+async def handle_brain_update(args: dict) -> dict:
+    """Pull the latest changes from origin/main and upgrade deps.
+
+    Safe to re-run — stashes any local changes before pulling and restores
+    them after. Agents use this to keep the brain codebase up to date.
+
+    Args:
+        dry_run: if True, only check whether updates are available without pulling.
+        no_deps: skip pip install / requirements.txt upgrade.
+        no_doctor: skip doctor check after update.
+    """
+    import subprocess
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parent.parent
+
+    def run(*cmd: str) -> subprocess.CompletedProcess:
+        return subprocess.run(cmd, cwd=repo, capture_output=True, text=True)
+
+    result: dict = {}
+
+    git_check = run("git", "rev-parse", "--is-inside-work-tree")
+    if git_check.returncode != 0 or "true" not in git_check.stdout.lower():
+        result["error"] = "not a git repo"
+        return result
+
+    branch = run("git", "branch", "--show-current").stdout.strip()
+    result["current_branch"] = branch
+
+    remote_check = run("git", "remote", "get-url", "origin")
+    if remote_check.returncode != 0:
+        result["error"] = "no remote configured"
+        return result
+    result["remote"] = remote_check.stdout.strip()
+
+    # Check for uncommitted changes
+    had_changes = (
+        run("git", "diff", "--quiet").returncode != 0
+        or run("git", "diff", "--cached", "--quiet").returncode != 0
+    )
+    result["had_local_changes"] = had_changes
+
+    # Dry run: just check
+    dry_run = args.get("dry_run", False)
+
+    run("git", "fetch", "origin")
+    try:
+        commits_behind = int(run("git", "rev-list", "--count", f"HEAD..origin/{branch}").stdout.strip())
+    except ValueError:
+        commits_behind = 0
+    result["commits_behind"] = commits_behind
+
+    if dry_run:
+        result["was_updated"] = False
+        result["message"] = "Already up to date." if commits_behind == 0 else f"{commits_behind} commits behind origin/{branch}."
+        return result
+
+    if commits_behind == 0:
+        result["was_updated"] = False
+        result["message"] = "Already up to date."
+        return result
+
+    # Stash local changes
+    if had_changes:
+        stash_out = run("git", "stash", "push", "-m", "auto-stash before MCP update")
+        if stash_out.returncode != 0 and "No local changes" not in stash_out.stderr:
+            result["stash_warning"] = stash_out.stderr.strip()
+
+    # Pull
+    pull = run("git", "pull", "--rebase", "origin", branch)
+    if pull.returncode != 0:
+        result["was_updated"] = False
+        result["pull_error"] = pull.stderr.strip()
+        if had_changes:
+            run("git", "stash", "pop")
+        return result
+
+    result["was_updated"] = True
+    result["new_head"] = run("git", "log", "-1", "--oneline").stdout.strip()
+
+    # Upgrade deps
+    if not args.get("no_deps"):
+        for candidate in [
+            repo / ".venv" / "bin" / "python",
+            repo / ".venv" / "bin" / "python3",
+            repo / ".venv" / "Scripts" / "python.exe",
+        ]:
+            if candidate.exists():
+                venv_python = str(candidate)
+                run(venv_python, "-m", "pip", "install", "--quiet", "--upgrade", "pip")
+                req = repo / "requirements.txt"
+                if req.exists():
+                    run(venv_python, "-m", "pip", "install", "-q", "-r", str(req))
+                result["deps_upgraded"] = True
+                break
+        else:
+            result["deps_upgraded"] = False
+
+    # Doctor check
+    if not args.get("no_doctor"):
+        from src.cli import build_doctor_checks_async
+        checks, all_ok = await build_doctor_checks_async()
+        result["doctor_passed"] = all_ok
+        result["doctor_checks"] = {name: ok for name, ok, _ in checks}
+
+    # Restore stash
+    if had_changes:
+        run("git", "stash", "pop")
+
+    return result
+
+
 async def handle_brain_seed_demo(args: dict) -> dict:
     """Seed the brain with a small bundled sample corpus.
 
@@ -2058,6 +2196,7 @@ HANDLERS = {
     "stats": handle_stats,
     "watch": handle_watch,
     "doctor": handle_doctor,
+    "brain_update": handle_brain_update,
     # v0.10.0 — useful MCP tools extension
     "recall_verbatim": handle_recall_verbatim,
     "fsrs_review": handle_fsrs_review,

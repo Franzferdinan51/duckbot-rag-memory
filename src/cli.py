@@ -436,6 +436,140 @@ def cmd_reset(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_update(args: argparse.Namespace) -> int:
+    """Check for updates from origin/main and pull if behind.
+
+    Also upgrades deps and runs doctor. Safe to re-run — stashes any
+    local changes before pulling and restores them after.
+
+    Returns a dict with keys:
+        current_branch, commits_behind, was_updated, had_local_changes,
+        doctor_passed, error (if any).
+    """
+    import subprocess
+
+    def run(*cmd: str, capture: bool = True) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            cmd,
+            cwd=Path(__file__).resolve().parent.parent,
+            capture_output=capture,
+            text=True,
+        )
+
+    result: dict = {}
+
+    # 1. Check we're in a git repo
+    git_check = run("git", "rev-parse", "--is-inside-work-tree")
+    if git_check.returncode != 0 or "true" not in git_check.stdout.lower():
+        print("Not in a git repository.", file=sys.stderr)
+        result["error"] = "not a git repo"
+        print(json.dumps(result, indent=2))
+        return 1
+
+    branch = run("git", "branch", "--show-current").stdout.strip()
+    result["current_branch"] = branch
+
+    # 2. Check remote
+    remote_check = run("git", "remote", "get-url", "origin")
+    if remote_check.returncode != 0:
+        print("No remote configured — skipping pull.", file=sys.stderr)
+        result["error"] = "no remote"
+        print(json.dumps(result, indent=2))
+        return 0
+    result["remote"] = remote_check.stdout.strip()
+
+    # 3. Check for uncommitted changes
+    diff_check = run("git", "diff", "--quiet")
+    staged_check = run("git", "diff", "--cached", "--quiet")
+    had_changes = diff_check.returncode != 0 or staged_check.returncode != 0
+    result["had_local_changes"] = had_changes
+
+    # 4. Fetch + compare
+    run("git", "fetch", "origin")
+    behind_raw = run("git", "rev-list", "--count", f"HEAD..origin/{branch}")
+    try:
+        commits_behind = int(behind_raw.stdout.strip())
+    except (ValueError, AttributeError):
+        commits_behind = 0
+    result["commits_behind"] = commits_behind
+
+    if commits_behind == 0:
+        result["was_updated"] = False
+        result["message"] = "Already up to date."
+        print(json.dumps(result, indent=2))
+        return 0
+
+    # Dry-run: just report what's available
+    if args.dry_run:
+        result["was_updated"] = False
+        result["message"] = f"{commits_behind} commit(s) behind origin/{branch}. Run without --dry-run to pull."
+        print(json.dumps(result, indent=2))
+        return 0
+
+    # 5. Stash local changes (if any)
+    if had_changes:
+        stash_out = run("git", "stash", "push", "-m", "auto-stash before update")
+        if stash_out.returncode != 0 and "No local changes" not in stash_out.stderr:
+            result["stash_error"] = stash_out.stderr.strip()
+            print(f"Warning: stash failed: {stash_out.stderr.strip()}", file=sys.stderr)
+
+    # 6. Pull
+    pull = run("git", "pull", "--rebase", "origin", branch)
+    if pull.returncode != 0:
+        result["was_updated"] = False
+        result["pull_error"] = pull.stderr.strip()
+        print(f"Pull failed:\n{pull.stderr}", file=sys.stderr)
+        if had_changes:
+            run("git", "stash", "pop")
+        print(json.dumps(result, indent=2))
+        return 1
+
+    result["was_updated"] = True
+    result["new_head"] = run("git", "log", "-1", "--oneline").stdout.strip()
+
+    # 7. Upgrade deps
+    venv_python = _venv_python()
+    if venv_python:
+        upgrade = run(venv_python, "-m", "pip", "install", "--quiet", "--upgrade", "pip")
+        if args.no_deps:
+            print("Skipping dep upgrade (--no-deps).")
+        else:
+            req = Path(__file__).resolve().parent.parent / "requirements.txt"
+            if req.exists():
+                run(venv_python, "-m", "pip", "install", "-q", "-r", str(req))
+                result["deps_upgraded"] = True
+            else:
+                result["deps_upgraded"] = False
+
+    # 8. Doctor
+    if args.no_doctor:
+        print("Skipping doctor check (--no-doctor).")
+    else:
+        checks, all_ok = asyncio.run(build_doctor_checks_async())
+        result["doctor_passed"] = all_ok
+        result["doctor_checks"] = {name: ok for name, ok, _ in checks}
+
+    # 9. Restore stash
+    if had_changes:
+        run("git", "stash", "pop")
+
+    print(json.dumps(result, indent=2, default=str))
+    return 0
+
+
+def _venv_python() -> str | None:
+    """Return the path to the venv python, or None if not found."""
+    repo = Path(__file__).resolve().parent.parent
+    for candidate in [
+        repo / ".venv" / "bin" / "python",
+        repo / ".venv" / "bin" / "python3",
+        repo / ".venv" / "Scripts" / "python.exe",
+    ]:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
 def cmd_compact(args: argparse.Namespace) -> int:
     """Dedupe + vacuum the Chroma store.
 
@@ -874,6 +1008,22 @@ def main() -> int:
 
     p_doc = sub.add_parser("doctor", help="check env + deps")
     p_doc.set_defaults(func=cmd_doctor)
+
+    # Update: pull latest from origin/main + upgrade deps + doctor.
+    p_update = sub.add_parser("update", help="pull latest from origin/main and upgrade deps")
+    p_update.add_argument(
+        "--dry-run", action="store_true",
+        help="only check whether updates are available without pulling",
+    )
+    p_update.add_argument(
+        "--no-deps", action="store_true",
+        help="skip pip install and requirements.txt upgrade",
+    )
+    p_update.add_argument(
+        "--no-doctor", action="store_true",
+        help="skip the doctor check after update",
+    )
+    p_update.set_defaults(func=cmd_update)
 
     # Wake-up: session-start context load (Hermes pre-flight / OpenClaw init).
     p_wakeup = sub.add_parser(

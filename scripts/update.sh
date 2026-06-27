@@ -2,14 +2,15 @@
 # update.sh — Update DuckBot to the latest version (Linux / macOS Terminal).
 #
 # Usage (from repo root):
-#   ./scripts/update.sh
+#   ./scripts/update.sh              # full update + deps + doctor
+#   ./scripts/update.sh --dry-run   # check if updates are available
+#   ./scripts/update.sh --no-deps   # skip pip install
+#   ./scripts/update.sh --no-doctor # skip doctor check
 #
-# What it does:
-#   1. Stash any local changes
-#   2. git pull --rebase origin main
-#   3. Upgrade pip + reinstall deps from requirements.txt
-#   4. Run doctor to verify
-#   5. Check store integrity
+# For agents / machine use (returns JSON):
+#   python -m src.cli update --dry-run
+#   python -m src.cli update
+#   python -m src.cli update --no-deps --no-doctor
 #
 # Double-click on macOS? Use update.command instead.
 
@@ -34,7 +35,11 @@ echo "    OS:   $(uname -s)"
 N=1
 step "Step $N: Check prerequisites"
 
-# Detect python
+if ! command -v git >/dev/null 2>&1; then
+    error "git is not installed"
+    exit 1
+fi
+
 if [[ -x .venv/bin/python ]]; then
     PYTHON=".venv/bin/python"
 elif [[ -x .venv/Scripts/python.exe ]]; then
@@ -44,73 +49,62 @@ else
     exit 1
 fi
 
-# Check git
-if ! command -v git >/dev/null 2>&1; then
-    error "git is not installed"
-    exit 1
+N=$((N + 1))
+step "Step $N: Run update (python -m src.cli update $*)"
+
+info "Calling: $PYTHON -m src.cli update $*"
+echo ""
+
+UPDATE_OUTPUT=$("$PYTHON" -m src.cli update "$@" 2>&1) || true
+echo "$UPDATE_OUTPUT"
+
+# Parse JSON result for pretty summary
+IS_JSON=false
+if echo "$UPDATE_OUTPUT" | python3 -c "import sys,json; json.load(sys.stdin); sys.exit(0)" 2>/dev/null; then
+    IS_JSON=true
 fi
 
-N=$((N + 1))
-step "Step $N: Stash local changes"
+if [[ "$IS_JSON" == "true" ]]; then
+    RESULT=$(echo "$UPDATE_OUTPUT" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+print(json.dumps({
+    'was_updated': d.get('was_updated','unknown'),
+    'commits_behind': d.get('commits_behind','unknown'),
+    'doctor_passed': d.get('doctor_passed','unknown'),
+    'error': d.get('error',''),
+    'had_local_changes': d.get('had_local_changes','unknown'),
+}, default=str))
+" 2>/dev/null || echo '{"was_updated":"unknown"}')
 
-# Check for uncommitted changes
-if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
-    warn "Stashing uncommitted changes..."
-    git stash 2>/dev/null || true
-    ok "Changes stashed"
-else
-    ok "No uncommitted changes"
-fi
+    WAS_UPDATED=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('was_updated','unknown'))")
+    BEHIND=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('commits_behind','unknown'))")
+    DOCTOR=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('doctor_passed','unknown'))")
+    ERROR=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('error',''))")
 
-N=$((N + 1))
-step "Step $N: Pull latest changes"
-
-if ! git remote get-url origin >/dev/null 2>&1; then
-    warn "No remote configured. Skipping git pull."
-else
-    BEHIND=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
-    if [[ "$BEHIND" == "0" ]]; then
-        ok "Already up to date (origin/main)"
-    else
-        info "Behind origin/main by $BEHIND commit(s) — pulling..."
-        git fetch origin
-        git pull --rebase origin main
-        ok "Updated to $(git log -1 --oneline origin/main)"
+    if [[ -n "$ERROR" && "$ERROR" != "null" ]]; then
+        if [[ "$ERROR" == "not a git repo" ]]; then
+            error "Not in a git repository."
+        else
+            warn "Error: $ERROR"
+        fi
+    elif [[ "$WAS_UPDATED" == "True" ]]; then
+        if [[ "$DOCTOR" == "True" ]]; then
+            ok "Updated successfully — doctor passed"
+        elif [[ "$DOCTOR" == "False" ]]; then
+            warn "Updated — some doctor checks failed (see above)"
+        else
+            ok "Updated successfully"
+        fi
+    elif [[ "$WAS_UPDATED" == "False" ]]; then
+        if [[ "$BEHIND" == "0" ]]; then
+            ok "Already up to date"
+        else
+            warn "Update failed — check the output above"
+        fi
     fi
-fi
-
-N=$((N + 1))
-step "Step $N: Update dependencies"
-
-info "Upgrading pip..."
-"$PYTHON" -m pip install --quiet --upgrade pip 2>/dev/null || true
-
-if [[ -f requirements.txt ]]; then
-    info "Installing updated dependencies..."
-    "$PYTHON" -m pip install -r requirements.txt
-    ok "Dependencies up to date"
-fi
-
-N=$((N + 1))
-step "Step $N: Verify update"
-
-info "Running doctor..."
-if "$PYTHON" -m src.cli doctor 2>&1 | tee /dev/stderr | grep -q "✗"; then
-    warn "Some checks failed — see above"
 else
-    ok "All checks passed"
-fi
-
-N=$((N + 1))
-step "Step $N: Check store integrity"
-
-STATS=$("$PYTHON" -m src.cli stats 2>&1)
-echo "$STATS"
-if echo "$STATS" | grep -q '"total": 0'; then
-    warn "Store is empty — re-seed with: $PYTHON -m src.cli seed-demo"
-else
-    TOTAL=$(echo "$STATS" | grep -o '"total": [0-9]*' | grep -o '[0-9]*')
-    ok "Store intact: $TOTAL chunks"
+    warn "Non-JSON output returned — check above for errors"
 fi
 
 echo ""
@@ -124,6 +118,7 @@ echo ""
 echo "Query the brain:"
 echo "    ./scripts/duckbot-ask \"your question\""
 echo ""
-echo "Restart the watcher daemon:"
-echo "    ./scripts/start.sh"
+echo "For agent/machine use (returns JSON):"
+echo "    $PYTHON -m src.cli update --dry-run"
+echo "    $PYTHON -m src.cli update"
 echo ""
