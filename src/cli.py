@@ -22,6 +22,7 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -416,7 +417,21 @@ def cmd_reset(args: argparse.Namespace) -> int:
     async def run():
         store, _ = await _resolve_store_and_embedder()
         return store
-    asyncio.run(run()).reset()
+    store = asyncio.run(run())
+    store.reset()
+    # Also wipe the on-disk data directory.  ChromaDB's reset() only
+    # unregisters collections from its registry but leaves segment files
+    # on disk; those files may carry a stale schema that causes
+    # "metadata segment reader: column 0 mismatched types" errors.
+    # Wiping the directory guarantees a clean slate.
+    try:
+        persist_dir = store._backend.persist_dir
+        if persist_dir.exists():
+            shutil.rmtree(persist_dir)
+            persist_dir.mkdir(parents=True, exist_ok=True)
+            print(f"Wiped and recreated {persist_dir}.")
+    except Exception as e:
+        print(f"Warning: could not wipe persist dir: {e}", file=sys.stderr)
     print("All collections reset.")
     return 0
 

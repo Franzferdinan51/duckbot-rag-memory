@@ -2206,3 +2206,45 @@ def test_brain_inspect_returns_consolidated_view():
     assert sig.parameters["entity"].default is _i.Parameter.empty
     assert "k" in sig.parameters
     assert sig.parameters["k"].default == 10
+
+
+def test_cmd_reset_wipes_persist_dir(tmp_path, monkeypatch):
+    """cmd_reset must wipe the on-disk data/chroma/ directory, not just
+    unregister collections from the ChromaDB registry.  Without this,
+    stale segment files remain on disk carrying a mismatched schema that
+    causes 'metadata segment reader: column 0 mismatched types' on the
+    next ingest."""
+    import shutil
+    from src import cli
+
+    fake_chroma_dir = tmp_path / "fake_chroma"
+    fake_chroma_dir.mkdir()
+    # Drop a fake segment file to prove it gets removed.
+    (fake_chroma_dir / "segment_artifact").write_text("stale")
+
+    class FakeStore:
+        def reset(self):
+            pass  # collections already gone; real wipe is below
+
+    class FakeBackend:
+        @property
+        def persist_dir(self):
+            return fake_chroma_dir
+
+    class FakeStore2(FakeStore):
+        pass
+
+    async def fake_resolve():
+        store = FakeStore2()
+        store._backend = FakeBackend()
+        return store, None
+
+    monkeypatch.setattr(cli, "_resolve_store_and_embedder", fake_resolve)
+
+    rc = cli.cmd_reset(argparse.Namespace(yes=True))
+    assert rc == 0
+    # Directory was wiped and recreated empty.
+    assert fake_chroma_dir.exists()
+    assert list(fake_chroma_dir.iterdir()) == []
+    # The stale artifact is gone.
+    assert not (fake_chroma_dir / "segment_artifact").exists()
