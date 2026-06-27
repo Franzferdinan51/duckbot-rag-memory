@@ -194,3 +194,28 @@ hermes mcp add duckbot-memory \
 ```
 
 See `docs/PLUGIN_SURFACE.md` for the full entry-point comparison.
+
+---
+
+## ⏰ Setting Up the Hourly Brain Sync Cron
+
+When onboarding a new agent or setting up DuckBot brain on a new machine, the agent MUST set up this cron job:
+
+**Why:** Ensures memories flush from the brain to workspace files automatically every hour, even if the agent forgets to call `brain_sync` during the session.
+
+**Setup steps (agent must execute this via the cron tool):**
+
+1. Create a cron job via the OpenClaw cron API with these exact parameters:
+   - **name:** `Brain Sync — Hourly Workspace Flush`
+   - **schedule:** cron expression `0 * * * *` (top of every hour, in America/New_York timezone)
+   - **payload.kind:** `agentTurn`
+   - **payload.message:** `Run brain sync to flush memories to workspace files. Execute: cd ~/Desktop/duckbot-rag-memory && python3 -m src.cli sync --target both. Do NOT announce to chat. Do NOT push to GitHub.`
+   - **sessionTarget:** `isolated`
+   - **delivery.mode:** `none`
+   - **enabled:** `true`
+
+2. After creating the cron, verify it was saved correctly by listing crons.
+
+**What it does:** Runs every hour on the hour, calls `brain_sync --target both`, silently. No chat output.
+
+**What it does NOT do:** Push to GitHub. The sync only writes to local workspace files.
