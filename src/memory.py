@@ -239,6 +239,7 @@ class Memory:
         source_path: str = "<remember>",
         metadata: dict | None = None,
         force_tier: Tier | None = None,
+        facts: list[str] | None = None,
     ) -> RememberResult:
         """Store a single memory. Auto-chunks long text, classifies tier,
         extracts entities + relationships, embeds, and stores.
@@ -249,6 +250,12 @@ class Memory:
             provenance. Use the file path for files, "<remember>" for ad-hoc.
           metadata: arbitrary dict; stored alongside the chunk.
           force_tier: override auto-classification. Use sparingly.
+          facts: optional pre-extracted durable facts the agent already pulled
+            out of `text`. When provided, each fact is stored as its own
+            semantic-tier chunk with metadata.kind="agent_fact" — keeping
+            fact extraction in the agent's hands (OpenClaw / Hermes / your
+            LLM) rather than forcing the brain to load a separate model.
+            The brain itself uses regex heuristics for fully-autonomous mode.
 
         Returns:
           RememberResult with chunk_id, tier, importance, etc.
@@ -424,6 +431,28 @@ class Memory:
             except Exception:
                 pass
 
+        # Agent-provided facts: each gets its own semantic-tier chunk so
+        # reflect() can promote them without re-extracting. We do NOT load a
+        # chat model ourselves — extraction stays in the agent's hands.
+        if facts:
+            for fact_text in facts:
+                fact_text = (fact_text or "").strip()
+                if not fact_text or len(fact_text) < 5:
+                    continue
+                try:
+                    await self.remember(
+                        fact_text,
+                        source_path=source_path,
+                        force_tier=Tier.SEMANTIC,
+                        metadata={
+                            "kind": "agent_fact",
+                            "source_chunk_id": results[0].chunk_id,
+                            "agent_extracted": True,
+                        },
+                    )
+                except Exception as exc:
+                    logger.warning("agent fact store failed: %s", exc)
+
         return results[0]  # primary result; ignore the rest for v0.1
 
     async def _bump_related(
@@ -540,12 +569,26 @@ class Memory:
     # -------------------------------------------------------------------------
     # reflect() — sleep-time consolidation
     # -------------------------------------------------------------------------
-    async def reflect(self, lookback_days: int = 7, max_chunks: int = 200) -> dict:
-        """Pull recent episodic chunks, extract facts, dedupe, and (if LLM
-        available) promote to semantic tier. This is the 'dream' pass.
+    async def reflect(
+        self,
+        lookback_days: int = 7,
+        max_chunks: int = 200,
+        *,
+        extract_callback=None,
+    ) -> dict:
+        """Pull recent episodic chunks, extract facts, dedupe, and promote
+        them to semantic tier. This is the 'dream' pass.
 
-        For v0.1 we use regex-based extraction (cheap, runs locally). A future
-        version can call a local LM Studio chat model for higher-quality extraction.
+        Fact extraction stays in the agent's hands:
+          - If `extract_callback` is provided, the brain calls it for each
+            chunk: callback(chunk_text, chunk_id, source_path) -> list[str]
+            The strings are stored as semantic-tier chunks.
+          - Otherwise the brain uses lightweight regex heuristics
+            (no model load).
+
+        Pass `extract_callback=lambda text, cid, sp: [...]` from the
+        agent (OpenClaw / Hermes) to plug in your own extractor without
+        forcing the brain to load a chat model.
         """
         store, embedder = await self._ensure_initialized()
         episodic = store.collection_for(Tier.EPISODIC)
@@ -587,9 +630,16 @@ class Memory:
 
         all_facts = []
         for i, cid in enumerate(ids):
+            src_path = (metadatas[i] or {}).get("source_path", "<unknown>")
+            agent_facts: list[str] | None = None
+            if extract_callback is not None:
+                try:
+                    agent_facts = extract_callback(docs[i], cid, src_path)
+                except Exception as exc:
+                    logger.warning("extract_callback failed for %s: %s", cid, exc)
+                    agent_facts = None
             facts = extract_facts_from_chunk(
-                docs[i], cid,
-                (metadatas[i] or {}).get("source_path", "<unknown>"),
+                docs[i], cid, src_path, agent_facts=agent_facts,
             )
             all_facts.extend(facts)
 

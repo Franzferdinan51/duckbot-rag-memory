@@ -247,8 +247,8 @@ It auto-discovers from `~/.openclaw/workspace/skills/`.
 | `LMSTUDIO_URL` | `http://127.0.0.1:1234/v1` | LM Studio base URL. |
 | `LMSTUDIO_MODEL` | `text-embedding-embeddinggemma-300m` | Embedding model to load in LM Studio. |
 | `LMSTUDIO_RERANK_MODEL` | `qwen3-reranker-0.6b` | Reranker model to load when `DUCKBOT_RERANK=1`. |
-| `DUCKBOT_CHAT_MODEL` | unset | Chat model for fact extraction in `reflect()`. **LLM is the default** extraction engine — set this to the host agent's already-loaded chat model so semantic promotion matches the agent's perspective. Unset → automatic regex fallback. |
-| `DUCKBOT_REGEX_ONLY` | unset | Force regex-only fact extraction in `reflect()`. Use for offline / air-gapped / CI runs where you don't want the LLM call. (Legacy alias: `DUCKBOT_NO_LLM_EXTRACTION=1`.) |
+| `DUCKBOT_CHAT_MODEL` | unset | Optional. Chat model used by the lower-level `extract_facts_via_llm()` helper if you explicitly call it. The brain itself never auto-loads a chat model — fact extraction is the agent's job (use `brain_remember(facts=[...])`). |
+| `DUCKBOT_REGEX_ONLY` | unset | Force regex-only fact extraction in `reflect()`. Use for offline / air-gapped / CI runs. (Legacy alias: `DUCKBOT_NO_LLM_EXTRACTION=1`.) The brain never auto-loads a chat model regardless of this setting. |
 | `LMSTUDIO_API_KEY` | `lm-studio` | Bearer token. LM Studio's recent builds require it. |
 | `OPENCLAW_WORKSPACE` | `~/.openclaw/workspace` | Watch this dir + auto-ingest new files. |
 | `OPENCLAW_MEMORY` | `<workspace>/memory` | Specifically watch this subdir. |

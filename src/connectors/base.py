@@ -209,10 +209,16 @@ class Brain:
         metadata: Optional[dict] = None,
         force_tier: Optional[str] = None,
         skip_scan: bool = False,
+        facts: Optional[list[str]] = None,
     ) -> RememberResult:
         """
         Save a memory. Runs the injection scan first unless skip_scan=True.
         If quarantined, returns RememberResult(quarantined=True) and does NOT store.
+
+        `facts` is an optional list of pre-extracted durable facts (strings)
+        the host agent already pulled out of `text`. The brain stores each
+        as its own semantic-tier chunk with metadata.kind="agent_fact" — no
+        extra model load. The agent owns extraction; the brain owns storage.
         """
         from src.tier import Tier
 
@@ -241,6 +247,7 @@ class Brain:
                 source_path=source_path,
                 metadata=metadata,
                 force_tier=ft,
+                facts=facts,
             )
             return RememberResult(
                 chunk_id=r.chunk_id,

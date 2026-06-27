@@ -149,7 +149,7 @@ DuckBot does **not** ship model weights. If you want the default local LM Studio
 
 - Required embeddings model: `text-embedding-embeddinggemma-300m`
 - Required reranker model: `qwen3-reranker-0.6b`
-- **Recommended:** point `DUCKBOT_CHAT_MODEL` at your agent's existing chat model. LLM is the **default** fact-extraction engine in `reflect()` — tied to the agent so the semantic promotion matches the agent's perspective. Regex heuristics are the fallback when the LLM is unavailable or `DUCKBOT_REGEX_ONLY=1` is set. DuckBot itself does not load or own a separate model.
+- **Fact extraction is the agent's job.** When your agent (OpenClaw/Hermes/your LLM) extracts facts from a memory, pass them via `brain_remember(facts=[...])` or `reflect(extract_callback=...)` and they're stored as semantic-tier chunks. The brain never loads a chat model for consolidation — only the embedding + reranker run. `reflect()` uses lightweight regex heuristics when no agent facts are provided.
 
 OpenClaw and Hermes are the agent runtimes that call into this repo. This repo is the memory layer they use; it does not provide its own chat model.
 
@@ -161,13 +161,13 @@ LMSTUDIO_URL=http://127.0.0.1:1234/v1
 LMSTUDIO_KEY=<your LM Studio key>
 LMSTUDIO_MODEL=text-embedding-embeddinggemma-300m
 LMSTUDIO_RERANK_MODEL=qwen3-reranker-0.6b
-# Recommended: tie fact extraction to the agent's existing chat model.
-# LLM is the default extraction engine; regex is the fallback when
-# DUCKBOT_CHAT_MODEL is unset or the LLM call fails.
-DUCKBOT_CHAT_MODEL=<your agent's existing chat model>
+# Optional only if you call the lower-level `extract_facts_via_llm()`
+# helper yourself in an external job. The brain does not auto-load a
+# consolidation model.
+# DUCKBOT_CHAT_MODEL=<your agent's existing chat model>
 DUCKBOT_RERANK=1
-# Optional: force regex-only reflect() (offline / air-gapped / CI).
-# DUCKBOT_REGEX_ONLY=1
+# No special flag needed for regex-only reflect(); it is the default
+# when no agent facts are supplied.
 ```
 
 Other supported providers:
@@ -183,14 +183,15 @@ OPENAI_API_KEY=...
 
 # Offline local model (embeddings via sentence-transformers; no LM Studio needed for embeddings)
 DUCKBOT_EMBEDDING=local
-# LLM extraction is the default — point at the host agent's existing
-# chat model when one is loaded. Unset → automatic regex fallback.
+# If you explicitly call `extract_facts_via_llm()` elsewhere, point that
+# helper at the host agent's existing chat model. The brain itself does
+# not auto-load one.
 # DUCKBOT_CHAT_MODEL=<your agent's existing chat model>
 ```
 
 If `DUCKBOT_EMBEDDING` is unset, the code auto-detects from available credentials and local services. Keep real keys only in `.env`; it is gitignored and protected by the secret-scan scripts.
 
-If you do not install the reranker model, rerank stays available as a no-op fallback. Fact extraction in `reflect()` is **LLM-first** (tied to the agent's existing chat model via `DUCKBOT_CHAT_MODEL`), with regex heuristics as the automatic fallback when the LLM is unavailable, fails, or `DUCKBOT_REGEX_ONLY=1` is set.
+If you do not install the reranker model, rerank stays available as a no-op fallback. Fact extraction is **agent-driven** — the agent extracts facts and passes them to `brain_remember(facts=[...])` or `reflect(extract_callback=...)`. `reflect()` uses lightweight regex heuristics when no agent facts are supplied and never auto-loads a chat model.
 
 ## Watcher
 

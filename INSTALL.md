@@ -19,7 +19,7 @@ server; the agent invokes it as tools.
 - pip
 - ~2 GB disk for the venv + ChromaDB index
 - For the default local path: LM Studio with `text-embedding-embeddinggemma-300m` and `qwen3-reranker-0.6b` downloaded
-- **LLM fact extraction is the default** in `reflect()`. Point `DUCKBOT_CHAT_MODEL` at the same chat model your host agent already loads — DuckBot does not ship or launch a separate consolidation model. Without it, `reflect()` automatically falls back to regex heuristics.
+- **Fact extraction is the agent's job.** When your agent extracts facts from a memory, pass them via `brain_remember(facts=[...])` and they're stored as semantic-tier chunks (metadata.kind='agent_fact'). The brain never loads a chat model — only the embedding + reranker run. `reflect()` uses lightweight regex heuristics for fully-autonomous mode.
 - For alternate embeddings: LM Studio (recommended), OR MiniMax / OpenAI API key, OR `pip install sentence-transformers` for local
 
 No GPU required. No system packages beyond what Python itself needs.

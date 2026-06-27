@@ -96,7 +96,7 @@ TOOLS = [
     },
     {
         "name": "brain_remember",
-        "description": "Persist text to the brain. By default NON-BLOCKING (returns status=queued, ingest runs on a daemon thread). Rate-limited (10/min). Pass kind='skill_candidate' to stamp a lightweight skill candidate (agent-driven pipeline, no LLM, stored in procedural tier with metadata.kind='skill_candidate'). Returns chunk_id, tier, importance.",
+        "description": "Persist text to the brain. By default NON-BLOCKING (returns status=queued, ingest runs on a daemon thread). Rate-limited (10/min). Pass kind='skill_candidate' to stamp a lightweight skill candidate (agent-driven pipeline, no LLM, stored in procedural tier with metadata.kind='skill_candidate'). Pass facts=[...] with pre-extracted durable facts the agent already pulled out — the brain stores each as its own semantic-tier chunk (metadata.kind='agent_fact') so reflect() doesn't have to re-extract. Returns chunk_id, tier, importance.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -108,6 +108,7 @@ TOOLS = [
                 "summary": {"type": "string", "description": "short label for skill candidates"},
                 "importance": {"type": "number", "default": 0.6, "description": "0..1 ranking score for skill candidates"},
                 "trust_level": {"type": "string", "enum": ["full", "standard"], "default": "full", "description": "trust_level='full' (default) skips the injection scan. 'standard' runs the scan and quarantines suspicious content."},
+                "facts": {"type": "array", "items": {"type": "string"}, "description": "optional list of pre-extracted durable facts the agent already pulled out of `text`. Each fact is stored as its own semantic-tier chunk with metadata.kind='agent_fact' — keeps fact extraction in the agent's hands (no extra model load by the brain)."},
             },
             "required": ["text"],
         },
@@ -591,6 +592,15 @@ async def handle_remember(args: dict) -> dict:
     if not text.strip():
         return {"error": "text must be a non-empty string"}
 
+    # Agent-provided pre-extracted facts. Optional — when the calling
+    # agent (OpenClaw / Hermes) has its own LLM, it extracts facts and
+    # passes them here, so the brain never has to load a chat model.
+    facts = args.get("facts")
+    if facts is not None and not isinstance(facts, list):
+        return {"error": "facts must be a list of strings"}
+    if facts:
+        facts = [f for f in facts if isinstance(f, str) and f.strip()]
+
     # Agent-driven skill pipeline: stamp a candidate (no LLM).
     if args.get("kind") == "skill_candidate":
         from src.skill_pipeline import stamp_skill_candidate
@@ -621,6 +631,7 @@ async def handle_remember(args: dict) -> dict:
         source_path=args.get("source_path", "<remember>"),
         metadata=args.get("metadata"),
         force_tier=force,
+        facts=facts or None,
     )
     return {
         "chunk_id": r.chunk_id,

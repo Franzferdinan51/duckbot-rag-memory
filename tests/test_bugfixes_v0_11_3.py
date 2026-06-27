@@ -1765,41 +1765,45 @@ def test_bootstrap_scripts_exist_and_exec():
         assert "src.cli" in content, f"{name} doesn't call src.cli — won't work"
 
 
-def test_consolidate_extraction_uses_llm_when_available(monkeypatch):
-    """extract_facts_from_chunk must use the LLM as the PRIMARY extractor
-    when a host model is configured. Regex is the fallback only — it runs
-    only when the LLM is unavailable or returns no facts."""
+def test_consolidate_extraction_uses_agent_facts_when_provided(monkeypatch):
+    """extract_facts_from_chunk must accept pre-extracted facts from the
+    calling agent. This is the preferred path — keeps fact extraction in
+    the agent's hands and avoids the brain loading a chat model."""
     from src import consolidate
     from src import llm_client
     monkeypatch.setenv("DUCKBOT_CHAT_MODEL", "host-agent-chat-model")
     monkeypatch.delenv("DUCKBOT_REGEX_ONLY", raising=False)
     monkeypatch.delenv("DUCKBOT_NO_LLM_EXTRACTION", raising=False)
-    # Mock chat_completion to return a small mem0-style response.
+    # Mock chat_completion to verify it is NOT called when agent_facts are present.
     def fake_chat(messages, **_kw):
-        return "[user-said] Duckets prefers dark mode.\n[decision] Use ChromaDB."
+        raise AssertionError("chat_completion should not have been called when agent_facts are provided")
     monkeypatch.setattr(llm_client, "chat_completion", fake_chat)
-    chunk = ("Long chunk text that is definitely long enough to trigger "
-             "the LLM path. " * 30)  # > 200 chars
-    facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")
-    # The LLM-extracted facts should be present.
+    agent_facts = [
+        "Duckets prefers dark mode across all UIs.",
+        "Use ChromaDB as the local vector store.",
+    ]
+    chunk = ("Long chunk text that is definitely long enough. " * 30)
+    facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md", agent_facts=agent_facts)
     texts = {f.text for f in facts}
-    assert "Duckets prefers dark mode." in texts
-    assert "Use ChromaDB." in texts
-    # And the LLM-derived facts should have the right kinds.
-    kinds = {f.text: f.kind for f in facts}
-    assert kinds.get("Duckets prefers dark mode.") == "user-said"
-    assert kinds.get("Use ChromaDB.") == "decision"
+    assert "Duckets prefers dark mode across all UIs." in texts
+    assert "Use ChromaDB as the local vector store." in texts
+    # Agent-extracted facts get confidence 0.85 and kind="fact"
+    for f in facts:
+        if f.text in agent_facts:
+            assert f.confidence == 0.85
+            assert f.kind == "fact"
 
 
-def test_consolidate_extraction_falls_back_to_regex_without_model(monkeypatch):
-    """No DUCKBOT_CHAT_MODEL configured → fall back to regex silently."""
+def test_consolidate_extraction_falls_back_to_regex_without_agent_facts(monkeypatch):
+    """No agent_facts and no DUCKBOT_CHAT_MODEL → regex fallback silently.
+    Even with DUCKBOT_CHAT_MODEL set, the brain does NOT auto-load it."""
     from src import consolidate
     from src import llm_client
     monkeypatch.delenv("DUCKBOT_CHAT_MODEL", raising=False)
     monkeypatch.delenv("DUCKBOT_REGEX_ONLY", raising=False)
     monkeypatch.delenv("DUCKBOT_NO_LLM_EXTRACTION", raising=False)
     def fake_chat(messages, **_kw):
-        raise AssertionError("chat_completion should not have been called when no model configured")
+        raise AssertionError("chat_completion should not have been called")
     monkeypatch.setattr(llm_client, "chat_completion", fake_chat)
     chunk = "Duckets said he prefers dark mode. " * 20
     facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")
@@ -1807,72 +1811,95 @@ def test_consolidate_extraction_falls_back_to_regex_without_model(monkeypatch):
     assert any(f.kind == "user-said" for f in facts)
 
 
-def test_consolidate_extraction_skips_llm_with_regex_only_flag(monkeypatch):
-    """DUCKBOT_REGEX_ONLY=1 forces regex-only path (offline / air-gapped)."""
-    from src import consolidate
-    from src import llm_client
-    monkeypatch.setenv("DUCKBOT_REGEX_ONLY", "1")
-    monkeypatch.setenv("DUCKBOT_CHAT_MODEL", "host-agent-chat-model")
-    def fake_chat(messages, **_kw):
-        raise AssertionError("chat_completion should not have been called with DUCKBOT_REGEX_ONLY=1")
-    monkeypatch.setattr(llm_client, "chat_completion", fake_chat)
-    chunk = "x " * 500
-    facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")
-    assert facts == [], "regex found no patterns in 'x ' * 500 (expected)"
-
-    # Also accept the legacy opt-out name
-    monkeypatch.delenv("DUCKBOT_REGEX_ONLY", raising=False)
-    monkeypatch.setenv("DUCKBOT_NO_LLM_EXTRACTION", "1")
-    chunk = "Duckets said use cloud-only. " * 30
-    facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")
-    assert any(f.kind == "user-said" for f in facts), \
-        "DUCKBOT_NO_LLM_EXTRACTION legacy opt-out should still regex-extract"
-
-
-def test_consolidate_extraction_falls_back_on_llm_failure(monkeypatch):
-    """When LM Studio is unreachable, chat_completion returns None and
-    extract_facts_from_chunk must fall back to regex — never crash, never
-    return empty if regex finds anything."""
+def test_consolidate_extraction_does_not_auto_load_chat_model(monkeypatch):
+    """The brain never auto-loads a chat model for extraction, even when
+    DUCKBOT_CHAT_MODEL is set in the environment. Extraction stays in the
+    agent's hands (via brain_remember(facts=[...]) or extract_callback)."""
     from src import consolidate
     from src import llm_client
     monkeypatch.setenv("DUCKBOT_CHAT_MODEL", "host-agent-chat-model")
     monkeypatch.delenv("DUCKBOT_REGEX_ONLY", raising=False)
     monkeypatch.delenv("DUCKBOT_NO_LLM_EXTRACTION", raising=False)
-    def fake_chat_none(messages, **_kw):
-        return None  # LM Studio unreachable
-    monkeypatch.setattr(llm_client, "chat_completion", fake_chat_none)
-    chunk = "Duckets said he prefers dark mode. " * 20
+    called = []
+    def fake_chat(messages, **_kw):
+        called.append(messages)
+        return "[user-said] Duckets prefers dark mode."
+    monkeypatch.setattr(llm_client, "chat_completion", fake_chat)
+    # Without agent_facts, the brain should NOT call the LLM at all.
+    chunk = "Duckets said he prefers dark mode. " * 30
     facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")
-    # Regex still catches the user-said fact as the fallback.
+    assert called == [], f"brain auto-loaded the chat model: {called}"
+    # Regex still works as the fallback.
     assert any(f.kind == "user-said" for f in facts)
 
 
-def test_consolidate_extraction_prefers_llm_over_regex_for_same_fact(monkeypatch):
-    """When both LLM and regex could produce a fact, LLM wins (higher confidence)."""
+def test_consolidate_extraction_legacy_flags_accepted(monkeypatch):
+    """DUCKBOT_REGEX_ONLY=1 and DUCKBOT_NO_LLM_EXTRACTION=1 still parse
+    (back-compat) — they're no-ops now since the brain never auto-loads."""
     from src import consolidate
     from src import llm_client
-    monkeypatch.setenv("DUCKBOT_CHAT_MODEL", "host-agent-chat-model")
-    monkeypatch.delenv("DUCKBOT_REGEX_ONLY", raising=False)
+    monkeypatch.delenv("DUCKBOT_CHAT_MODEL", raising=False)
+    monkeypatch.setenv("DUCKBOT_REGEX_ONLY", "1")
     def fake_chat(messages, **_kw):
-        return "[user-said] Duckets prefers dark mode across all UIs."
+        raise AssertionError("chat_completion should not have been called")
     monkeypatch.setattr(llm_client, "chat_completion", fake_chat)
-    chunk = ("Duckets said he prefers dark mode across all UIs. " * 20)
+    chunk = "Duckets said use cloud-only. " * 30
     facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")
-    # Should only have the LLM-derived fact, no regex duplicate
-    user_said_facts = [f for f in facts if f.kind == "user-said"]
-    assert len(user_said_facts) == 1
-    assert user_said_facts[0].confidence == 0.85  # LLM confidence, not regex 0.6
+    assert any(f.kind == "user-said" for f in facts), \
+        "DUCKBOT_REGEX_ONLY legacy opt-out should still regex-extract"
 
 
-def test_consolidate_extraction_short_chunk_uses_regex(monkeypatch):
-    """Chunks shorter than MIN_CHUNK_FOR_LLM use regex even when LLM is configured."""
+def test_consolidate_extraction_skips_empty_or_short_agent_facts(monkeypatch):
+    """Agent-provided facts that are empty, too short, or too long are
+    silently dropped. Duplicates are also deduped."""
+    from src import consolidate
+    agent_facts = [
+        "",                                    # empty
+        "   ",                                 # whitespace
+        "hi",                                  # too short (< 5 chars)
+        "valid fact text",                     # ok
+        "valid fact text",                     # duplicate of above
+        "x" * 500,                             # too long (> 300 chars) — dropped
+    ]
+    facts = consolidate.extract_facts_from_chunk(
+        "any text here", "c1", "/x.md", agent_facts=agent_facts,
+    )
+    assert len(facts) == 1
+    assert facts[0].text == "valid fact text"
+
+
+def test_consolidate_extraction_agent_facts_empty_falls_back(monkeypatch):
+    """When agent_facts yields no usable facts, fall back to regex."""
+    from src import consolidate
+    facts = consolidate.extract_facts_from_chunk(
+        "Duckets said use cloud-only.",
+        "c1", "/x.md",
+        agent_facts=["", "   "],
+    )
+    assert any(f.kind == "user-said" for f in facts)
+
+
+def test_consolidate_extraction_no_chat_model_call(monkeypatch):
+    """Without agent_facts and without DUCKBOT_CHAT_MODEL, the brain uses
+    regex only. The chat model is never invoked for fact extraction."""
     from src import consolidate
     from src import llm_client
-    monkeypatch.setenv("DUCKBOT_CHAT_MODEL", "host-agent-chat-model")
+    called = []
     def fake_chat(messages, **_kw):
-        raise AssertionError("chat_completion should not have been called for short chunk")
+        called.append(messages)
+        return "[user-said] Duckets prefers dark mode."
     monkeypatch.setattr(llm_client, "chat_completion", fake_chat)
-    chunk = "Duckets said use cloud-only models."  # < 200 chars
+    monkeypatch.delenv("DUCKBOT_CHAT_MODEL", raising=False)
+    chunk = "Duckets said he prefers dark mode. " * 30
+    facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")
+    assert called == []
+    assert any(f.kind == "user-said" for f in facts)
+
+
+def test_consolidate_extraction_no_agent_facts_uses_regex(monkeypatch):
+    """Short chunks use regex. Same for chunks where the agent didn't pass facts."""
+    from src import consolidate
+    chunk = "Duckets said use cloud-only models."
     facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")
     assert any(f.kind == "user-said" for f in facts)
 

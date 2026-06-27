@@ -745,11 +745,18 @@ def handle(tool_name: str, args: dict) -> dict:
             # validation + skill_candidate support; this is a back-compat alias.)
             if not args.get("text") or not str(args["text"]).strip():
                 return {"error": "text must be a non-empty string", "tool": tool_name}
+            # Forward agent-provided facts (OpenClaw agent does the extraction).
+            facts = args.get("facts")
+            if facts is not None and not isinstance(facts, list):
+                return {"error": "facts must be a list of strings", "tool": tool_name}
+            if facts:
+                facts = [f for f in facts if isinstance(f, str) and f.strip()]
             r = brain.remember(
                 text=args["text"],
                 source_path=args.get("source_path", "<openclaw>"),
                 force_tier=args.get("force_tier"),
                 skip_scan=args.get("skip_scan", False),
+                facts=facts or None,
             )
             return _serialize(r)
         if tool_name == "brain_recall_verbatim":

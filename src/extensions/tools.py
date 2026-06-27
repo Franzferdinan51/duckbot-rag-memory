@@ -146,6 +146,11 @@ TOOLS: list[dict] = [
                     "default": "full",
                     "description": "trust_level='full' (default) skips the injection scan since candidates are agent-authored. 'standard' runs the scan and quarantines suspicious content (use if the agent is processing untrusted input).",
                 },
+                "facts": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "optional list of pre-extracted durable facts the agent already pulled out of `text`. Each is stored as a semantic-tier chunk (metadata.kind='agent_fact') — keeps extraction in the agent's hands (no extra model load by the brain).",
+                },
             },
             "required": ["text"],
         },
@@ -352,7 +357,7 @@ def _serialize_stats(s) -> dict:
     }
 
 
-def _do_remember_background(brain: Brain, text: str, source: str) -> None:
+def _do_remember_background(brain: Brain, text: str, source: str, facts: Optional[list[str]] = None) -> None:
     """Fire-and-forget remember() — runs on a daemon thread so the
     MCP/JSON-RPC caller doesn't block on embedding + ingest.
 
@@ -362,7 +367,7 @@ def _do_remember_background(brain: Brain, text: str, source: str) -> None:
     "a coroutine was expected" (caught here, but the remember was
     silently dropped)."""
     try:
-        brain.remember(text=text, source_path=source)
+        brain.remember(text=text, source_path=source, facts=facts or None)
     except Exception as e:  # noqa: BLE001
         logger.warning("background remember failed: %s", e)
 
@@ -457,6 +462,14 @@ def dispatch(name: str, args: dict) -> dict:
             if not text or not text.strip():
                 return {"error": "text must be a non-empty string"}
 
+            # Agent-provided pre-extracted facts. Validate shape once here
+            # so the background thread doesn't have to.
+            facts = args.get("facts")
+            if facts is not None and not isinstance(facts, list):
+                return {"error": "facts must be a list of strings"}
+            if facts:
+                facts = [f for f in facts if isinstance(f, str) and f.strip()]
+
             if kind == "skill_candidate":
                 # Agent-driven pipeline: stamp a candidate (blocking, no LLM).
                 # Returns chunk_id so the agent can promote it later.
@@ -484,7 +497,7 @@ def dispatch(name: str, args: dict) -> dict:
             # doesn't block on embed + ingest.
             t = threading.Thread(
                 target=_do_remember_background,
-                args=(brain, text, source),
+                args=(brain, text, source, facts),
                 daemon=True,
                 name="duckbot-brain-remember",
             )

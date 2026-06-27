@@ -4,13 +4,15 @@ consolidate.py — episodic → semantic distillation.
 The "dream" pass. Periodically (cron-driven) we:
   1. Pull recent episodic chunks (last 7 days by default)
   2. Group by topic via embeddings clustering (simple: cosine threshold)
-  3. For each cluster, ask LLM to extract durable facts
+3. For each cluster, accept agent-extracted facts when provided, then
+   fall back to lightweight regex extraction
   4. Add extracted facts to the SEMANTIC tier
   5. Optionally mark old episodic chunks as superseded
 
-Pattern from Letta's archival consolidation + mem0's extraction-first approach.
-For v0.1 we skip LLM extraction and use simple heuristic fact extraction
-(regex patterns for "Duckets said X", "decided X", etc.).
+Pattern from Letta's archival consolidation + mem0's extraction-first
+approach, but the brain stays lightweight: it never auto-loads a chat
+model during reflect(). Agent-supplied facts are preferred; regex
+patterns for "Duckets said X", "decided X", etc. are the fallback.
 """
 
 from __future__ import annotations
@@ -88,51 +90,60 @@ def extract_facts_from_chunk(
     chunk_text: str,
     chunk_id: str,
     source_path: str,
+    *,
+    agent_facts: Optional[list[str]] = None,
 ) -> list[ExtractedFact]:
-    """Extract durable facts from a chunk. LLM-first, regex-fallback.
+    """Extract durable facts from a chunk.
 
-    The agent's chat model is the default extraction engine (mem0-style
-    prompts) — it ties fact extraction to the agent that's actually using
-    the memory, so the facts come from the same perspective. Regex heuristics
-    are the fallback path for when the LLM is unreachable or air-gapped.
+    **Fact extraction is the agent's job, not the brain's.**
 
     Resolution order:
-      1. DUCKBOT_REGEX_ONLY=1 (or legacy DUCKBOT_NO_LLM_EXTRACTION=1)
-         → regex-only. Useful for offline / air-gapped / CI / cheap CI runs.
-      2. DUCKBOT_CHAT_MODEL is set AND chunk ≥ MIN_CHUNK_FOR_LLM chars
-         → try the LLM first; on success return those facts.
-      3. LLM unavailable / returns no facts / chunk too short
-         → regex fallback (returns [] only if regex also finds nothing).
-      4. No DUCKBOT_CHAT_MODEL at all → regex fallback.
+      1. `agent_facts` argument — pre-extracted facts the calling agent
+         (OpenClaw / Hermes) already pulled out using its own LLM. This
+         is the **preferred path** because it keeps the brain out of the
+         LLM-loading business entirely. Pass them via `brain_remember(
+         facts=[...])` or via `extract_facts_from_chunk(..., agent_facts=[...])`.
+      2. Regex heuristics — lightweight, no model load. Catches obvious
+         phrasing like "Duckets said X" / "Always do Y". Misses implied
+         facts but costs zero VRAM.
 
-    Why LLM-first: regex catches obvious phrasing ("Duckets said X") but
-    misses implied facts ("we'll switch to Postgres next quarter" — no
-    decision keyword, but a durable plan). The LLM prompt handles these
-    because it's been trained on memory-extraction patterns; regex can't
-    generalize the way the model can.
+    The brain NEVER auto-loads a chat model for fact extraction. If you
+    want LLM-based extraction, the agent should pass the facts via
+    `agent_facts=` (or `brain_remember(facts=[...])`). This avoids running
+    a 4-9B chat model alongside the embedding + reranker models just for
+    consolidation.
+
+    `DUCKBOT_REGEX_ONLY=1` and `DUCKBOT_NO_LLM_EXTRACTION=1` (legacy)
+    are accepted for back-compat but no longer change behavior — we
+    don't load chat models regardless.
+
+    The lower-level `extract_facts_via_llm()` is still exported for
+    callers that DO want to drive an LLM explicitly (e.g. an offline
+    batch job that already has the chat model loaded for other reasons).
     """
-    # Opt-out: regex-only mode for offline / air-gapped / CI
-    if (
-        os.environ.get("DUCKBOT_REGEX_ONLY", "").lower() in ("1", "true", "yes")
-        or os.environ.get("DUCKBOT_NO_LLM_EXTRACTION", "").lower() in ("1", "true", "yes")
-    ):
-        return _extract_via_regex(chunk_text, chunk_id, source_path)
+    seen_text: set[str] = set()
+    facts: list[ExtractedFact] = []
 
-    # No chat model configured → no LLM path → regex fallback
-    if not os.environ.get("DUCKBOT_CHAT_MODEL", "").strip():
-        return _extract_via_regex(chunk_text, chunk_id, source_path)
+    # Preferred: agent already extracted the facts
+    if agent_facts:
+        for text in agent_facts:
+            text = (text or "").strip()
+            if not text or len(text) < 5 or len(text) > 300:
+                continue
+            if text in seen_text:
+                continue
+            seen_text.add(text)
+            facts.append(ExtractedFact(
+                text=text,
+                kind="fact",  # generic — agent didn't classify
+                source_chunk_id=chunk_id,
+                source_path=source_path,
+                confidence=0.85,  # agent-extracted is high-confidence
+            ))
+        if facts:
+            return facts
 
-    # Chunks below the threshold don't benefit from LLM extraction —
-    # regex is cheap and fast enough for these.
-    if len(chunk_text) < _MIN_CHUNK_FOR_LLM:
-        return _extract_via_regex(chunk_text, chunk_id, source_path)
-
-    # Try LLM extraction first
-    llm_facts = extract_facts_via_llm(chunk_text, chunk_id, source_path)
-    if llm_facts:
-        return llm_facts
-
-    # LLM failed / unreachable / returned no facts → regex fallback
+    # Fallback: lightweight regex
     return _extract_via_regex(chunk_text, chunk_id, source_path)
 
 
@@ -231,14 +242,25 @@ def extract_facts_via_llm(
     return out
 
 
-def extract_facts_from_chunks(chunks: Iterable[dict]) -> list[ExtractedFact]:
-    """Bulk version. Chunks must have {id, text, metadata.source_path}."""
+def extract_facts_from_chunks(
+    chunks: Iterable[dict],
+    *,
+    agent_facts_map: Optional[dict[str, list[str]]] = None,
+) -> list[ExtractedFact]:
+    """Bulk version. Chunks must have {id, text, metadata.source_path}.
+
+    `agent_facts_map` is an optional {chunk_id: [fact, fact, ...]} dict
+    holding pre-extracted facts per chunk — keeps extraction in the
+    agent's hands (no brain-side LLM load).
+    """
     all_facts: list[ExtractedFact] = []
     for chunk in chunks:
+        cid = chunk["id"]
         facts = extract_facts_from_chunk(
             chunk["text"],
-            chunk["id"],
+            cid,
             chunk.get("metadata", {}).get("source_path", "<unknown>"),
+            agent_facts=(agent_facts_map or {}).get(cid),
         )
         all_facts.extend(facts)
     return all_facts
@@ -252,8 +274,13 @@ def deduplicate_facts(facts: list[ExtractedFact], similarity_threshold: float = 
     "use cua-driver v0.6.2" share ~67% of words but don't dedup (different facts).
     Threshold 0.6 catches "near-duplicates with minor additions".
     """
+    lead_tokens = {"duckets", "user", "he", "she", "they", "we", "i", "the"}
+
     def word_set(s: str) -> set[str]:
-        return set(s.lower().split())
+        words = re.findall(r"[A-Za-z0-9][A-Za-z0-9'_-]*", s.lower())
+        while words and words[0] in lead_tokens:
+            words = words[1:]
+        return set(words)
 
     kept: list[ExtractedFact] = []
     for f in facts:
