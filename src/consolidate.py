@@ -17,7 +17,6 @@ patterns for "Duckets said X", "decided X", etc. are the fallback.
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
@@ -183,18 +182,21 @@ def extract_facts_via_llm(
     *,
     model: Optional[str] = None,
 ) -> list[ExtractedFact]:
-    """Extract durable facts from `chunk_text` via a host-provided chat
-    model (mem0-style prompts). Returns [] if no chat model is configured
-    or the LLM call fails — the caller should fall back to regex extraction.
+    """Extract durable facts from `chunk_text` via a caller-provided chat
+    model (mem0-style prompts).
+
+    This helper is intentionally explicit-only: if `model` is omitted, it
+    returns [] and does not look up any consolidation-model environment
+    variable. That keeps the main brain path free of a second model.
 
     Pattern source: mem0 paper + open-source implementation (Apache 2.0).
     """
+    model_name = (model or "").strip()
+    if not model_name:
+        return []
     try:
         from .llm_client import chat_completion
     except ImportError:
-        return []
-    model_name = (model or os.environ.get("DUCKBOT_CHAT_MODEL") or "").strip()
-    if not model_name:
         return []
     if len(chunk_text) > 8000:
         # Cap to keep inference latency bounded. The regex path handles

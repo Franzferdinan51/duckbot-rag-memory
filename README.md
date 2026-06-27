@@ -21,7 +21,7 @@ DuckBot memory is a focused RAG and long-term memory layer for personal agent wo
 | Memory for the user | None (no user model) | Honcho-style `brain_user_model` block that accumulates over time |
 | Memory for the work | Markdown files agents re-read every session | Wing/Room/Drawer 2D hierarchy (MemPalace-style): project → day → chunk |
 | Forgetting | Linear (oldest message dropped) | FSRS-6 spaced repetition with self-tunable `w20` (per-deployment) |
-| Consolidation | None | `reflect()` + `dreaming_cycle()` promote episodic → semantic |
+| Consolidation | Agent-driven | `reflect()` + `dreaming_cycle()` promote episodic → semantic with agent-supplied facts or regex fallback |
 | Conflict detection | None (new fact overwrites old) | mem0-style: near-duplicates marked `superseded_by` |
 | Discovery | Grep through markdown | AAAK compression dialect scans the whole corpus in <500 tokens |
 | Self-improvement | None | **Agent-driven skill pipeline**: agents stamp candidates with `brain_remember(kind="skill_candidate")` (no LLM) and promote them to agentskills.io SKILL.md themselves; `brain_skills_suggest` finds candidates by semantic query; `brain_optimize_fsrs` self-tunes the forgetting curve |
@@ -161,10 +161,6 @@ LMSTUDIO_URL=http://127.0.0.1:1234/v1
 LMSTUDIO_KEY=<your LM Studio key>
 LMSTUDIO_MODEL=text-embedding-embeddinggemma-300m
 LMSTUDIO_RERANK_MODEL=qwen3-reranker-0.6b
-# Optional only if you call the lower-level `extract_facts_via_llm()`
-# helper yourself in an external job. The brain does not auto-load a
-# consolidation model.
-# DUCKBOT_CHAT_MODEL=<your agent's existing chat model>
 DUCKBOT_RERANK=1
 # No special flag needed for regex-only reflect(); it is the default
 # when no agent facts are supplied.
@@ -183,15 +179,11 @@ OPENAI_API_KEY=...
 
 # Offline local model (embeddings via sentence-transformers; no LM Studio needed for embeddings)
 DUCKBOT_EMBEDDING=local
-# If you explicitly call `extract_facts_via_llm()` elsewhere, point that
-# helper at the host agent's existing chat model. The brain itself does
-# not auto-load one.
-# DUCKBOT_CHAT_MODEL=<your agent's existing chat model>
 ```
 
 If `DUCKBOT_EMBEDDING` is unset, the code auto-detects from available credentials and local services. Keep real keys only in `.env`; it is gitignored and protected by the secret-scan scripts.
 
-If you do not install the reranker model, rerank stays available as a no-op fallback. Fact extraction is **agent-driven** — the agent extracts facts and passes them to `brain_remember(facts=[...])` or `reflect(extract_callback=...)`. `reflect()` uses lightweight regex heuristics when no agent facts are supplied and never auto-loads a chat model.
+If you do not install the reranker model, rerank stays available as a no-op fallback. Fact extraction is **agent-driven** — the agent extracts facts and passes them to `brain_remember(facts=[...])` or `reflect(extract_callback=...)`. `reflect()` uses lightweight regex heuristics when no agent facts are supplied and never auto-loads a chat model. There is no separate consolidation model to download for DuckBot itself.
 
 ## Watcher
 

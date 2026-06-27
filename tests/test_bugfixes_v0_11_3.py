@@ -1773,9 +1773,6 @@ def test_consolidate_extraction_uses_agent_facts_when_provided(monkeypatch):
     the agent's hands and avoids the brain loading a chat model."""
     from src import consolidate
     from src import llm_client
-    monkeypatch.setenv("DUCKBOT_CHAT_MODEL", "host-agent-chat-model")
-    monkeypatch.delenv("DUCKBOT_REGEX_ONLY", raising=False)
-    monkeypatch.delenv("DUCKBOT_NO_LLM_EXTRACTION", raising=False)
     # Mock chat_completion to verify it is NOT called when agent_facts are present.
     def fake_chat(messages, **_kw):
         raise AssertionError("chat_completion should not have been called when agent_facts are provided")
@@ -1797,13 +1794,9 @@ def test_consolidate_extraction_uses_agent_facts_when_provided(monkeypatch):
 
 
 def test_consolidate_extraction_falls_back_to_regex_without_agent_facts(monkeypatch):
-    """No agent_facts and no DUCKBOT_CHAT_MODEL → regex fallback silently.
-    Even with DUCKBOT_CHAT_MODEL set, the brain does NOT auto-load it."""
+    """No agent_facts → regex fallback silently."""
     from src import consolidate
     from src import llm_client
-    monkeypatch.delenv("DUCKBOT_CHAT_MODEL", raising=False)
-    monkeypatch.delenv("DUCKBOT_REGEX_ONLY", raising=False)
-    monkeypatch.delenv("DUCKBOT_NO_LLM_EXTRACTION", raising=False)
     def fake_chat(messages, **_kw):
         raise AssertionError("chat_completion should not have been called")
     monkeypatch.setattr(llm_client, "chat_completion", fake_chat)
@@ -1814,14 +1807,12 @@ def test_consolidate_extraction_falls_back_to_regex_without_agent_facts(monkeypa
 
 
 def test_consolidate_extraction_does_not_auto_load_chat_model(monkeypatch):
-    """The brain never auto-loads a chat model for extraction, even when
-    DUCKBOT_CHAT_MODEL is set in the environment. Extraction stays in the
-    agent's hands (via brain_remember(facts=[...]) or extract_callback)."""
+    """The brain never auto-loads a chat model for extraction.
+
+    Extraction stays in the agent's hands (via brain_remember(facts=[...])
+    or extract_callback)."""
     from src import consolidate
     from src import llm_client
-    monkeypatch.setenv("DUCKBOT_CHAT_MODEL", "host-agent-chat-model")
-    monkeypatch.delenv("DUCKBOT_REGEX_ONLY", raising=False)
-    monkeypatch.delenv("DUCKBOT_NO_LLM_EXTRACTION", raising=False)
     called = []
     def fake_chat(messages, **_kw):
         called.append(messages)
@@ -1840,7 +1831,6 @@ def test_consolidate_extraction_legacy_flags_accepted(monkeypatch):
     (back-compat) — they're no-ops now since the brain never auto-loads."""
     from src import consolidate
     from src import llm_client
-    monkeypatch.delenv("DUCKBOT_CHAT_MODEL", raising=False)
     monkeypatch.setenv("DUCKBOT_REGEX_ONLY", "1")
     def fake_chat(messages, **_kw):
         raise AssertionError("chat_completion should not have been called")
@@ -1882,8 +1872,9 @@ def test_consolidate_extraction_agent_facts_empty_falls_back(monkeypatch):
 
 
 def test_consolidate_extraction_no_chat_model_call(monkeypatch):
-    """Without agent_facts and without DUCKBOT_CHAT_MODEL, the brain uses
-    regex only. The chat model is never invoked for fact extraction."""
+    """Without agent_facts, the brain uses regex only.
+
+    The chat model is never invoked for fact extraction."""
     from src import consolidate
     from src import llm_client
     called = []
@@ -1891,7 +1882,6 @@ def test_consolidate_extraction_no_chat_model_call(monkeypatch):
         called.append(messages)
         return "[user-said] Duckets prefers dark mode."
     monkeypatch.setattr(llm_client, "chat_completion", fake_chat)
-    monkeypatch.delenv("DUCKBOT_CHAT_MODEL", raising=False)
     chunk = "Duckets said he prefers dark mode. " * 30
     facts = consolidate.extract_facts_from_chunk(chunk, "c1", "/x.md")
     assert called == []

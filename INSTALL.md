@@ -37,9 +37,6 @@ cp .env.example .env
 # Edit .env: set DUCKBOT_EMBEDDING=lmstudio (default) + LMSTUDIO_URL,
 # LMSTUDIO_MODEL=text-embedding-embeddinggemma-300m,
 # LMSTUDIO_RERANK_MODEL=qwen3-reranker-0.6b.
-# If you explicitly call the lower-level `extract_facts_via_llm()` helper
-# in an external job, point it at the host agent's existing chat model.
-# The brain itself does not auto-load a consolidation model.
 # OR DUCKBOT_EMBEDDING=minimax + MINIMAX_API_KEY, etc.
 
 # Verify

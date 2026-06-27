@@ -88,3 +88,45 @@ def test_facts_have_source_provenance():
     for f in facts:
         assert f.source_chunk_id == "chunk-42"
         assert f.source_path == "/path/to/file.md"
+
+
+def test_extract_facts_via_llm_requires_explicit_model(monkeypatch):
+    from src import consolidate
+    from src import llm_client
+
+    monkeypatch.setenv("DUCKBOT_CHAT_MODEL", "host-agent-chat-model")
+    called = []
+
+    def fake_chat(messages, **_kw):
+        called.append(messages)
+        return "[user-said] Duckets prefers dark mode."
+
+    monkeypatch.setattr(llm_client, "chat_completion", fake_chat)
+    facts = consolidate.extract_facts_via_llm(
+        "Duckets said he prefers dark mode.",
+        "chunk-1",
+        "/tmp/x.md",
+    )
+    assert facts == []
+    assert called == []
+
+
+def test_extract_facts_via_llm_uses_explicit_model(monkeypatch):
+    from src import consolidate
+    from src import llm_client
+
+    called = []
+
+    def fake_chat(messages, **kwargs):
+        called.append((messages, kwargs))
+        return "[user-said] Duckets prefers dark mode."
+
+    monkeypatch.setattr(llm_client, "chat_completion", fake_chat)
+    facts = consolidate.extract_facts_via_llm(
+        "Duckets said he prefers dark mode.",
+        "chunk-1",
+        "/tmp/x.md",
+        model="host-agent-chat-model",
+    )
+    assert any(f.kind == "user-said" for f in facts)
+    assert called, "expected explicit model to invoke chat_completion"

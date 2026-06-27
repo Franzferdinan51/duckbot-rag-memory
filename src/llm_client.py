@@ -1,23 +1,20 @@
 """
 llm_client.py — minimal chat-completion client for LM Studio.
 
-This is an optional helper for consolidation / fact extraction in
-src/consolidate.py. The main agent runtimes are OpenClaw and Hermes;
-this client is only used when a host agent explicitly points it at an
-already-loaded chat model. DuckBot itself does not launch a second one.
+This helper exists only for external jobs that already have a chat model
+loaded and want to run explicit fact extraction. DuckBot itself does not
+launch or default to a separate consolidation model.
 
 Design constraints:
-- Uses the agent's own LM Studio server (same LMSTUDIO_URL + LMSTUDIO_KEY)
-- Chat model is configured explicitly via DUCKBOT_CHAT_MODEL or passed
-  into the helper by the caller; there is no built-in default model
+- Uses the caller's LM Studio server (same LMSTUDIO_URL + LMSTUDIO_KEY)
+- Requires an explicit `model=` argument; there is no built-in default
 - Zero new paid deps: only stdlib + httpx
-- Sync interface: callers (consolidate) are sync; we run a tiny event loop
-  on the existing httpx client
-- Graceful fallback: any failure silently returns None so the caller
-  falls back to the regex-only extraction path
+- Sync interface: callers are sync; we run a tiny event loop on the
+  existing httpx client
+- Graceful fallback: any failure silently returns None so the caller can
+  fall back to regex-only extraction or agent-supplied facts
 
 NOT a general-purpose LLM client. For that, use a dedicated package.
-This is just enough to do fact extraction in consolidate.py.
 """
 from __future__ import annotations
 
@@ -48,13 +45,12 @@ def _resolve_credential() -> str:
 
 
 def _resolve_model() -> str:
-    """Chat model id for consolidation.
+    """Deprecated shim for callers that expect a resolver helper.
 
-    There is no built-in default. The caller must either pass a model
-    explicitly or set DUCKBOT_CHAT_MODEL to the agent's existing chat
-    model. This keeps DuckBot from loading its own separate LLM.
+    DuckBot no longer reads a consolidation-model environment variable.
+    Callers must pass `model=` explicitly if they want this helper to run.
     """
-    return os.environ.get("DUCKBOT_CHAT_MODEL") or ""
+    return ""
 
 
 def chat_completion(
