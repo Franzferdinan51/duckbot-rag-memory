@@ -19,7 +19,7 @@ server; the agent invokes it as tools.
 - pip
 - ~2 GB disk for the venv + ChromaDB index
 - For the default local path: LM Studio with `text-embedding-embeddinggemma-300m` and `qwen3-reranker-0.6b` downloaded
-- **Fact extraction is the agent's job.** When your agent extracts facts from a memory, pass them via `brain_remember(facts=[...])` and they're stored as semantic-tier chunks (metadata.kind='agent_fact'). The brain never loads a chat model — only the embedding + reranker run. `reflect()` uses lightweight regex heuristics for fully-autonomous mode.
+- **Fact extraction is the agent's job.** When your agent extracts facts from a memory, pass them via `brain_remember(facts=[...])` or `reflect(extract_callback=...)`. DuckBot does not launch a separate consolidation model; `reflect()` uses lightweight regex heuristics when no agent facts are supplied.
 - For alternate embeddings: LM Studio (recommended), OR MiniMax / OpenAI API key, OR `pip install sentence-transformers` for local
 
 No GPU required. No system packages beyond what Python itself needs.
@@ -37,8 +37,9 @@ cp .env.example .env
 # Edit .env: set DUCKBOT_EMBEDDING=lmstudio (default) + LMSTUDIO_URL,
 # LMSTUDIO_MODEL=text-embedding-embeddinggemma-300m,
 # LMSTUDIO_RERANK_MODEL=qwen3-reranker-0.6b.
-# If the host agent wants LLM-assisted reflect/consolidate, set
-# DUCKBOT_CHAT_MODEL to that agent's existing chat model.
+# If you explicitly call the lower-level `extract_facts_via_llm()` helper
+# in an external job, point it at the host agent's existing chat model.
+# The brain itself does not auto-load a consolidation model.
 # OR DUCKBOT_EMBEDDING=minimax + MINIMAX_API_KEY, etc.
 
 # Verify
