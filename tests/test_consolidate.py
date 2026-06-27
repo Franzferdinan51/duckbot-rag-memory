@@ -32,7 +32,7 @@ def test_extract_setup():
 
 
 def test_extract_location():
-    text = "Duckets' home address: 7516 Pomeranian Drive, Huber Heights, OH 45424."
+    text = "Duckets' home address: 123 Maple Street, Springfield, IL 62701."
     facts = extract_facts_from_chunk(text, "id1", "/fake.md")
     assert any(f.kind == "location" for f in facts)
 
@@ -65,7 +65,7 @@ def test_dedup_keeps_higher_confidence():
 def test_dedup_keeps_distinct_facts():
     facts = [
         ExtractedFact(text="cloud-only models", kind="rule", source_chunk_id="1", source_path="x"),
-        ExtractedFact(text="local home address is in Huber Heights", kind="location", source_chunk_id="2", source_path="y"),
+        ExtractedFact(text="local home address is in Springfield", kind="location", source_chunk_id="2", source_path="y"),
     ]
     deduped = deduplicate_facts(facts)
     assert len(deduped) == 2

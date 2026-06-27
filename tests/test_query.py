@@ -46,7 +46,7 @@ def make_dummy_chunks():
             "When kill_app is called with pid 1, refuse it.",
         ],
         "semantic.md": [
-            "Duckets' home address: 7516 Pomeranian Drive, Huber Heights, OH 45424.",
+            "Duckets' home address: 123 Maple Street, Springfield, IL 62701.",
             "RTX Spark costs $4,499 for inference workloads.",
         ],
     }
@@ -100,7 +100,7 @@ async def test_hybrid_query_returns_results(store):
     assert len(results) > 0
     # The semantic address chunk should rank highly
     top_texts = " ".join(r.text for r in results[:3])
-    assert "7516 Pomeranian" in top_texts or "Huber Heights" in top_texts
+    assert "123 Maple" in top_texts or "Springfield" in top_texts
 
 
 @pytest.mark.asyncio
