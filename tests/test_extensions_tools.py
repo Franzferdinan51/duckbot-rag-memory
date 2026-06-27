@@ -183,12 +183,48 @@ def test_dispatch_brain_recall_delegates(fake_brain):
     )
 
 
+def test_dispatch_brain_recall_normalizes_blank_tier(fake_brain):
+    """Whitespace-only tier means no tier filter, matching MCP adapters."""
+    surface._BRAIN = fake_brain
+    out = surface.dispatch("brain_recall", {"query": "q", "tier": "   "})
+    assert "results" in out
+    fake_brain.recall.assert_called_once_with(
+        query="q", k=5, tier=None, min_importance=None,
+        rerank=False, decay=False,
+        tier_priors=False, tier_priors_overrides=None, fsrs=False,
+    )
+
+
+def test_dispatch_brain_recall_normalizes_padded_case_tier(fake_brain):
+    """Agent inputs like ' Semantic ' should not miss the semantic tier."""
+    surface._BRAIN = fake_brain
+    out = surface.dispatch("brain_recall", {"query": "q", "tier": " Semantic "})
+    assert "results" in out
+    assert fake_brain.recall.call_args.kwargs["tier"] == "semantic"
+
+
+def test_dispatch_brain_recall_rejects_invalid_tier(fake_brain):
+    surface._BRAIN = fake_brain
+    out = surface.dispatch("brain_recall", {"query": "q", "tier": "bad"})
+    assert "error" in out
+    assert "tier must be one of" in out["error"]
+    fake_brain.recall.assert_not_called()
+
+
 def test_dispatch_brain_recall_verbatim_delegates(fake_brain):
     surface._BRAIN = fake_brain
     fake_brain.recall_verbatim.return_value = [{"verbatim_text": "src"}]
     out = surface.dispatch("brain_recall_verbatim", {"query": "q"})
     assert "results" in out
     assert out["results"][0]["verbatim_text"] == "src"
+
+
+def test_dispatch_brain_recall_verbatim_normalizes_tier(fake_brain):
+    surface._BRAIN = fake_brain
+    fake_brain.recall_verbatim.return_value = [{"verbatim_text": "src"}]
+    out = surface.dispatch("brain_recall_verbatim", {"query": "q", "tier": " EPISODIC "})
+    assert "results" in out
+    assert fake_brain.recall_verbatim.call_args.kwargs["tier"] == "episodic"
 
 
 def test_dispatch_brain_stats_serializes_dataclass(fake_brain):
@@ -215,11 +251,26 @@ def test_dispatch_brain_fsrs_review_delegates(fake_brain):
     fake_brain.fsrs_review_queue.assert_called_once_with(tier="episodic", k=5)
 
 
+def test_dispatch_brain_fsrs_review_normalizes_blank_tier(fake_brain):
+    surface._BRAIN = fake_brain
+    out = surface.dispatch("brain_fsrs_review", {"tier": "", "k": 5})
+    assert "queue" in out
+    fake_brain.fsrs_review_queue.assert_called_once_with(tier=None, k=5)
+
+
 def test_dispatch_brain_decay_status_delegates(fake_brain):
     surface._BRAIN = fake_brain
     out = surface.dispatch("brain_decay_status", {"k": 25})
     assert "tiers" in out
     fake_brain.decay_status.assert_called_once_with(tier=None, k=25)
+
+
+def test_dispatch_brain_decay_status_rejects_invalid_tier(fake_brain):
+    surface._BRAIN = fake_brain
+    out = surface.dispatch("brain_decay_status", {"tier": "scratch"})
+    assert "error" in out
+    assert "tier must be one of" in out["error"]
+    fake_brain.decay_status.assert_not_called()
 
 
 def test_dispatch_brain_wake_up_delegates(fake_brain):

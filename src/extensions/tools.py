@@ -37,8 +37,21 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from src.connectors.base import Brain, _run_async
+from src.tier import Tier, coerce_optional_tier
 
 logger = logging.getLogger(__name__)
+
+_VALID_TIERS = tuple(tier.value for tier in Tier)
+
+
+def _normalize_tier_arg(args: dict) -> tuple[str | None, dict | None]:
+    """Return a canonical optional tier string, plus an error when invalid."""
+    tier = args.get("tier")
+    try:
+        normalized = coerce_optional_tier(tier)
+    except ValueError:
+        return None, {"error": f"tier must be one of {list(_VALID_TIERS)}, got {tier!r}"}
+    return (normalized.value if normalized is not None else None), None
 
 
 # -----------------------------------------------------------------------------
@@ -418,6 +431,9 @@ def dispatch(name: str, args: dict) -> dict:
             query = (args.get("query") or "").strip()
             if not query:
                 return {"error": "query must be a non-empty string"}
+            tier, tier_err = _normalize_tier_arg(args)
+            if tier_err is not None:
+                return tier_err
             # Validate tier_priors_overrides is a dict (or None) before passing through.
             tpo = args.get("tier_priors_overrides")
             if tpo is not None and not isinstance(tpo, dict):
@@ -425,7 +441,7 @@ def dispatch(name: str, args: dict) -> dict:
             results = brain.recall(
                 query=query,
                 k=args.get("k", 5),
-                tier=args.get("tier"),
+                tier=tier,
                 min_importance=args.get("min_importance"),
                 rerank=bool(args.get("rerank") or False),
                 decay=bool(args.get("decay") or False),
@@ -439,13 +455,16 @@ def dispatch(name: str, args: dict) -> dict:
             query = (args.get("query") or "").strip()
             if not query:
                 return {"error": "query must be a non-empty string"}
+            tier, tier_err = _normalize_tier_arg(args)
+            if tier_err is not None:
+                return tier_err
             tpo = args.get("tier_priors_overrides")
             if tpo is not None and not isinstance(tpo, dict):
                 return {"error": "tier_priors_overrides must be a dict"}
             results = brain.recall_verbatim(
                 query=query,
                 k=args.get("k", 5),
-                tier=args.get("tier"),
+                tier=tier,
                 min_importance=args.get("min_importance"),
                 rerank=bool(args.get("rerank") or False),
                 decay=bool(args.get("decay") or False),
@@ -524,14 +543,20 @@ def dispatch(name: str, args: dict) -> dict:
             return _serialize_stats(brain.stats())
 
         if name == "brain_fsrs_review":
+            tier, tier_err = _normalize_tier_arg(args)
+            if tier_err is not None:
+                return tier_err
             return {"queue": brain.fsrs_review_queue(
-                tier=args.get("tier"),
+                tier=tier,
                 k=int(args.get("k", 10)),
             )}
 
         if name == "brain_decay_status":
+            tier, tier_err = _normalize_tier_arg(args)
+            if tier_err is not None:
+                return tier_err
             return brain.decay_status(
-                tier=args.get("tier"),
+                tier=tier,
                 k=int(args.get("k", 50)),
             )
 
