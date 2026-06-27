@@ -426,6 +426,12 @@ class Brain:
             kept: list = []
             fetch_size = max(k * 5, 20)  # first pass: 5x overshoot
             max_attempts = 5  # cap to bound worst-case latency
+            # The fixed query "recent memory" (used when no anchor query
+            # is supplied) was being re-embedded on every retry attempt
+            # — up to 5 identical embed calls per wake_up. Use the
+            # embed cache by setting DUCKBOT_EMBED_CACHE_SIZE (already on
+            # by default) and let LMStudioEmbeddings.embed hit it; this
+            # drops the 5x redundant HTTP calls to 1.
             for attempt in range(max_attempts):
                 if query:
                     raw = self.recall(query=query, k=fetch_size, rerank=True)

@@ -434,26 +434,91 @@ class Memory:
         # Agent-provided facts: each gets its own semantic-tier chunk so
         # reflect() can promote them without re-extracting. We do NOT load a
         # chat model ourselves — extraction stays in the agent's hands.
+        #
+        # Batched: a single embed() call for all facts (vs. the previous
+        # N separate calls) + a single add_chunks() call (vs. N). For 10
+        # facts this is ~20x fewer HTTP round-trips. _bump_related is
+        # skipped for agent_facts (they're already linked via
+        # source_chunk_id, and bumping would be N more embed calls).
         if facts:
-            for fact_text in facts:
-                fact_text = (fact_text or "").strip()
-                if not fact_text or len(fact_text) < 5:
-                    continue
-                try:
-                    await self.remember(
-                        fact_text,
-                        source_path=source_path,
-                        force_tier=Tier.SEMANTIC,
-                        metadata={
-                            "kind": "agent_fact",
-                            "source_chunk_id": results[0].chunk_id,
-                            "agent_extracted": True,
-                        },
-                    )
-                except Exception as exc:
-                    logger.warning("agent fact store failed: %s", exc)
+            try:
+                await self._store_agent_facts(
+                    facts, source_path, results[0].chunk_id, embedder, store,
+                )
+            except Exception as exc:
+                logger.warning("agent fact batch store failed: %s", exc)
 
         return results[0]  # primary result; ignore the rest for v0.1
+
+    async def _store_agent_facts(
+        self,
+        facts: list[str],
+        source_path: str,
+        parent_chunk_id: str,
+        embedder: EmbeddingProvider,
+        store: "MemoryStore",
+    ) -> int:
+        """Batched store for agent-extracted facts.
+
+        Single embed() + single add_chunks() instead of N+1 of each. With
+        10 facts, that's 20+ HTTP round-trips collapsed to 2.
+        Returns the number of facts successfully stored.
+        """
+        # Clean, dedupe, and gate (5-char min, 300-char max).
+        seen: set[str] = set()
+        clean: list[str] = []
+        for f in facts:
+            t = (f or "").strip()
+            if not t or len(t) < 5 or len(t) > 300:
+                continue
+            if t in seen:
+                continue
+            seen.add(t)
+            clean.append(t)
+        if not clean:
+            return 0
+
+        # ONE embed call for the whole batch.
+        vecs = await embedder.embed(clean)
+        if len(vecs) != len(clean):
+            logger.warning(
+                "agent facts: embed returned %d vectors for %d texts",
+                len(vecs), len(clean),
+            )
+
+        # Build chunk + metadata once, then ONE add_chunks() call.
+        from .chunk import Chunk
+        now = time.time()
+        chunks = []
+        metas = []
+        for i, text in enumerate(clean):
+            cid = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+            chunk_id = f"{cid}-{i}"
+            chunks.append(Chunk(
+                text=text,
+                source_path=source_path,
+                start_char=0,
+                end_char=len(text),
+                chunk_index=i,
+                total_chunks=len(clean),
+            ))
+            metas.append({
+                "kind": "agent_fact",
+                "source_chunk_id": parent_chunk_id,
+                "agent_extracted": True,
+                "importance": 0.5,
+                "created_at": now,
+                "ingested_at": now,
+                "last_recalled_at": 0.0,
+                "recall_count": 0,
+            })
+        await store.add_chunks(
+            chunks,
+            [vecs[i] if i < len(vecs) else vecs[0] for i in range(len(chunks))],
+            Tier.SEMANTIC,
+            metadata_override=metas,
+        )
+        return len(chunks)
 
     async def _bump_related(
         self,

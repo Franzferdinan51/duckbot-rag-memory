@@ -2194,24 +2194,31 @@ async def handle_brain_seed_demo(args: dict) -> dict:
     mem = Memory()
     stored = 0
     skipped = 0
-    for title, body, tier in DEMO:
-        # Check if a chunk with this exact content already exists.
+    # Batched existence check: ONE embed + ONE Chroma query for the
+    # whole demo corpus, vs. one embed per title (was 6 sequential
+    # embeds just to check dedup). For 6 demo entries this is 6x
+    # fewer embed round-trips; scales linearly with corpus size.
+    if not force:
         try:
-            recall_result = await mem.recall(
-                title, k=3, tier=Tier(tier), min_importance=0.0,
+            demo_queries = [title for title, _, _ in DEMO]
+            existing_results, _ = await mem.recall(
+                " | ".join(demo_queries),  # single query covers all titles
+                k=20,  # broad enough to surface any of the 6 demo bodies
+                min_importance=0.0,
             )
+            existing_starts = {
+                (r.text or "").strip()[:60]
+                for r in existing_results
+            }
         except Exception:
-            recall_result = ([], None)
-        if isinstance(recall_result, tuple):
-            existing, _ = recall_result
-        else:
-            existing = recall_result
+            existing_starts = set()
+    else:
+        existing_starts = set()
+
+    for title, body, tier in DEMO:
         # Cheap dedup: if any existing chunk's text starts with the
-        # demo body, skip.
-        if not force and any(
-            (r.text or "").strip().startswith(body.strip()[:60])
-            for r in existing
-        ):
+        # demo body, skip. Match against the batched lookup above.
+        if not force and body.strip()[:60] in existing_starts:
             skipped += 1
             continue
         try:

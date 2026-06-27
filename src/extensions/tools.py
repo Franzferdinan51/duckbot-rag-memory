@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from src.connectors.base import Brain, _run_async
@@ -357,6 +358,13 @@ def _serialize_stats(s) -> dict:
     }
 
 
+_REMEMBER_POOL = ThreadPoolExecutor(
+    max_workers=2,  # bounded so an agent spamming brain_remember can't
+                    # stack up 100s of threads hammering LM Studio
+    thread_name_prefix="duckbot-remember",
+)
+
+
 def _do_remember_background(brain: Brain, text: str, source: str, facts: Optional[list[str]] = None) -> None:
     """Fire-and-forget remember() — runs on a daemon thread so the
     MCP/JSON-RPC caller doesn't block on embedding + ingest.
@@ -493,15 +501,16 @@ def dispatch(name: str, args: dict) -> dict:
                     "stored": result.stored,
                 }
 
-            # Default: fire-and-forget on a daemon thread so the caller
-            # doesn't block on embed + ingest.
-            t = threading.Thread(
-                target=_do_remember_background,
-                args=(brain, text, source, facts),
-                daemon=True,
-                name="duckbot-brain-remember",
-            )
-            t.start()
+            # Default: fire-and-forget on a bounded thread pool so the
+            # caller doesn't block on embed + ingest. Bounded at 2 workers
+            # so a misbehaving agent that hammers brain_remember can't
+            # spawn 100s of threads all racing to embed simultaneously
+            # (was the root cause of the LM Studio spam in 2026-06-27).
+            try:
+                _REMEMBER_POOL.submit(_do_remember_background, brain, text, source, facts)
+            except RuntimeError:
+                # Pool was shut down (process exit) — fall back to inline.
+                _do_remember_background(brain, text, source, facts)
             return {"status": "queued", "source": source}
 
         if name == "brain_reflect":

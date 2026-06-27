@@ -516,6 +516,98 @@ async def test_remember_accepts_all_tier_strings(tmp_mem):
         assert r.tier.value == tier_str, f"force_tier={tier_str!r} but stored as {r.tier.value}"
 
 
+class _CountingMockProvider(_MockProvider):
+    """Mock embedder that records embed() batch sizes. Used to assert
+    that the batched agent_facts path calls embed([...]) once with all
+    facts instead of N times with one fact each."""
+    def __init__(self, dim: int = 384):
+        super().__init__(dim=dim)
+        self.batch_sizes: list[int] = []
+        self.embed_calls: int = 0
+
+    async def embed(self, texts):
+        self.embed_calls += 1
+        self.batch_sizes.append(len(texts))
+        return await self._impl.embed(texts)
+
+
+@pytest.mark.asyncio
+async def test_remember_facts_batches_embed_calls(tmp_mem, monkeypatch):
+    """`Memory.remember(facts=[...])` should embed all facts in a single
+    batched call instead of N separate calls. Was the source of the
+    LM Studio spam when an agent passed 10+ facts per remember.
+
+    With 5 facts: old code = 5+ separate embed() calls (1 per fact).
+    New code = 1 embed() call with the whole batch.
+    """
+    mem, _ = tmp_mem
+    # Replace the embedder with a counting one.
+    counting = _CountingMockProvider()
+    monkeypatch.setattr(mem, "_embedder", counting)
+
+    facts = [
+        "Duckets prefers dark mode across all UIs",
+        "Decision: ChromaDB for local vector storage",
+        "Rule: always run secret-scan.sh before committing",
+        "Setup: use LM Studio embeddinggemma-300m for embeddings",
+        "Duckets home city is Springfield",
+    ]
+    r = await mem.remember(
+        "primary memory text longer than fifty characters to trigger bump related path",
+        facts=facts,
+    )
+    assert r.stored
+
+    # The primary chunk used one embed() call; the facts path should
+    # have batched all 5 into ONE additional call → 2 total.
+    assert counting.embed_calls <= 3, (
+        f"Expected <=3 embed() calls (1 primary + 1 batched facts), "
+        f"got {counting.embed_calls} with batch sizes {counting.batch_sizes}. "
+        f"Old code would do 1 + 5 + N_bumps = 10+ calls."
+    )
+    # And one of the calls must be a batch of len(facts).
+    assert len(facts) in counting.batch_sizes, (
+        f"Expected one embed() call with {len(facts)} texts, "
+        f"got batch sizes {counting.batch_sizes}"
+    )
+
+    # Verify all facts landed in the semantic tier.
+    semantic_count = 0
+    for t in facts:
+        results, _ = await mem.recall(t, k=1, tier=Tier.SEMANTIC)
+        if results and any(t in (r.text or "") for r in results):
+            semantic_count += 1
+    assert semantic_count == len(facts), (
+        f"only {semantic_count}/{len(facts)} agent facts were stored"
+    )
+
+
+@pytest.mark.asyncio
+async def test_remember_facts_dedupes_and_filters(tmp_mem, monkeypatch):
+    """agent_facts shorter than 5 chars, duplicates, and over-300-char
+    facts are silently dropped before the batched embed call."""
+    mem, _ = tmp_mem
+    counting = _CountingMockProvider()
+    monkeypatch.setattr(mem, "_embedder", counting)
+
+    facts = [
+        "",                                           # empty
+        "   ",                                        # whitespace
+        "hi",                                         # too short
+        "valid fact text",                            # ok
+        "valid fact text",                            # duplicate
+        "x" * 500,                                    # too long
+    ]
+    r = await mem.remember("primary text", facts=facts)
+    assert r.stored
+    # 1 primary + 1 batched (with just 1 valid fact) = 2 calls
+    assert counting.embed_calls <= 2
+    assert 1 in counting.batch_sizes, (
+        f"Expected a batch of 1 (only the valid fact), "
+        f"got {counting.batch_sizes}"
+    )
+
+
 @pytest.mark.asyncio
 async def test_recall_rejects_empty_query(tmp_mem):
     """`Memory.recall('')` must raise ValueError instead of returning 5

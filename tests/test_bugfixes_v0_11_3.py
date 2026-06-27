@@ -1841,6 +1841,10 @@ def test_brain_seed_demo_handles_memory_recall_tuple(monkeypatch):
 
     The old code treated the tuple as a result list and crashed when it
     tried to inspect `.text` on the list object.
+
+    v0.15.2: dedup existence check is now batched — one recall covers
+    the whole demo corpus instead of one per title. We assert the batch
+    form is used and that the existing-chunk dedup still works.
     """
     import asyncio
     from types import SimpleNamespace
@@ -1858,8 +1862,11 @@ def test_brain_seed_demo_handles_memory_recall_tuple(monkeypatch):
             pass
 
         async def recall(self, query, k, tier=None, min_importance=0.0):
-            calls["recall"].append((query, tier, min_importance))
-            if query == "Project: DuckBot":
+            calls["recall"].append((query, k, tier, min_importance))
+            # Single batched query covers the whole demo corpus; if
+            # any of the demo bodies is in the matched text, return
+            # it so the dedup loop can skip the already-stored entry.
+            if "Project: DuckBot" in query:
                 return ([SimpleNamespace(text=match_text, chunk_id="existing")], SimpleNamespace())
             return ([], SimpleNamespace())
 
@@ -1881,6 +1888,12 @@ def test_brain_seed_demo_handles_memory_recall_tuple(monkeypatch):
     assert result["skipped"] >= 1
     assert calls["remember"]
     assert calls["recall"]
+    # Batched: ONE recall call covers the whole demo corpus, not one
+    # per title. (Old code: 6 sequential calls. New: 1.)
+    assert len(calls["recall"]) == 1, (
+        f"Expected 1 batched recall() for the dedup check, "
+        f"got {len(calls['recall'])}: {calls['recall']}"
+    )
 
 
 def test_package_version_matches_mcp_server():
