@@ -1,6 +1,5 @@
 {"query": "When did we install cua-driver and what version?", "expected_keywords": ["cua-driver", "0.6.2"]}
 {"query": "What was Duckets' rule about local models?", "expected_keywords": ["local models", "2026-06-10", "cloud"]}
-{"query": "What is the home address?", "expected_keywords": ["7516 Pomeranian", "Huber Heights", "45424"]}
 {"query": "Why did we pivot from birdclaw to BrowserOS?", "expected_keywords": ["birdclaw", "BrowserOS", "CDP"]}
 {"query": "What was the X outage data from Downdetector?", "expected_keywords": ["15,734", "Downdetector", "9:46"]}
 {"query": "What is the cua-driver install command?", "expected_keywords": ["install.sh", "cua-driver"]}
@@ -22,4 +21,3 @@
 {"query": "Who is the founder of MiniMax?", "expected_keywords": ["MiniMax"]}
 {"query": "What is the cloud-only directive date?", "expected_keywords": ["2026-06-10"]}
 {"query": "Where is the ai-Py-Boy project located?", "expected_keywords": ["Desktop", "ai-Py-boy-emulation-main"]}
-{"query": "What is the address coordinate for Huber Heights?", "expected_keywords": ["39.8645108", "-84.1321902"]}
