@@ -465,15 +465,41 @@ def clear_pid() -> None:
         PID_PATH.unlink()
 
 
+def _is_pid_alive(pid: int) -> bool:
+    """Cross-platform PID liveness check that survives the CPython 3.11+
+    Windows os.kill() quirk where it returns a sentinel AND sets an
+    internal exception state, raising SystemError after the except
+    handler returns. Fix: use ctypes OpenProcess on Windows (which
+    properly raises via the standard error path), and os.kill(pid, 0)
+    on POSIX (where it's reliable).
+    """
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        kernel32.CloseHandle(handle)
+        return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, OSError):
+        return False
+
+
 def cmd_status() -> int:
     if not PID_PATH.exists():
         print("Watcher: not running")
         return 0
     pid = int(PID_PATH.read_text().strip())
-    try:
-        os.kill(pid, 0)
+    if _is_pid_alive(pid):
         print(f"Watcher: running (pid={pid})")
-    except (ProcessLookupError, OSError):
+    else:
         # OSError covers Windows cases where the pid is no longer valid
         # (e.g. ERROR_INVALID_PARAMETER when the process was reaped).
         print(f"Watcher: stale pid file (pid={pid} not alive)")
