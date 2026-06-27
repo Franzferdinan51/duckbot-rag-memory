@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# duck-memory — One-command entry point to the DuckBot memory CLI.
+#
+# Drop this anywhere on your PATH (symlink or copy), or run it directly.
+# It finds the DuckBot repo from where this script lives, activates the
+# venv, and hands off to the CLI.
+#
+# Usage:
+#   ./duck-memory                    # show CLI help
+#   ./duck-memory query "my question"
+#   ./duck-memory ingest myfile.md
+#   ./duck-memory --help
+#
+# Install on PATH (from the repo root):
+#   ln -s "$(pwd)/duck-memory" ~/bin/duck-memory   # Linux / macOS (~/bin must be on PATH)
+#   cp duck-memory /usr/local/bin/duck-memory      # system-wide (macOS/Linux)
+#
+# Windows: add the repo to PATH and run:
+#   duck-memory.cmd query "my question"
+
+set -euo pipefail
+
+# Resolve the repo root: this script's directory → duckbot-rag-memory/
+# Handles symlinks too (ln -s creates a symlink, not a copy).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR" && pwd)"
+
+# Find venv python (cross-platform)
+if [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then
+    PYTHON="$REPO_ROOT/.venv/bin/python"
+elif [[ -x "$REPO_ROOT/.venv/bin/python3" ]]; then
+    PYTHON="$REPO_ROOT/.venv/bin/python3"
+elif [[ -x "$REPO_ROOT/.venv/Scripts/python.exe" ]]; then
+    PYTHON="$REPO_ROOT/.venv/Scripts/python.exe"
+else
+    echo "duck-memory: no venv found at $REPO_ROOT/.venv" >&2
+    echo "Run ./scripts/setup.sh first to set up the environment." >&2
+    exit 1
+fi
+
+# Load .env so API keys are available
+ENV_FILE="$REPO_ROOT/.env"
+if [[ -f "$ENV_FILE" ]]; then
+    # Pure bash parser — no python-dotenv dependency
+    set -a
+    . <(grep -vE '^\s*#' "$ENV_FILE" | grep -vE '^\s*$')
+    set +a
+fi
+
+# Delegate to the CLI, passing all arguments
+exec "$PYTHON" -m src.cli "$@"
