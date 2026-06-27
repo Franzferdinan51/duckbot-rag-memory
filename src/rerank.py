@@ -191,6 +191,29 @@ class LMStudioBackend:
             logger.warning("LM Studio rerank failed: %s — falling back to input order", e)
             return [0.0] * len(docs)
 
+    def available(self) -> bool:
+        """Return True if the rerank endpoint responds with a non-error."""
+        try:
+            import httpx
+            import os as _os
+            key = (
+                _os.environ.get("LMSTUDIO_KEY")
+                or _os.environ.get("LMSTUDIO_API_KEY")
+                or _os.environ.get("LM_API_TOKEN")
+                or ""
+            )
+            headers = {"Authorization": f"Bearer {key}"} if key else {}
+            with httpx.Client(timeout=5.0) as client:
+                resp = client.post(
+                    self.url,
+                    json={"model": self.model, "query": "test", "documents": ["doc"]},
+                    headers=headers,
+                )
+                # Any non-404/401/500 class error means the endpoint exists
+                return resp.status_code < 500 and "error" not in resp.json()
+        except Exception:
+            return False
+
     def score(self, query: str, docs: list[str]) -> list[float]:
         # sync wrapper for the Protocol interface
         import concurrent.futures
@@ -264,9 +287,15 @@ def _resolve_backend(prefer: str | None = None) -> RerankBackend:
     if prefer in (None, "lmstudio", "auto"):
         try:
             be = LMStudioBackend()
-            _cache_if_real(be)
-            logger.info("rerank backend: %s", be.name)
-            return be
+            # Don't cache unless the endpoint actually responds — LM Studio
+            # may have the reranker model loaded but not expose the /v1/rerank
+            # route (common on builds without the llm-rerank plugin).
+            if be.available():
+                _cache_if_real(be)
+                logger.info("rerank backend: %s", be.name)
+                return be
+            else:
+                logger.debug("LM Studio rerank endpoint not available; skipping")
         except Exception as e:
             logger.debug("LM Studio rerank backend unavailable: %s", e)
 

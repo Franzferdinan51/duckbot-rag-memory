@@ -316,6 +316,9 @@ def test_resolve_backend_prefers_lmstudio_first(monkeypatch):
         def score(self, query, docs):
             return [0.0] * len(docs)
 
+        def available(self):
+            return True
+
     def fail_sentence_backend():
         raise AssertionError("sentence-transformers should not be selected first")
 
@@ -336,11 +339,17 @@ def test_resolve_backend_does_not_cache_noop(monkeypatch):
     class FakeNoop:
         name = "noop"
 
+        def available(self):
+            return False
+
     class FakeLMBackend:
         name = "lmstudio:later"
 
         def score(self, query, docs):
             return [0.0] * len(docs)
+
+        def available(self):
+            return True
 
     def fail_lm():
         calls["lm"] += 1
