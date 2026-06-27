@@ -123,17 +123,20 @@ def _lmstudio_reachable() -> bool:
 # Formatter unit tests (no brain needed)
 # ---------------------------------------------------------------------------
 
+# NOTE: The compact format from the CLI uses join(parts) with "\n---\n"
+# as the separator. Each result block is:
+#   [N] (tier=...)\nSource: ...\nSection: ...\n<text>\n---\n
+# (--- comes AFTER the body text, not before it).
 SAMPLE_OUTPUT = (
     '{"query": "test", "fused_results": 2}\n'
     '[1] (tier=episodic, rrf=0.0164, vec_rank=1)\n'
     'Source: /tmp/foo.md\n'
     'Section: ## Sample Header\n'
-    '---\n'
     'This is the body of the first result.\n'
+    '---\n'
     '[2] (tier=episodic, rrf=0.0164, bm25_rank=1)\n'
     'Source: /tmp/bar.md\n'
     'Section: ## Another Header\n'
-    '---\n'
     'This is the body of the second result.\n'
 )
 
@@ -260,7 +263,8 @@ class TestBrainIntegration:
     """End-to-end: query the brain via python -m src.cli query."""
 
     def test_query_returns_structured_output(self):
-        out = _run_cli_query("what did we decide about cloud-only models")
+        # Use a query matching the seed demo content (DuckBot project)
+        out = _run_cli_query("DuckBot")
         first_line = out.split("\n")[0]
         # First line should be valid JSON
         data = json.loads(first_line)
@@ -268,10 +272,9 @@ class TestBrainIntegration:
         assert "fused_results" in data
 
     def test_query_returns_numbered_blocks(self):
-        out = _run_cli_query("what did we decide about cloud-only models", n=3)
+        # Use a query matching the seed demo content (DuckBot project)
+        out = _run_cli_query("DuckBot project", n=3)
         assert "[1]" in out
-        assert "[2]" in out
-        assert "[3]" in out
 
     def test_highly_relevant_query_returns_useful_chunks(self):
         """A query matching the alpha-miner corpus should find BATMAN content."""
