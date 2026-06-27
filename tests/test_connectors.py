@@ -244,6 +244,12 @@ def test_quarantine_round_trip(brain):
     assert len(brain.quarantine_list("approved")) == 1
 
 
+def test_quarantine_review_rejects_blank_inputs(brain):
+    rv = brain.quarantine_review("   ", "approved", reviewer="test")
+    assert "error" in rv
+    assert "scan_id and decision are required" in rv["error"]
+
+
 # ----- Brain facade: stats -----
 
 def test_stats_after_activity(brain):

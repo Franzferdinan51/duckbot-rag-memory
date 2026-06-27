@@ -917,11 +917,13 @@ def handle(tool_name: str, args: dict) -> dict:
         if tool_name == "brain_quarantine_list":
             return {"quarantined": brain.quarantine_list(status=args.get("status", "pending"))}
         if tool_name == "brain_quarantine_review":
-            if not args.get("scan_id") or not args.get("decision"):
+            scan_id = (args.get("scan_id") or "").strip()
+            decision = (args.get("decision") or "").strip()
+            if not scan_id or not decision:
                 return {"error": "scan_id and decision are required", "tool": tool_name}
             return brain.quarantine_review(
-                scan_id=args["scan_id"],
-                decision=args["decision"],
+                scan_id=scan_id,
+                decision=decision,
                 reviewer=args.get("reviewer", "operator"),
             )
 

@@ -679,12 +679,13 @@ async def handle_reflect(args: dict) -> dict:
 
 
 async def handle_forget(args: dict) -> dict:
-    if not args.get("chunk_id"):
+    chunk_id = (args.get("chunk_id") or "").strip()
+    if not chunk_id:
         return {"error": "chunk_id is required"}
     mem = Memory()
     from src.tier import Tier
-    tier = Tier(args["tier"]) if args.get("tier") else None
-    ok = await mem.forget(args["chunk_id"], tier=tier)
+    tier = Tier((args["tier"] or "").strip()) if args.get("tier") else None
+    ok = await mem.forget(chunk_id, tier=tier)
     return {"deleted": ok}
 
 
@@ -1504,17 +1505,16 @@ async def handle_brain_skills_promote(args: dict) -> dict:
     # Validate required fields upfront. Either `instructions` (flat list)
     # OR `instructions_markdown` (rich markdown body) must be provided —
     # the former for simple skills, the latter for richer bodies.
-    if not args.get("chunk_id") or not args.get("name") or not args.get("description"):
-        return {"error": "chunk_id, name, description are required"}
+    chunk_id = (args.get("chunk_id") or "").strip()
     name = (args.get("name") or "").strip()
     description = (args.get("description") or "").strip()
-    if not name or not description:
+    if not chunk_id or not name or not description:
         return {"error": "chunk_id, name, description are required"}
     if not (args.get("instructions") or args.get("instructions_markdown")):
         return {"error": "either instructions (list) or instructions_markdown (string) is required"}
     from src.skill_pipeline import promote_candidate
     return promote_candidate(
-        chunk_id=args["chunk_id"],
+        chunk_id=chunk_id,
         name=name,
         description=description,
         instructions=args.get("instructions") or [],

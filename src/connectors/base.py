@@ -1112,6 +1112,10 @@ class Brain:
 
     def quarantine_review(self, scan_id: str, decision: str, reviewer: str = "operator") -> dict:
         """Approve or reject a quarantined chunk. decision: 'approved' or 'rejected'."""
+        scan_id = (scan_id or "").strip()
+        decision = (decision or "").strip()
+        if not scan_id or not decision:
+            return {"error": "scan_id and decision are required"}
         if not self.quarantine_path.exists():
             return {"error": "quarantine not initialized"}
         with QuarantineStore(path=self.quarantine_path) as q:

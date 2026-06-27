@@ -195,6 +195,20 @@ async def test_mcp_handle_forget_by_query_rejects_whitespace_query():
 
 
 @pytest.mark.asyncio
+async def test_mcp_handle_forget_rejects_whitespace_chunk_id():
+    from src.mcp_server import handle_forget
+    import src.memory as mem_mod
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mem_mod, "Memory", lambda *a, **kw: (_ for _ in ()).throw(AssertionError("Memory should not be instantiated")))
+    try:
+        out = await handle_forget({"chunk_id": "   "})
+    finally:
+        monkeypatch.undo()
+    assert "error" in out
+    assert "chunk_id" in out["error"]
+
+
+@pytest.mark.asyncio
 async def test_mcp_handle_brain_inflate_rejects_whitespace_query():
     from src.mcp_server import handle_brain_inflate
     import src.memory as mem_mod
@@ -224,6 +238,29 @@ async def test_mcp_handle_brain_skills_suggest_strips_whitespace(monkeypatch):
     assert "candidates" in out
     assert captured["query"] == "docker compose"
     assert captured["k"] == 2
+
+
+@pytest.mark.asyncio
+async def test_mcp_handle_brain_skills_promote_trims_whitespace(monkeypatch):
+    from src.mcp_server import handle_brain_skills_promote
+    import src.skill_pipeline as pipeline
+    captured = {}
+
+    def fake_promote_candidate(**kwargs):
+        captured.update(kwargs)
+        return {"path": "/tmp/skill.md", "slug": "skill", "chunk_id": kwargs["chunk_id"], "promoted": True}
+
+    monkeypatch.setattr(pipeline, "promote_candidate", fake_promote_candidate)
+    out = await handle_brain_skills_promote({
+        "chunk_id": "  c1  ",
+        "name": "  My Skill  ",
+        "description": "  do the thing  ",
+        "instructions": ["step"],
+    })
+    assert out["promoted"] is True
+    assert captured["chunk_id"] == "c1"
+    assert captured["name"] == "My Skill"
+    assert captured["description"] == "do the thing"
 
 
 # -----------------------------------------------------------------------------
