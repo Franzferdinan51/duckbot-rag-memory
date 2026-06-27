@@ -434,6 +434,39 @@ class TestWatcherContentHashDedup:
             stats = await sync_files([str(md)], state)
         assert stats["updated"] + stats["added"] > 0
 
+    @pytest.mark.asyncio
+    async def test_skips_oversized_files(self, tmp_path: Path, monkeypatch):
+        """Files larger than DUCKBOT_WATCH_MAX_FILE_SIZE_MB are skipped
+        to prevent OOM in the daemon. The path is recorded as an error,
+        not a re-ingest."""
+        from src.watcher import sync_files
+
+        # Tiny 1MB cap so a real 2MB file trips it.
+        monkeypatch.setenv("DUCKBOT_WATCH_MAX_FILE_SIZE_MB", "1.0")
+
+        md = tmp_path / "big.md"
+        # Write 2MB of dummy content so it exceeds the 1MB cap.
+        md.write_text("x" * (2 * 1024 * 1024), encoding="utf-8")
+
+        state: dict = {"files": {}}
+        with patch("src.watcher.Memory") as mock_mem_cls:
+            mock_instance = mock_mem_cls.return_value
+            mock_instance._ensure_initialized = AsyncMock(
+                return_value=(MagicMockStore(), AsyncMock())
+            )
+            mock_instance.remember = AsyncMock(
+                return_value=MagicMock(chunk_id="x")
+            )
+            stats = await sync_files([str(md)], state)
+
+        # No chunks should be embedded for an oversized file.
+        assert stats["added"] == 0
+        assert stats["updated"] == 0
+        assert any("too large" in e for e in stats["errors"]), \
+            f"expected 'too large' error in {stats['errors']}"
+        # And remember() was never called (OOM didn't happen).
+        mock_instance.remember.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Helpers for mocking

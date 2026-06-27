@@ -85,6 +85,12 @@ def log(msg: str) -> None:
         f.write(line + "\n")
 
 
+# Cap on a single file's size before we refuse to ingest it. A multi-MB log
+# or accidental binary blob would otherwise load entirely into memory and
+# risk an OOM in the daemon. Override via DUCKBOT_WATCH_MAX_FILE_SIZE_MB.
+DEFAULT_MAX_FILE_SIZE_MB = 50.0
+
+
 # Last time we logged the unpromoted-skill-candidates report. Lets us
 # throttle the report to once per SKILL_REPORT_INTERVAL_SEC so a busy
 # watcher doesn't spam the log every few seconds.
@@ -204,6 +210,23 @@ async def sync_files(paths: list[str], state: dict) -> dict:
 
         # Read file
         try:
+            # Refuse to load files larger than the configured cap. A
+            # multi-MB log or accidental binary blob would otherwise pin
+            # all that memory in the daemon and risk an OOM. Override
+            # via DUCKBOT_WATCH_MAX_FILE_SIZE_MB.
+            max_mb = float(os.environ.get(
+                "DUCKBOT_WATCH_MAX_FILE_SIZE_MB", str(DEFAULT_MAX_FILE_SIZE_MB),
+            ))
+            try:
+                size_mb = Path(path).stat().st_size / (1024 * 1024)
+            except OSError:
+                size_mb = 0.0
+            if size_mb > max_mb:
+                stats["errors"].append(
+                    f"read {path}: file too large ({size_mb:.1f}MB > {max_mb:.1f}MB cap)"
+                )
+                stats["skipped"] += 1
+                continue
             content = Path(path).read_text(encoding="utf-8", errors="ignore")
         except Exception as exc:
             stats["errors"].append(f"read {path}: {exc}")
