@@ -463,6 +463,7 @@ class LMStudioEmbeddings:
     dim: int = 1024  # sensible default; will be updated by auto-detect
     api_key: str = "lm-studio"  # LM Studio ignores auth
     batch_size: int = 32  # smaller batches; LM Studio runs on consumer GPUs
+    max_retries: int = 2  # retry transient local-server transport hiccups
 
     def __post_init__(self) -> None:
         if not self.base_url:
@@ -545,14 +546,28 @@ class LMStudioEmbeddings:
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             }
-            await _rate_limiter.acquire()
-            client = await _get_http_client(timeout=120.0)
-            resp = await client.post(
-                f"{self.base_url}/embeddings",
-                json=payload,
-                headers=headers,
-            )
-            resp.raise_for_status()
+            transient_statuses = {429, 500, 502, 503, 504}
+            for attempt in range(self.max_retries + 1):
+                await _rate_limiter.acquire()
+                client = await _get_http_client(timeout=120.0)
+                try:
+                    resp = await client.post(
+                        f"{self.base_url}/embeddings",
+                        json=payload,
+                        headers=headers,
+                    )
+                    if (
+                        resp.status_code in transient_statuses
+                        and attempt < self.max_retries
+                    ):
+                        await asyncio.sleep(0.25 * (2 ** attempt))
+                        continue
+                    resp.raise_for_status()
+                    break
+                except httpx.TransportError:
+                    if attempt >= self.max_retries:
+                        raise
+                    await asyncio.sleep(0.25 * (2 ** attempt))
             data = resp.json()
             vectors = [item["embedding"] for item in data["data"]]
             if vectors and self.dim != len(vectors[0]):

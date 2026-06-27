@@ -3,7 +3,7 @@
  *
  * Pure Node.js, zero npm dependencies. Spawns the Python MCP server
  * (duckbot-rag-memory/src/mcp_server.py) as a subprocess and proxies
- * 64 brain tools + session_start / session_end hooks into OpenClaw.
+ * 67 brain tools + session_start / session_end hooks into OpenClaw.
  *
  * Pattern sources:
  *   - openclaw/openclaw `extensions/voice-call/index.ts` (definePluginEntry)
@@ -14,7 +14,7 @@
  * Why a shim and not a native Python plugin: OpenClaw plugins run in-process
  * inside the Node gateway (src/plugins/loader.ts). Python isn't supported
  * natively. So we spawn the existing Python MCP server as a subprocess and
- * bridge the 66 tools via JSON-RPC. No code duplication — the Python
+ * bridge the 67 tools via JSON-RPC. No code duplication — the Python
  * `src/mcp_server.py` IS the brain.
  */
 
@@ -128,9 +128,28 @@ module.exports = definePluginEntry({
       logger.error('[duckbot-memory] failed to spawn python: %s', err.message);
     });
 
-    // ---- initialize handshake ---------------------------------------------
+    // ---- tool registration -------------------------------------------------
     let toolNames = [];
     let initialized = false;
+    const registeredTools = [];
+    const registeredToolSet = new Set();
+
+    function registerToolName(name) {
+      if (registeredToolSet.has(name)) return false;
+      try {
+        api.registerTool(makeToolFactory(name), { name });
+        registeredTools.push(name);
+        registeredToolSet.add(name);
+        return true;
+      } catch (e) {
+        // OpenClaw may reject duplicate names or unsupported shapes;
+        // log and continue.
+        logger.debug('[duckbot-memory] registerTool(%s) skipped: %s', name, e.message);
+        return false;
+      }
+    }
+
+    // ---- initialize handshake ---------------------------------------------
     (async () => {
       try {
         await rpc.send('initialize', {
@@ -142,8 +161,15 @@ module.exports = definePluginEntry({
         // List tools so we know what to register.
         const { tools } = await rpc.send('tools/list', {});
         toolNames = tools.map((t) => t.name);
+        let newlyRegistered = 0;
+        for (const name of toolNames) {
+          if (registerToolName(name)) newlyRegistered += 1;
+        }
         initialized = true;
-        logger.info('[duckbot-memory] ready: %d tools registered', toolNames.length);
+        logger.info(
+          '[duckbot-memory] ready: %d tools discovered, %d newly registered, %d total registered',
+          toolNames.length, newlyRegistered, registeredTools.length,
+        );
       } catch (e) {
         logger.error('[duckbot-memory] MCP initialize failed: %s', e.message);
       }
@@ -186,7 +212,6 @@ module.exports = definePluginEntry({
     // eagerly (without waiting for initialize) so OpenClaw advertises the
     // surface immediately; the factory's execute() will surface a clear
     // "still initializing" error if the agent calls before we're ready.
-    const registeredTools = [];
     for (const name of [
       // Canonical MCP server tools — listed statically so OpenClaw's
       // tools/list discovery sees them before our initialize handshake
@@ -203,14 +228,7 @@ module.exports = definePluginEntry({
       'search_verbatim','brain_decay_apply','dreaming_read','dreaming_cycle',
       'learn','active_memory',
     ]) {
-      try {
-        api.registerTool(makeToolFactory(name), { name });
-        registeredTools.push(name);
-      } catch (e) {
-        // OpenClaw may reject duplicate names or unsupported shapes;
-        // log and continue.
-        logger.debug('[duckbot-memory] registerTool(%s) skipped: %s', name, e.message);
-      }
+      registerToolName(name);
     }
     logger.info('[duckbot-memory] registered %d tools (handshake reports %d)', registeredTools.length, toolNames.length);
 

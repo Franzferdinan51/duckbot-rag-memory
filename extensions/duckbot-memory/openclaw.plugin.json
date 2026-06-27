@@ -3,7 +3,7 @@
   "id": "duckbot-memory",
   "name": "DuckBot Memory",
   "version": "0.1.0",
-  "description": "DuckBot RAG + memory brain. 64 MCP tools (brain_wake_up / brain_recall / brain_remember / brain_palace / brain_skills_* / ...) plus auto-firing session_start and session_end hooks. Pure Node.js shim over the existing Python MCP server (src/mcp_server.py).",
+  "description": "DuckBot RAG + memory brain. 67 tools (brain_wake_up / brain_recall / brain_remember / brain_palace / brain_skills_* / ...) plus auto-firing session_start and session_end hooks. Pure Node.js shim over the existing Python MCP server (src/mcp_server.py).",
   "activation": {
     "onStartup": true
   },

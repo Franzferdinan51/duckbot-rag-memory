@@ -11,6 +11,13 @@ LIVING_DOCS = [
     ROOT / "docs" / "INTEGRATION.md",
     ROOT / "docs" / "PLUGIN_SURFACE.md",
     ROOT / "src" / "extensions" / "tools.py",
+    ROOT / "extensions" / "duckbot-memory" / "README.md",
+    ROOT / "extensions" / "duckbot-memory" / "index.js",
+    ROOT / "extensions" / "duckbot-memory" / "openclaw.plugin.json",
+    ROOT / "extensions" / "duckbot-memory" / "package.json",
+    ROOT / "src" / "extensions" / "duckbot_brain" / "README.md",
+    ROOT / "src" / "extensions" / "duckbot_brain" / "adapter.py",
+    ROOT / "scripts" / "openclaw-bootstrap.sh",
 ]
 
 

@@ -135,6 +135,36 @@ class TestEmbedEndToEndCaching:
             assert request_count == 3, f"1 new + 2 cached → +1 request, got {request_count}"
 
     @pytest.mark.asyncio
+    async def test_embed_retries_transient_transport_error(self):
+        """A one-off LM Studio socket hiccup should not fail user queries."""
+        import httpx
+
+        reset_embed_cache()
+        provider = LMStudioEmbeddings(
+            base_url="http://127.0.0.1:9999/v1",
+            model="retry-model",
+            api_key="dummy",
+        )
+
+        request_count = 0
+
+        async def fake_post(self, url, **kwargs):
+            nonlocal request_count
+            request_count += 1
+            if request_count == 1:
+                raise httpx.ReadError("temporary local server disconnect")
+            n = len(kwargs.get("json", {}).get("input", []))
+            return FakeResponse(_canned_response(n_vectors=n, dim=4))
+
+        await close_http_client()
+
+        with patch("httpx.AsyncClient.post", new=fake_post):
+            vectors = await provider.embed(["retry me"])
+
+        assert request_count == 2
+        assert vectors == [[0.1, 0.1, 0.1, 0.1]]
+
+    @pytest.mark.asyncio
     async def test_cache_stats(self):
         reset_embed_cache()
         provider = LMStudioEmbeddings(

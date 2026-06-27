@@ -2,13 +2,13 @@
 
 A pure Node.js shim that wires [duckbot-rag-memory](../..) into OpenClaw as
 a **natively-installed plugin**. Spawns the existing Python MCP server
-(`src/mcp_server.py`, 66 tools) as a subprocess and proxies tool calls
+(`src/mcp_server.py`, 67 tools) as a subprocess and proxies tool calls
 over JSON-RPC over stdio. Zero npm dependencies; Node stdlib only.
 
 > **Why a shim?** OpenClaw plugins run in-process inside the Node gateway
 > (`openclaw/openclaw/src/plugins/loader.ts`). Python isn't supported
 > natively. So we spawn the existing Python MCP server as a subprocess
-> and bridge the 66 tools via JSON-RPC. No code duplication — the
+> and bridge the 67 tools via JSON-RPC. No code duplication — the
 > Python `src/mcp_server.py` IS the brain. The shim is pure glue.
 
 ## What you get
@@ -17,10 +17,10 @@ over JSON-RPC over stdio. Zero npm dependencies; Node stdlib only.
   `~/.openclaw/extensions/duckbot-memory/` (or run the bootstrap which
   symlinks it). OpenClaw's plugin loader reads `openclaw.plugin.json`
   and loads `index.js` via `package.json#main`.
-- **64 MCP tools** registered via `api.registerTool(factory, { name })`.
-  Every tool from `src/mcp_server.py`'s `tools/list` is exposed to the
-  agent (incl. `brain_wake_up`, `brain_recall`, `brain_remember`,
-  `brain_skills_*`, `brain_palace`, `brain_index`, `brain_sync`, ...).
+- **67 MCP tools** registered via `api.registerTool(factory, { name })`.
+  The shim eagerly registers a bootstrap surface during startup, then
+  registers any additional tools reported by `src.mcp_server.py`'s
+  `tools/list` handshake.
 - **`session_start` hook** fires `brain_wake_up` automatically on every
   session start and injects the result into the system prompt (so the
   agent starts with full context, no manual call needed).
@@ -72,7 +72,7 @@ openclaw plugins list | grep duckbot-memory     # should show "✓ installed"
 OpenClaw gateway (Node.js)
   │
   │  registerHook('session_start', ...) → api calls our handler
-  │  registerTool(name, factory)       → 66 tools registered
+  │  registerTool(name, factory)       → 67 tools registered
   │
   ▼
 extensions/duckbot-memory/index.js   ← THIS SHIM (~250 lines, zero deps)
@@ -80,7 +80,7 @@ extensions/duckbot-memory/index.js   ← THIS SHIM (~250 lines, zero deps)
   │  spawn(pythonPath, ['-u', '-m', 'src.mcp_server'], { cwd: repoPath })
   │
   ▼
-src/mcp_server.py (Python, 66 tools)
+src/mcp_server.py (Python, 67 tools)
   │
   ▼
 ChromaDB + LM Studio + SQLite

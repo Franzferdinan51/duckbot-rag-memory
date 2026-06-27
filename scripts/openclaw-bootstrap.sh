@@ -92,7 +92,7 @@ fi
 # Install the native OpenClaw plugin (extensions/duckbot-memory/) so
 # brain_wake_up auto-fires on session_start and brain_sync on session_end.
 # The plugin is a pure Node.js shim — zero npm deps — that spawns the
-# Python MCP server as a subprocess and proxies 66 tools + session hooks.
+# Python MCP server as a subprocess and proxies 67 tools + session hooks.
 # Idempotent: re-running replaces the symlink.
 OPENCLAW_PLUGINS_DIR="${OPENCLAW_HOME%/workspace}/extensions/duckbot-memory"
 PLUGIN_SRC="$REPO_ROOT/extensions/duckbot-memory"
@@ -117,7 +117,7 @@ echo "Next: restart the OpenClaw gateway so it loads the plugin."
 echo "    openclaw gateway restart"
 echo
 echo "What the plugin gives you:"
-echo "  ✓ 64 brain tools registered natively (brain_wake_up / brain_recall / ...)"
+echo "  ✓ 67 brain tools registered natively (brain_wake_up / brain_recall / ...)"
 echo "  ✓ session_start hook auto-fires brain_wake_up — context loads without"
 echo "    the agent having to remember to call it"
 echo "  ✓ session_end hook auto-fires brain_sync — high-importance facts"

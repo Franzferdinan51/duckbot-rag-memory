@@ -147,6 +147,34 @@ test('shim spawns python and registers hooks + tools when configured', (t) => {
   assert.equal(fakeChild.killed, 'SIGTERM');
 });
 
+test('shim registers tools discovered after MCP tools/list handshake', async (t) => {
+  const cp = require('node:child_process');
+  const fakeChild = makeFakeChild();
+  t.mock.method(cp, 'spawn', () => fakeChild);
+
+  const entry = loadShim();
+  const api = makeFakeApi({ repoPath: '/fake/repo', pythonPath: '/fake/python' });
+  entry.register(api);
+
+  const before = api.registeredTools.map((tool) => tool.opts.name);
+  assert.ok(!before.includes('brain_graph_query'), 'test requires graph tool to be absent from static bootstrap list');
+
+  fakeChild.stdout.emit('data', frame({ jsonrpc: '2.0', id: 1, result: { capabilities: {} } }));
+  await new Promise((resolve) => setImmediate(resolve));
+  fakeChild.stdout.emit('data', frame({
+    jsonrpc: '2.0',
+    id: 2,
+    result: { tools: [{ name: 'brain_graph_query' }, { name: 'brain_recall' }] },
+  }));
+
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const after = api.registeredTools.map((tool) => tool.opts.name);
+  assert.ok(after.includes('brain_graph_query'), 'discovered graph tool should be registered');
+  assert.equal(after.filter((name) => name === 'brain_recall').length, 1, 'existing tools should not be duplicated');
+  assert.deepEqual(globalThis[GLOBAL_KEY].handshakeTools(), ['brain_graph_query', 'brain_recall']);
+});
+
 // ---- stderr logging ------------------------------------------------------
 
 test('shim writes Python stderr to data/mcp.log (default path)', (t) => {
@@ -173,6 +201,7 @@ test('shim writes Python stderr to data/mcp.log (default path)', (t) => {
   assert.equal(openPaths.length, 1, 'expected one createWriteStream call');
   assert.equal(openPaths[0].path, '/fake/repo/data/mcp.log');
   assert.equal(openPaths[0].flags, 'a'); // append mode
+  fakeChild.emit('exit', 0, null);
 });
 
 test('DUCKBOT_MCP_LOG overrides the log path', (t) => {
@@ -184,7 +213,8 @@ test('DUCKBOT_MCP_LOG overrides the log path', (t) => {
   });
   t.mock.method(fs, 'mkdirSync', () => undefined);
   const cp = require('node:child_process');
-  t.mock.method(cp, 'spawn', () => makeFakeChild());
+  const fakeChild = makeFakeChild();
+  t.mock.method(cp, 'spawn', () => fakeChild);
 
   process.env.DUCKBOT_MCP_LOG = '/custom/path/mcp.log';
   try {
@@ -193,6 +223,7 @@ test('DUCKBOT_MCP_LOG overrides the log path', (t) => {
     const api = makeFakeApi({ repoPath: '/fake/repo' });
     entry.register(api);
     assert.equal(opened, '/custom/path/mcp.log');
+    fakeChild.emit('exit', 0, null);
   } finally {
     delete process.env.DUCKBOT_MCP_LOG;
   }
@@ -206,7 +237,8 @@ test('DUCKBOT_MCP_LOG="" disables stderr logging entirely', (t) => {
     return { write() {}, end() {}, on() { return this; } };
   });
   const cp = require('node:child_process');
-  t.mock.method(cp, 'spawn', () => makeFakeChild());
+  const fakeChild = makeFakeChild();
+  t.mock.method(cp, 'spawn', () => fakeChild);
 
   process.env.DUCKBOT_MCP_LOG = '';
   try {
@@ -215,6 +247,7 @@ test('DUCKBOT_MCP_LOG="" disables stderr logging entirely', (t) => {
     const api = makeFakeApi({ repoPath: '/fake/repo' });
     entry.register(api);
     assert.equal(opened, null, 'no log file should be opened when DUCKBOT_MCP_LOG=""');
+    fakeChild.emit('exit', 0, null);
   } finally {
     delete process.env.DUCKBOT_MCP_LOG;
   }
