@@ -21,7 +21,7 @@ DuckBot memory is a focused RAG and long-term memory layer for personal agent wo
 | Memory for the user | None (no user model) | Honcho-style `brain_user_model` block that accumulates over time |
 | Memory for the work | Markdown files agents re-read every session | Wing/Room/Drawer 2D hierarchy (MemPalace-style): project → day → chunk |
 | Forgetting | Linear (oldest message dropped) | FSRS-6 spaced repetition with self-tunable `w20` (per-deployment) |
-| Consolidation | Agent-driven | `reflect()` + `dreaming_cycle()` promote episodic → semantic with agent-supplied facts or regex fallback |
+| Consolidation | Agent-driven | `reflect()` + `dreaming_cycle()` promote episodic → semantic with agent-supplied facts or regex fallback; the brain never loads a chat model itself |
 | Conflict detection | None (new fact overwrites old) | mem0-style: near-duplicates marked `superseded_by` |
 | Discovery | Grep through markdown | AAAK compression dialect scans the whole corpus in <500 tokens |
 | Self-improvement | None | **Agent-driven skill pipeline**: agents stamp candidates with `brain_remember(kind="skill_candidate")` (no LLM) and promote them to agentskills.io SKILL.md themselves; `brain_skills_suggest` finds candidates by semantic query; `brain_optimize_fsrs` self-tunes the forgetting curve |
@@ -145,7 +145,7 @@ The wrappers load `.env` themselves and detect the local venv, so API keys do no
 
 ## Local Model Requirements
 
-DuckBot does **not** ship model weights. If you want the default local LM Studio path to work, you must download these models yourself in LM Studio first. Without them, the default local setup will not run as documented:
+DuckBot does **not** ship model weights. If you want the default local LM Studio path to work, you must load these models in LM Studio yourself first. Without them, the default local setup will not run as documented:
 
 - Required embeddings model: `text-embedding-embeddinggemma-300m`
 - Required reranker model: `qwen3-reranker-0.6b`
@@ -183,7 +183,7 @@ DUCKBOT_EMBEDDING=local
 
 If `DUCKBOT_EMBEDDING` is unset, the code auto-detects from available credentials and local services. Keep real keys only in `.env`; it is gitignored and protected by the secret-scan scripts.
 
-If you do not install the reranker model, rerank stays available as a no-op fallback. Fact extraction is **agent-driven** — the agent extracts facts and passes them to `brain_remember(facts=[...])` or `reflect(extract_callback=...)`. `reflect()` uses lightweight regex heuristics when no agent facts are supplied and never auto-loads a chat model. There is no separate consolidation model to download for DuckBot itself.
+If you do not install the reranker model, rerank stays available as a no-op fallback. Fact extraction is **agent-driven** — OpenClaw or Hermes extracts the facts and passes them to `brain_remember(facts=[...])` or `reflect(extract_callback=...)`. `reflect()` uses lightweight regex heuristics when no agent facts are supplied and never auto-loads a chat model. There is no separate consolidation model to download for DuckBot itself.
 
 ## Watcher
 

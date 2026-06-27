@@ -133,7 +133,7 @@ $EnvFile = Join-Path $RepoRoot ".env"
 $EnvExample = Join-Path $RepoRoot ".env.example"
 if ((-not (Test-Path $EnvFile)) -and (Test-Path $EnvExample)) {
     Copy-Item $EnvExample $EnvFile
-    Write-Host "Created .env from template. EDIT IT to set LMSTUDIO_URL, LMSTUDIO_KEY, MINIMAX_API_KEY."
+    Write-Host "Created .env from template. EDIT IT to set LMSTUDIO_URL, LMSTUDIO_KEY, LMSTUDIO_MODEL, LMSTUDIO_RERANK_MODEL, MINIMAX_API_KEY."
 } elseif (Test-Path $EnvFile) {
     Write-Host ".env already exists"
 } else {

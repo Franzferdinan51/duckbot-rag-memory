@@ -18,8 +18,8 @@ server; the agent invokes it as tools.
 - Python 3.12+ (`python3 --version`)
 - pip
 - ~2 GB disk for the venv + ChromaDB index
-- For the default local path: LM Studio with `text-embedding-embeddinggemma-300m` and `qwen3-reranker-0.6b` downloaded
-- **Fact extraction is the agent's job.** When your agent extracts facts from a memory, pass them via `brain_remember(facts=[...])` or `reflect(extract_callback=...)`. DuckBot does not launch a separate consolidation model; `reflect()` uses lightweight regex heuristics when no agent facts are supplied.
+- For the default local path: LM Studio with `text-embedding-embeddinggemma-300m` and `qwen3-reranker-0.6b` loaded in the local model list
+- **Fact extraction is the agent's job.** When your agent extracts facts from a memory, pass them via `brain_remember(facts=[...])` or `reflect(extract_callback=...)`. DuckBot does not launch a separate consolidation/chat model; `reflect()` uses lightweight regex heuristics when no agent facts are supplied.
 - For alternate embeddings: LM Studio (recommended), OR MiniMax / OpenAI API key, OR `pip install sentence-transformers` for local
 
 No GPU required. No system packages beyond what Python itself needs.

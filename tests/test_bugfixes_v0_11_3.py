@@ -1030,6 +1030,63 @@ def test_cli_doctor_accepts_any_available_provider(monkeypatch):
     assert rc == 0
 
 
+def test_cli_doctor_flags_missing_lmstudio_reranker_model(monkeypatch):
+    """When LM Studio is the selected provider, doctor should surface a missing reranker."""
+    from src import cli
+    from src import mcp_server
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("DUCKBOT_EMBEDDING", "lmstudio")
+    monkeypatch.setenv("DUCKBOT_RERANK", "1")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"data": [{"id": "text-embedding-embeddinggemma-300m"}]}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, *args, **kwargs):
+            return FakeResp()
+
+    class FakeStore:
+        def stats(self):
+            return SimpleNamespace(total=1, working=0, episodic=1, semantic=0, procedural=0)
+
+    class FakeEmbedder:
+        name = "lmstudio"
+        dim = 768
+
+    import httpx
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    async def fake_resolve():
+        return FakeStore(), FakeEmbedder()
+
+    monkeypatch.setattr(cli, "_resolve_store_and_embedder", fake_resolve)
+
+    cli_rc = cli.cmd_doctor(argparse.Namespace())
+    mcp_out = _run_in_thread(mcp_server.handle_doctor({}))
+
+    assert cli_rc == 1
+    assert mcp_out["ok"] is False
+    embed_checks = [c for c in mcp_out["checks"] if c["name"] == "LM Studio embedding model"]
+    rerank_checks = [c for c in mcp_out["checks"] if c["name"] == "LM Studio reranker model"]
+    assert embed_checks and embed_checks[0]["ok"] is True
+    assert rerank_checks and rerank_checks[0]["ok"] is False
+
+
 def test_mcp_doctor_matches_cli_provider_rules(monkeypatch):
     """The MCP doctor tool should use the same provider rules as the CLI."""
     from src import cli

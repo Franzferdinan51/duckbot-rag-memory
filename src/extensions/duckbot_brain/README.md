@@ -86,7 +86,7 @@ MCP client (Claude Code / Cursor / Codex / mcporter)
 adapter.py  ─── Brain.recall / Brain.recall_verbatim / Brain.remember
    │                │
    ▼                ▼
-ChromaDB          BGE reranker (local)
+ChromaDB          Qwen3 reranker (local)
 + SQLite          LM Studio embeddings
                   Ebbinghaus decay (pure math)
 ```
@@ -100,6 +100,7 @@ server (`src/mcp_server.py`).
 
 - Python 3.12+ (uses `asyncio.run` for non-blocking remember).
 - LM Studio running on `127.0.0.1:1234` (default) or set `LMSTUDIO_URL`.
+- For the default local path, load `text-embedding-embeddinggemma-300m` and `qwen3-reranker-0.6b` in LM Studio.
 - Any MCP-compatible client (Claude Code, Cursor, Codex, mcporter, ...).
 
 ## Layer attribution

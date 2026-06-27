@@ -47,7 +47,7 @@ fi
 # 3. .env
 if [[ ! -f .env ]] && [[ -f .env.example ]]; then
   cp .env.example .env
-  echo "Created .env from template. EDIT IT to set LMSTUDIO_URL, LMSTUDIO_KEY, MINIMAX_API_KEY."
+  echo "Created .env from template. EDIT IT to set LMSTUDIO_URL, LMSTUDIO_KEY, LMSTUDIO_MODEL, LMSTUDIO_RERANK_MODEL, MINIMAX_API_KEY."
 elif [[ -f .env ]]; then
   echo ".env already exists"
 else
@@ -77,7 +77,7 @@ echo ""
 case "$(uname -s 2>/dev/null || echo unknown)" in
   Darwin)
     echo "Next steps (macOS):"
-    echo "  1. Edit .env to set LMSTUDIO_URL + LMSTUDIO_KEY (and optional MiniMax key for fallback)"
+    echo "  1. Edit .env to set LMSTUDIO_URL + LMSTUDIO_KEY + LMSTUDIO_MODEL + LMSTUDIO_RERANK_MODEL (and optional MiniMax key for fallback)"
     echo "  2. ./.venv/bin/python -m src.cli doctor                    # verify all green"
     echo "  3. ./.venv/bin/python -m src.watcher once                  # cold-start full sync"
     echo "  4. ./.venv/bin/python -m src.watcher daemon                # start in background"
@@ -85,7 +85,7 @@ case "$(uname -s 2>/dev/null || echo unknown)" in
     ;;
   Linux)
     echo "Next steps (Linux):"
-    echo "  1. Edit .env to set LMSTUDIO_URL + LMSTUDIO_KEY (and optional MiniMax key for fallback)"
+    echo "  1. Edit .env to set LMSTUDIO_URL + LMSTUDIO_KEY + LMSTUDIO_MODEL + LMSTUDIO_RERANK_MODEL (and optional MiniMax key for fallback)"
     echo "  2. ./.venv/bin/python -m src.cli doctor                    # verify all green"
     echo "  3. ./.venv/bin/python -m src.watcher once                  # cold-start full sync"
     echo "  4. ./.venv/bin/python -m src.watcher daemon                # start in background"
@@ -93,7 +93,7 @@ case "$(uname -s 2>/dev/null || echo unknown)" in
     ;;
   *)
     echo "Next steps (POSIX unknown):"
-    echo "  1. Edit .env to set LMSTUDIO_URL + LMSTUDIO_KEY"
+    echo "  1. Edit .env to set LMSTUDIO_URL + LMSTUDIO_KEY + LMSTUDIO_MODEL + LMSTUDIO_RERANK_MODEL"
     echo "  2. ./.venv/bin/python -m src.cli doctor"
     echo "  3. ./.venv/bin/python -m src.watcher once"
     ;;

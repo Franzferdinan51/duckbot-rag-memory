@@ -739,6 +739,36 @@ async def build_doctor_checks_async() -> tuple[list[tuple[str, str, bool]], bool
         lm_info = f"unreachable ({exc})"
     add_check("LM Studio", lm_info, lm_ok)
 
+    lm_models: set[str] = set()
+    def _load_lmstudio_models() -> set[str]:
+        """Best-effort view of the loaded LM Studio model ids."""
+        nonlocal lm_models
+        if lm_models or not lm_ok:
+            return lm_models
+        try:
+            import httpx
+            headers = {"Authorization": f"Bearer {lm_key}"} if lm_key else {}
+            with httpx.Client(timeout=2.0) as c:
+                r = c.get(f"{lm_url.rstrip('/v1')}/v1/models", headers=headers)
+            if r.status_code != 200:
+                return lm_models
+            payload = r.json()
+        except Exception:
+            return lm_models
+        raw_models = []
+        if isinstance(payload, dict):
+            raw_models = payload.get("data") or payload.get("models") or []
+        elif isinstance(payload, list):
+            raw_models = payload
+        for item in raw_models:
+            if isinstance(item, dict):
+                model_id = item.get("id") or item.get("name") or item.get("model")
+            else:
+                model_id = item
+            if model_id:
+                lm_models.add(str(model_id))
+        return lm_models
+
     # 5. Decide whether any embedding provider path is actually usable.
     try:
         importlib.import_module("sentence_transformers")
@@ -785,6 +815,17 @@ async def build_doctor_checks_async() -> tuple[list[tuple[str, str, bool]], bool
         prov_name = getattr(emb, "name", "unconfigured") or "unconfigured"
         prov_dim = getattr(emb, "dim", 1536) or 1536
         add_check("chroma store", f"{stats.total} chunks across {tiers_with_data} tiers (provider={prov_name}, dim={prov_dim})", True)
+        if prov_name == "lmstudio":
+            models = _load_lmstudio_models()
+            embed_model = os.environ.get("LMSTUDIO_MODEL", "text-embedding-embeddinggemma-300m")
+            embed_ok = embed_model in models
+            add_check("LM Studio embedding model", embed_model if embed_ok else f"missing ({embed_model})", embed_ok)
+            required_names.add("LM Studio embedding model")
+            if os.environ.get("DUCKBOT_RERANK", "0").lower() in ("1", "true", "yes") or os.environ.get("LMSTUDIO_RERANK_URL"):
+                rerank_model = os.environ.get("LMSTUDIO_RERANK_MODEL", "qwen3-reranker-0.6b")
+                rerank_ok = rerank_model in models
+                add_check("LM Studio reranker model", rerank_model if rerank_ok else f"missing ({rerank_model})", rerank_ok)
+                required_names.add("LM Studio reranker model")
     except Exception as exc:
         add_check("chroma store", str(exc), False)
 

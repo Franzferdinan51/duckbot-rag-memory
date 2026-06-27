@@ -17,7 +17,7 @@ We DO need:
 - Hybrid vector + keyword search (RRF)
 - Idempotent re-ingestion (same chunk.md -> same vector ID)
 - Eval harness that catches regressions
-- LLM-fact extraction (episodic -> semantic) — the "dream" pass
+- Agent-owned fact extraction with regex fallback (episodic -> semantic) — the "dream" pass
 
 Total expected scale: 50k-100k chunks across all tiers. ChromaDB embedded mode handles this comfortably on a Mac mini.
 
@@ -87,7 +87,7 @@ Why RRF: it doesn't require score normalization (vector cosine distance and BM25
 Periodically (cron-driven), we run a "dream" pass:
 1. Pull recent episodic chunks (last 7 days)
 2. Group by topic (cosine similarity clustering — simple threshold for v0.1)
-3. For each cluster, extract durable facts using regex heuristics (v0.1) or LLM extraction (future)
+3. Ask the agent to supply durable facts when it already has them; otherwise use regex heuristics as the fallback
 4. Add extracted facts to the SEMANTIC tier
 5. Optionally mark old episodic chunks as superseded (skip for v0.1)
 
@@ -99,7 +99,7 @@ The fact extraction patterns in `consolidate.py` look for:
 - `lives at X` / `address is X` (location)
 - `prefers X` / `likes X` (preference)
 
-These are filtered through a Jaccard dedup pass before insertion.
+These are filtered through a Jaccard dedup pass before insertion. DuckBot itself does not load a separate chat model for this pass; OpenClaw or Hermes own the LLM work and pass the distilled facts back in.
 
 ## Eval methodology
 

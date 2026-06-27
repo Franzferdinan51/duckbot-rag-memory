@@ -99,7 +99,8 @@ if curl -s --max-time 2 "${LMSTUDIO_URL:-http://127.0.0.1:1234/v1/}/models" > /d
     ok "LM Studio is running at ${LMSTUDIO_URL:-http://127.0.0.1:1234/v1/}"
 else
     warn "LM Studio not reachable at ${LMSTUDIO_URL:-http://127.0.0.1:1234/v1/}"
-    warn "Start LM Studio, or edit .env to use MINIMAX_API_KEY or DUCKBOT_EMBEDDING=local"
+    warn "If you use LM Studio locally, load text-embedding-embeddinggemma-300m and qwen3-reranker-0.6b first"
+    warn "Or edit .env to use MINIMAX_API_KEY or DUCKBOT_EMBEDDING=local"
 fi
 
 info "Running doctor..."

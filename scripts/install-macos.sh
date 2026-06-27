@@ -23,7 +23,7 @@ echo "Installing deps..."
 # 3. .env
 if [[ ! -f .env ]]; then
   cp .env.example .env
-  echo "Created .env from template. EDIT IT to set LMSTUDIO_URL, LMSTUDIO_KEY, MINIMAX_API_KEY."
+  echo "Created .env from template. EDIT IT to set LMSTUDIO_URL, LMSTUDIO_KEY, LMSTUDIO_MODEL, LMSTUDIO_RERANK_MODEL, MINIMAX_API_KEY."
 else
   echo ".env already exists"
 fi
@@ -74,7 +74,7 @@ echo ""
 echo "=== Install complete ==="
 echo ""
 echo "Next steps:"
-echo "  1. Edit .env to set LMSTUDIO_URL + LMSTUDIO_KEY (and optional MiniMax key for fallback)"
+echo "  1. Edit .env to set LMSTUDIO_URL + LMSTUDIO_KEY + LMSTUDIO_MODEL + LMSTUDIO_RERANK_MODEL (and optional MiniMax key for fallback)"
 echo "  2. Run: .venv/bin/python -m src.cli doctor         (verify all green)"
 echo "  3. Run: .venv/bin/python -m src.watcher once       (cold-start full sync)"
 echo "  4. Run: .venv/bin/python -m src.watcher status     (should show: running)"

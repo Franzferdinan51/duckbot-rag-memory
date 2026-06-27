@@ -245,8 +245,8 @@ It auto-discovers from `~/.openclaw/workspace/skills/`.
 | `DUCKBOT_EMBED_RPM` | `60` | Token-bucket rate (requests per minute). |
 | `DUCKBOT_WATCH_USE_FSEVENTS` | unset | macOS FSEvents watcher (chromadb+watchdog can segfault). |
 | `LMSTUDIO_URL` | `http://127.0.0.1:1234/v1` | LM Studio base URL. |
-| `LMSTUDIO_MODEL` | `text-embedding-embeddinggemma-300m` | Embedding model to load in LM Studio. |
-| `LMSTUDIO_RERANK_MODEL` | `qwen3-reranker-0.6b` | Reranker model to load when `DUCKBOT_RERANK=1`. |
+| `LMSTUDIO_MODEL` | `text-embedding-embeddinggemma-300m` | Required embedding model for the default local LM Studio path. |
+| `LMSTUDIO_RERANK_MODEL` | `qwen3-reranker-0.6b` | Required local reranker model when `DUCKBOT_RERANK=1`. |
 | `DUCKBOT_REGEX_ONLY` | unset | Force regex-only fact extraction in `reflect()`. Use for offline / air-gapped / CI runs. (Legacy alias: `DUCKBOT_NO_LLM_EXTRACTION=1`.) The brain never auto-loads a chat model regardless of this setting. |
 | `LMSTUDIO_API_KEY` | `lm-studio` | Bearer token. LM Studio's recent builds require it. |
 | `OPENCLAW_WORKSPACE` | `~/.openclaw/workspace` | Watch this dir + auto-ingest new files. |

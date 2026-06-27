@@ -3,7 +3,7 @@ llm_client.py — minimal chat-completion client for LM Studio.
 
 This helper exists only for external jobs that already have a chat model
 loaded and want to run explicit fact extraction. DuckBot itself does not
-launch or default to a separate consolidation model.
+launch or default to any consolidation model.
 
 Design constraints:
 - Uses the caller's LM Studio server (same LMSTUDIO_URL + LMSTUDIO_KEY)
