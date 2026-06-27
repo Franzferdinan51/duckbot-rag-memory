@@ -503,6 +503,10 @@ class Memory:
 
         Updates recall_count + last_recalled_at on returned chunks.
 
+        Empty/whitespace queries raise ValueError rather than returning 5
+        random semantically-similar chunks. (The MCP server already
+        validates this; the Python API matches it now.)
+
         Args:
             query: the search text
             k: top-k results to return
@@ -519,6 +523,11 @@ class Memory:
                 forgetting curve; per-chunk stability_days + difficulty.
         """
         store, embedder = await self._ensure_initialized()
+        # Reject empty/whitespace queries — they'd return random semantically-
+        # similar chunks and waste a round-trip to the embedder. Match the
+        # MCP handler's validation so the Python API behaves consistently.
+        if not query or not query.strip():
+            raise ValueError("query must be a non-empty string")
         qe = make_query_embedder(embedder)
         tier_filter = None
         if isinstance(tier, str):

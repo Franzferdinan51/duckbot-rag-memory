@@ -322,3 +322,15 @@ async def test_remember_accepts_all_tier_strings(tmp_mem):
     for tier_str in ("working", "episodic", "semantic", "procedural"):
         r = await mem.remember(f"test for tier {tier_str}", force_tier=tier_str)
         assert r.tier.value == tier_str, f"force_tier={tier_str!r} but stored as {r.tier.value}"
+
+
+@pytest.mark.asyncio
+async def test_recall_rejects_empty_query(tmp_mem):
+    """`Memory.recall('')` must raise ValueError instead of returning 5
+    random semantically-similar chunks. Matches the MCP server's behavior."""
+    mem, _ = tmp_mem
+    # Add a known chunk first so the empty-query would otherwise find stuff.
+    await mem.remember("the duckbot project uses cloud-only models")
+    for bad in ("", "   ", "\n\n  \t"):
+        with pytest.raises(ValueError, match="query must be a non-empty string"):
+            await mem.recall(bad, k=5)

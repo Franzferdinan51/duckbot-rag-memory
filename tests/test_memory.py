@@ -69,6 +69,12 @@ async def test_recall_returns_results(mem):
 
 
 @pytest.mark.asyncio
+async def test_recall_rejects_empty_query(mem):
+    with pytest.raises(ValueError, match="non-empty string"):
+        await mem.recall("   ")
+
+
+@pytest.mark.asyncio
 async def test_recall_bumps_importance(mem):
     r1 = await mem.remember("Duckets likes Eminem.")
     initial = r1.importance
