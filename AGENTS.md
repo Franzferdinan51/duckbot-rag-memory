@@ -21,6 +21,7 @@ cp .env.example .env
 python -m src.cli ingest ~/.openclaw/workspace/memory
 
 # Query from any shell (loads .env, cross-platform venv detection)
+./duck-memory query "What did we decide about cloud-only models?"
 ./scripts/duckbot-ask "What did we decide about cloud-only models?"
 ./scripts/duckbot-ask -f compact -n 3 "Duckets correction style"
 ./scripts/brain-recall "BATMAN worker offline"   # alias for duckbot-ask

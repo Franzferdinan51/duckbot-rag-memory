@@ -65,6 +65,13 @@ The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs,
 
 ## Quick Start
 
+**Quick start** — the one command to remember:
+
+| | Command |
+|---|---|
+| macOS/Linux | `duck-memory query "what did we decide?"` |
+| Windows | `duck-memory.bat query "what did we decide?"` |
+
 **One-command setup** (recommended — picks your OS automatically):
 
 | OS | Setup | Update | Demo | Start watcher |
@@ -78,8 +85,12 @@ The setup script creates the venv, installs deps, seeds the demo corpus, runs a 
 **What you get in 30 seconds:**
 
 ```bash
-# Query the brain
-./scripts/duckbot-ask "How do I restart the BATMAN container?"
+# Query the brain — use duck-memory from anywhere on PATH
+duck-memory query "How do I restart the BATMAN container?"
+duck-memory query -n 5 "DuckBot design constraints"
+
+# Or from the repo directory
+./duck-memory query "what did we decide?"
 ./scripts/duckbot-ask -f snippet "PRL pool wallet steps"
 
 # Start the watcher daemon (recommended — polls every 5 min)
