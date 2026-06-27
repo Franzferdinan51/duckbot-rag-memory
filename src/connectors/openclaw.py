@@ -53,6 +53,7 @@ import time
 from typing import Any
 
 from .base import Brain, _run_async
+from src.tier import coerce_optional_tier
 
 
 # -----------------------------------------------------------------------------
@@ -485,7 +486,11 @@ def _validate_tier(args: dict, tool_name: str) -> dict | None:
     a clear "tier must be one of ..." message instead.
     """
     tier = args.get("tier")
-    if tier is not None and tier not in _VALID_TIERS:
+    if tier is None:
+        return None
+    try:
+        coerce_optional_tier(tier)
+    except ValueError:
         return {"error": f"tier must be one of {list(_VALID_TIERS)}, got {tier!r}", "tool": tool_name}
     return None
 

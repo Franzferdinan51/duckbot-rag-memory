@@ -402,6 +402,27 @@ def test_openclaw_handle_recall_strips_whitespace(monkeypatch):
     brain.recall.assert_not_called()
 
 
+def test_openclaw_handle_recall_ignores_whitespace_tier(monkeypatch):
+    import src.connectors.openclaw as openclaw
+    brain = MagicMock()
+    brain.recall.return_value = []
+    monkeypatch.setattr(openclaw, "Brain", lambda *a, **kw: brain)
+    out = openclaw.handle("brain_recall", {"query": "what changed", "tier": "   "})
+    assert "error" not in out
+    brain.recall.assert_called_once()
+    assert brain.recall.call_args.kwargs["tier"] == "   "
+
+
+def test_openclaw_handle_recall_rejects_invalid_tier(monkeypatch):
+    import src.connectors.openclaw as openclaw
+    brain = MagicMock()
+    monkeypatch.setattr(openclaw, "Brain", lambda *a, **kw: brain)
+    out = openclaw.handle("brain_recall", {"query": "what changed", "tier": "not-a-tier"})
+    assert "error" in out
+    assert "tier must be one of" in out["error"]
+    brain.recall.assert_not_called()
+
+
 def test_openclaw_handle_forget_by_query_strips_whitespace(monkeypatch):
     import src.connectors.openclaw as openclaw
     brain = MagicMock()
