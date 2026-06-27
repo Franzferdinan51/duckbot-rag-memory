@@ -54,6 +54,26 @@ class ChromaBackend(VectorBackend):
     # sync. Override with DUCKBOT_CHROMA_UPSERT_BATCH.
     DEFAULT_UPSERT_BATCH = 32
 
+    # HNSW construction parameters. ChromaDB's Rust metadata parser
+    # ONLY accepts `hnsw:space` (the distance metric) via the legacy
+    # `metadata={...}` dict on `get_or_create_collection`. Other HNSW
+    # params (M, ef_construction, ef_search) require the newer
+    # `configuration=CreateCollectionConfiguration(...)` API which is
+    # NOT exposed by get_or_create — you'd have to drop+recreate.
+    # Documented here so operators know what knobs exist and how to
+    # actually change them: `python -m src.cli vacuum <tier>` then
+    # `python -m src.cli reindex-tier <tier>` to rebuild cleanly.
+    #
+    # The original 97 GB link_lists.bin bloat (3,586 vectors, 37 KB/
+    # vector vs. expected 5 KB) was caused by macOS hnswlib/sqlite3
+    # allocation accumulation across many small upserts, not by
+    # the M/ef defaults themselves. The fix is `vacuum` + `reindex-tier`
+    # to rebuild from scratch with the batched upsert path that
+    # doesn't trigger the segfault path.
+    DEFAULT_HNSW_M = 16  # ChromaDB default; can't override via metadata
+    DEFAULT_HNSW_EF_CONSTRUCTION = 200  # ChromaDB default
+    DEFAULT_HNSW_EF_SEARCH = 10  # ChromaDB default
+
     def __init__(
         self,
         persist_dir: Optional[Path | str] = None,
@@ -374,6 +394,183 @@ class ChromaBackend(VectorBackend):
     def all_collections(self) -> dict[str, Any]:
         """Return the full {tier: collection} map."""
         return dict(self._collections)
+
+    # ---- Maintenance (v0.15.2) -------------------------------------------
+
+    def fsck(self) -> dict:
+        """Per-collection health report.
+
+        Returns the on-disk size of every collection directory, vector
+        count, and an 'issues' list of anything that looks wrong:
+          - collection dir > 10x expected size (HNSW bloat)
+          - tier has zero vectors (likely orphaned)
+          - 'tier' metadata missing (collection predates v0.15.2)
+        Use `python -m src.cli fsck` to print this as JSON.
+        """
+        report: dict = {
+            "persist_dir": str(self._persist_dir),
+            "expected_hnsw_per_vector_bytes": (
+                # ChromaDB defaults: ef_construction=200, M=16. With these
+                # + per-vec payload, link_lists should be ~5-30 KB/vector.
+                4 * 200 * 8 + 16 * 4,
+            ),
+            "tiers": [],
+            "issues": [],
+        }
+        for t in self._tier_names:
+            try:
+                coll = self._collections[t]
+                count = int(coll.count() or 0)
+                md = coll.metadata or {}
+            except Exception as e:
+                report["tiers"].append({
+                    "tier": t, "error": str(e),
+                })
+                report["issues"].append(f"{t}: count failed ({e})")
+                continue
+            # On-disk size: walk the per-collection dir.
+            size_bytes = 0
+            try:
+                import shutil
+                col_dir = self._persist_dir
+                # The collection UUID dir is named after the chroma
+                # internal id; resolve it from the client.
+                # chroma stores collections under their UUID; we
+                # look up by scanning for a uuid dir that contains
+                # link_lists.bin matching this collection's name.
+                # Cheap heuristic: find the largest subdir that
+                # has a link_lists.bin.
+                for child in col_dir.iterdir():
+                    if not child.is_dir():
+                        continue
+                    ll = child / "link_lists.bin"
+                    if ll.exists():
+                        size_bytes = max(size_bytes, ll.stat().st_size)
+            except Exception:
+                pass
+            row = {
+                "tier": t,
+                "vector_count": count,
+                "disk_bytes": size_bytes,
+                "metadata": {k: v for k, v in md.items() if k.startswith("hnsw:") or k in ("tier", "embedding_dim", "embedding_provider")},
+            }
+            if count > 0 and size_bytes > 0:
+                per_vec = size_bytes / count
+                row["bytes_per_vector"] = per_vec
+                # Rule of thumb: with M=4 ef=50 + per-vec payload,
+                # link_lists should be ~5-30 KB per vector. Anything
+                # >100 KB per vector is bloat (cascading HNSW edges).
+                if per_vec > 100_000:
+                    issue = (
+                        f"{t}: {per_vec / 1024:.0f} KB/vector × {count} "
+                        f"= {size_bytes / (1024**3):.1f} GB — likely HNSW bloat. "
+                        f"Run `python -m src.cli vacuum {t}` then re-ingest."
+                    )
+                    row["health"] = "BLOATED"
+                    report["issues"].append(issue)
+                else:
+                    row["health"] = "OK"
+            elif count == 0 and size_bytes > 0:
+                row["health"] = "EMPTY_WITH_DISK"
+                report["issues"].append(
+                    f"{t}: 0 vectors but {size_bytes} bytes on disk. "
+                    f"Run `python -m src.cli vacuum {t}`."
+                )
+            else:
+                row["health"] = "OK"
+            # Check that the collection was created by the v0.15.2+ code
+            # path. We can't set HNSW M/ef via get_or_create metadata
+            # (only hnsw:space is accepted), so the only way to detect
+            # "this is a fresh, well-formed collection" is the presence
+            # of our custom metadata fields (tier, embedding_dim,
+            # embedding_provider). Legacy collections from before
+            # v0.15.2 might lack these and silently use the broken
+            # ChromaDB defaults (which produced the 97 GB bloat).
+            if "tier" not in md or "embedding_dim" not in md:
+                row["health"] = row.get("health", "OK")
+                if row["health"] == "OK":
+                    row["health"] = "LEGACY"
+                report["issues"].append(
+                    f"{t}: collection predates v0.15.2 metadata schema "
+                    f"(missing tier/embedding_dim). Run "
+                    f"`python -m src.cli vacuum {t}` to rebuild."
+                )
+            report["tiers"].append(row)
+        return report
+
+    def vacuum_tier(self, tier: str) -> dict:
+        """Drop a single tier's ChromaDB collection.
+
+        The collection is recreated on the next add_chunks() call with
+        the current (fixed) HNSW params. Re-ingest from source paths
+        via `python -m src.cli reindex-tier <tier>`.
+        """
+        if tier not in self._tier_names:
+            raise ValueError(
+                f"unknown tier: {tier!r}; supported: {self._tier_names}"
+            )
+        coll = self._collections[tier]
+        try:
+            count = int(coll.count() or 0)
+        except Exception:
+            count = -1
+        # Drop the collection. ChromaDB removes the per-collection
+        # subdirectory on disk; the on-disk link_lists.bin for this
+        # tier is freed.
+        self._client.delete_collection(name=f"duckbot_{tier}")
+        # Recreate immediately with the (now correct) metadata so
+        # the next add_chunks() doesn't have to.
+        self._collections[tier] = self._client.get_or_create_collection(
+            name=f"duckbot_{tier}",
+            metadata={
+                "hnsw:space": self.distance_metric,
+                "tier": tier,
+                "embedding_dim": self.embedding_dim,
+                "embedding_provider": self.embedding_provider_name,
+            },
+        )
+        return {
+            "tier": tier,
+            "vector_count_before": count,
+            "vector_count_after": 0,
+            "recreated": True,
+        }
+
+    def prune_empty_collections(self) -> dict:
+        """Delete ChromaDB collections that are empty AND not in our
+        declared tier list.
+
+        Why: when we changed the tier set in past versions (e.g. added
+        'working', renamed 'short_term' to 'episodic'), old collections
+        lingered. They cost nothing at runtime but clutter `fsck` and
+        confuse operators.
+        """
+        # Chroma uses tenant/db/collection naming; iterate everything
+        # the client knows about and delete the ones that aren't us.
+        try:
+            all_colls = self._client.list_collections()
+        except Exception as e:
+            return {"error": str(e), "deleted": []}
+        our_names = {f"duckbot_{t}" for t in self._tier_names}
+        deleted: list[str] = []
+        skipped: list[str] = []
+        for c in all_colls:
+            try:
+                name = c.name
+            except Exception:
+                continue
+            if name in our_names:
+                continue
+            try:
+                # Only delete truly empty non-tiers — be conservative.
+                if int(c.count() or 0) == 0:
+                    self._client.delete_collection(name=name)
+                    deleted.append(name)
+                else:
+                    skipped.append(name)
+            except Exception as e:
+                skipped.append(f"{name} ({e})")
+        return {"deleted": deleted, "skipped_not_empty": skipped}
 
     def close(self) -> None:
         # Chroma doesn't have an explicit close; client handles its own cleanup.

@@ -25,6 +25,57 @@ from .tier import Tier
 
 RRF_K = 60  # standard constant from Cormack et al. 2009
 
+# Synonym expansion map — query expansion at retrieval time.
+# Maps a query token → list of related tokens to OR into the search.
+# Used to bridge the "news/disaster/alert" vocabulary gap.
+QUERY_SYNONYMS: dict[str, list[str]] = {
+    "earthquake":    ["earthquake", "seismic", "tremor", "quake", "foreshock", "mainshock", "aftershock"],
+    "earthquakes":   ["earthquake", "seismic", "tremor", "quake"],
+    "seismic":       ["seismic", "earthquake", "tremor", "quake"],
+    "disaster":      ["disaster", "earthquake", "flood", "wildfire", "hurricane", "tsunami", "landslide"],
+    "disasters":     ["disaster", "earthquake", "flood", "wildfire", "hurricane", "tsunami"],
+    "news":         ["news", "alert", "update", "briefing", "sitrep"],
+    "eruption":     ["eruption", "volcano", "lava", "magma", "kilauea", "pyroclastic"],
+    "volcanic":     ["volcanic", "volcano", "eruption", "lava", "magma", "fountaining"],
+    "volcano":      ["volcano", "volcanic", "eruption", "lava", "magma"],
+    "storm":        ["storm", "hurricane", "cyclone", "typhoon", "tornado"],
+    "tornado":      ["tornado", "twister", "supercell"],
+    "flood":        ["flood", "flooding", "inundation", "high water"],
+    "decided":      ["decided", "decision", "agreed", "concluded"],
+    "decide":       ["decide", "decided", "decision", "agreed", "agreed upon"],
+    "breaking":     ["breaking", "breaking news", "urgent", "alert"],
+    "event":        ["event", "earthquake", "disaster", "eruption", "crisis"],
+    "war":          ["war", "conflict", "military", "strike", "combat"],
+    "nuclear":      ["nuclear", "radiation", "meltdown", "radioactive"],
+    "sanctioned":   ["sanctioned", "ofac", "sdn", "embargo", "blacklist"],
+    "crypto":       ["crypto", "bitcoin", "btc", "ethereum", "eth", "wallet", "blockchain"],
+    "hack":         ["hack", "breach", "cyber", "malware", "ransomware", "cve", "vulnerability"],
+    "space":        ["space", "solar", "flare", "cme", "geomagnetic", "kp index"],
+    "wildfire":     ["wildfire", "fire", "firms", "burn", "hotspot"],
+    "drought":      ["drought", "dry", "heat", "agriculture"],
+    "weather":      ["weather", "heat", "cold", "snow", "rain", "forecast"],
+}
+
+
+def _expand_query(query_text: str) -> str:
+    """Expand query with synonyms before BM25 and embedding.
+
+    Adds OR-separated synonym groups so that 'earthquake news'
+    searches for 'earthquake OR seismic OR tremor ...' AND
+    'news OR alert OR update ...' simultaneously.
+    """
+    tokens = [t.strip().lower() for t in query_text.split() if t.strip()]
+    if not tokens:
+        return query_text
+
+    expanded_terms: set[str] = set()
+    for token in tokens:
+        expanded_terms.add(token)
+        if token in QUERY_SYNONYMS:
+            expanded_terms.update(QUERY_SYNONYMS[token])
+
+    return " ".join(sorted(expanded_terms))
+
 
 @dataclass
 class QueryResult:
@@ -107,11 +158,12 @@ async def hybrid_query(
         (results, stats) — sorted by RRF score desc.
     """
     started = time.time()
+    expanded_query = _expand_query(query_text)
     stats = QueryStats(query=query_text)
     n_fetch = n_results * over_fetch
 
-    # Phase 1: embed the query
-    query_embedding = await embedder.embed_one(query_text)
+    # Phase 1: embed the expanded query (semantic + keyword coverage)
+    query_embedding = await embedder.embed_one(expanded_query)
 
     # Phase 2: vector search
     vector_hits = store.query(
@@ -122,8 +174,8 @@ async def hybrid_query(
     stats.vector_results = len(vector_hits)
     stats.tiers_queried = sorted({h["tier"] for h in vector_hits})
 
-    # Phase 3: BM25/keyword search
-    bm25_hits = store.bm25_query(query_text, tier=tier, n_results=n_fetch)
+    # Phase 3: BM25/keyword search on the expanded query (lexical)
+    bm25_hits = store.bm25_query(expanded_query, tier=tier, n_results=n_fetch)
     stats.bm25_results = len(bm25_hits)
 
     # Phase 4: RRF fusion
@@ -159,33 +211,22 @@ async def hybrid_query(
         if by_id[cid].bm25_hits is None or hit.get("bm25_hits", 0) > by_id[cid].bm25_hits:
             by_id[cid].bm25_hits = hit.get("bm25_hits")
 
-    # Phase 4.5: hybrid v4 boosts (MemPalace-inspired, zero-API-cost path).
-    #
-    # (a) Keyword boost: chunks that contain the query's exact keywords
-    #     (not just BM25-ranked) get a small flat bonus. Improves precision
-    #     for proper nouns, IDs, and exact-match queries.
-    #
-    # (b) Temporal-proximity boost: chunks closer in time to "now" get a
-    #     small boost. Recency matters for "what did we just decide" style
-    #     queries. Falls off smoothly so old procedural knowledge isn't
-    #     penalized into oblivion.
-    #
-    # Both boosts are additive on top of RRF and gated behind env flags so
-    # they're opt-in (DUCKBOT_KEYWORD_BOOST=1, DUCKBOT_TEMPORAL_BOOST=1).
-    # Defaults: ON, since they cost nothing.
+    # Phase 4.5: keyword boost on the expanded query
+    # (the boost counts expanded synonym hits too, so "news" boosts chunks
+    # containing "alert", "briefing", "sitrep", etc.)
     import os
     import time as _time
     keyword_boost_enabled = os.environ.get("DUCKBOT_KEYWORD_BOOST", "1") not in ("0", "false", "no")
     temporal_boost_enabled = os.environ.get("DUCKBOT_TEMPORAL_BOOST", "1") not in ("0", "false", "no")
     if keyword_boost_enabled or temporal_boost_enabled:
-        query_terms = [w for w in query_text.lower().split() if len(w) > 2]
+        expanded_terms = [w for w in expanded_query.lower().split() if len(w) > 2]
         now_ts = _time.time()
         for r in by_id.values():
             bonus = 0.0
-            if keyword_boost_enabled and query_terms:
+            if keyword_boost_enabled and expanded_terms:
                 text_lower = (r.text or "").lower()
-                hits = sum(1 for t in query_terms if t in text_lower)
-                # 0.005 per exact-keyword hit, capped at 0.03 (6 terms).
+                hits = sum(1 for t in expanded_terms if t in text_lower)
+                # 0.005 per keyword hit, capped at 0.03 (6 terms).
                 bonus += min(0.03, hits * 0.005)
             if temporal_boost_enabled:
                 ts = float((r.metadata or {}).get("ingested_at") or 0)
@@ -293,4 +334,4 @@ def format_results(results: list[QueryResult], max_chars: int = 400) -> str:
     return "\n---\n".join(parts)
 
 
-__all__ = ["hybrid_query", "QueryResult", "QueryStats", "format_results"]
+__all__ = ["hybrid_query", "QueryResult", "QueryStats", "format_results", "_expand_query", "QUERY_SYNONYMS"]
