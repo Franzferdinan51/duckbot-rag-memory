@@ -26,6 +26,7 @@ from src.embeddings import (
     _TokenBucket,
     _EmbedCache,
     LMStudioEmbeddings,
+    auto_detect_provider,
     close_http_client,
     get_embed_cache_stats,
     reset_embed_cache,
@@ -154,6 +155,30 @@ class TestEmbedEndToEndCaching:
             assert stats["size"] == 3
             await provider.embed(["text1"])
             assert stats["size"] == 3
+
+
+@pytest.mark.asyncio
+async def test_auto_detect_provider_falls_back_when_lmstudio_probe_fails(monkeypatch):
+    """A bad LM Studio embedding model should not poison provider selection."""
+    import src.embeddings as emb
+
+    class FakeLMStudioEmbeddings:
+        def __init__(self, *args, **kwargs):
+            self.base_url = kwargs.get("base_url", "http://127.0.0.1:1234/v1")
+            self.model = kwargs.get("model", "bad-model")
+            self.dim = 1024
+            self.name = "lmstudio"
+
+        async def _resolve_dim(self):
+            return False
+
+    monkeypatch.delenv("DUCKBOT_EMBEDDING", raising=False)
+    monkeypatch.setenv("MINIMAX_API_KEY", "dummy-key")
+    monkeypatch.setattr(emb, "LMStudioEmbeddings", FakeLMStudioEmbeddings)
+
+    provider = await auto_detect_provider()
+
+    assert provider.name == "minimax"
 
 
 # ---------------------------------------------------------------------------

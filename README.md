@@ -112,11 +112,13 @@ The wrappers load `.env` themselves and detect the local venv, so API keys do no
 
 ## Local Model Requirements
 
-DuckBot can run in a reduced mode with embeddings only, but the default local setup expects specific LM Studio models to be downloaded. None of these ship with the repo:
+DuckBot does **not** ship model weights. If you want the default local LM Studio path to work, you must download these models yourself in LM Studio first. Without them, the default local setup will not run as documented:
 
-- Embeddings: `text-embedding-embeddinggemma-300m`
-- Reranker: `qwen3-reranker-0.6b`
-- Optional consolidation chat model: `qwen2.5-7b-instruct` or another local LM Studio chat model if you want `reflect()` to use the LLM-assisted fact extraction path
+- Required embeddings model: `text-embedding-embeddinggemma-300m`
+- Required reranker model: `qwen3-reranker-0.6b`
+- Optional consolidation model for `reflect()` and related distillation flows: `qwen2.5-7b-instruct` or another local LM Studio chat model
+
+OpenClaw and Hermes are the agent runtimes that call into this repo. This repo is the memory layer they use; it does not provide its own chat model.
 
 LM Studio is the preferred local path:
 
@@ -146,7 +148,7 @@ DUCKBOT_EMBEDDING=local
 
 If `DUCKBOT_EMBEDDING` is unset, the code auto-detects from available credentials and local services. Keep real keys only in `.env`; it is gitignored and protected by the secret-scan scripts.
 
-If you do not install the reranker model, rerank stays available as a no-op fallback. If you do not install a chat model for consolidation, `reflect()` falls back to regex-only extraction and still works, but with lower-quality semantic promotion.
+If you do not install the reranker model, rerank stays available as a no-op fallback. If you do not install a consolidation chat model, `reflect()` falls back to regex-only extraction and still works, but with lower-quality semantic promotion.
 
 ## Watcher
 

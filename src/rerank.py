@@ -254,27 +254,33 @@ def _resolve_backend(prefer: str | None = None) -> RerankBackend:
     if _BACKEND is not None:
         return _BACKEND
 
+    def _cache_if_real(backend: RerankBackend) -> RerankBackend:
+        if isinstance(backend, NoopBackend) or getattr(backend, "name", None) == "noop":
+            return backend
+        global _BACKEND
+        _BACKEND = backend
+        return backend
+
     if prefer in (None, "lmstudio", "auto"):
         try:
             be = LMStudioBackend()
-            _BACKEND = be
+            _cache_if_real(be)
             logger.info("rerank backend: %s", be.name)
-            return _BACKEND
+            return be
         except Exception as e:
             logger.debug("LM Studio rerank backend unavailable: %s", e)
 
     if prefer in (None, "sentence-transformers", "auto"):
         try:
             be = SentenceTransformersBackend()
-            _BACKEND = be
+            _cache_if_real(be)
             logger.info("rerank backend: %s", be.name)
-            return _BACKEND
+            return be
         except Exception as e:
             logger.debug("sentence-transformers backend unavailable: %s", e)
 
     logger.info("rerank backend: noop (no local model; pass-through)")
-    _BACKEND = NoopBackend()
-    return _BACKEND
+    return NoopBackend()
 
 
 def reset_backend() -> None:

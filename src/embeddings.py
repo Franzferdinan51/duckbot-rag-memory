@@ -478,7 +478,7 @@ class LMStudioEmbeddings:
             except ValueError:
                 pass
 
-    async def _resolve_dim(self) -> None:
+    async def _resolve_dim(self) -> bool:
         """Try to learn the actual embedding dim from a test query.
 
         v0.11.2: short-circuit when the dim is already known for this
@@ -493,7 +493,7 @@ class LMStudioEmbeddings:
         if cached is not None and cached > 0:
             if self.dim != cached:
                 self.dim = cached
-            return
+            return True
         try:
             client = await _get_http_client(timeout=5.0)
             resp = await client.post(
@@ -509,12 +509,15 @@ class LMStudioEmbeddings:
                 vec = data["data"][0]["embedding"]
                 self.dim = len(vec)
                 _EMBEDDER_DIM_CACHE[cache_key] = self.dim
+                return True
             else:
                 # Non-200: server up but wrong model/auth — don't retry this combo
                 _EMBEDDER_DIM_CACHE[cache_key] = None
+                return False
         except Exception:
             # Network/connection error — don't retry
             _EMBEDDER_DIM_CACHE[cache_key] = None
+        return False
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
@@ -743,7 +746,10 @@ async def auto_detect_provider(prefer: str | None = None) -> EmbeddingProvider:
     if explicit == "minimax":
         return MiniMaxEmbeddings()
     if explicit == "lmstudio":
-        return LMStudioEmbeddings()
+        provider = LMStudioEmbeddings()
+        if await provider._resolve_dim():
+            return provider
+        raise EmbeddingError("LM Studio embedding model did not return a usable vector")
     if explicit == "local":
         return LocalEmbeddings()
 
@@ -773,7 +779,12 @@ async def auto_detect_provider(prefer: str | None = None) -> EmbeddingProvider:
     last_exc = None
     for factory in chain:
         try:
-            return factory()
+            provider = factory()
+            if isinstance(provider, LMStudioEmbeddings):
+                if await provider._resolve_dim():
+                    return provider
+                continue
+            return provider
         except EmbeddingError as e:
             last_exc = e
             continue

@@ -19,14 +19,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.connectors.base import Brain, BrainStats
 from src.connectors.openclaw import handle, TOOL_DEFINITIONS, openclaw_config_snippet
 from src.connectors import hermes
+from tests._mock_embedder import MockEmbeddings
 
 
 @pytest.fixture
 def brain(tmp_path):
+    # Use MockEmbeddings so tests never hit real LM Studio / OpenAI / etc.
     return Brain(
         graph_path=tmp_path / "graph.db",
         blocks_path=tmp_path / "blocks.db",
         quarantine_path=tmp_path / "quarantine.db",
+        embedder=MockEmbeddings(),
         scan_before_remember=False,  # tests don't want surprise quarantines
     )
 

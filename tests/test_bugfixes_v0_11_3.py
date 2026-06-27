@@ -1085,23 +1085,25 @@ def test_brain_sync_both_target_works():
     """brain_sync(target='both') must write to BOTH OpenClaw and Hermes
     without crashing. The previous code did r.source_path (AttributeError)
     and r.importance (same) on QueryResult, so every call failed before
-    the previous version could even attempt a cross-agent sync.
-
-    Note: we don't use `asyncio.run(handle_brain_sync(...))` here. That
-    pattern works in isolation but creates an event loop that gets
-    closed mid-test, and any subsequent test that calls _run_async()
-    ends up referencing the closed loop ("Event loop is closed" in
-    test_hermes_cli_shim_recall). Instead we drive the async handler
-    via the same _run_async bridge the MCP server uses, which owns
-    the loop lifecycle correctly.
-    """
+    the previous version could even attempt a cross-agent sync."""
     import concurrent.futures
-    from src.connectors.base import _run_async
+    from unittest.mock import patch
+    from src.connectors.base import _run_async, BrainStats
     from src.mcp_server import handle_brain_sync
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        r = ex.submit(_run_async, handle_brain_sync({
-            "target": "both", "memory_k": 2, "user_k": 2, "dry_run": True,
-        })).result()
+
+    class FakeMemory:
+        """Memory that returns empty recall so sync succeeds with no stored data."""
+        async def recall(self, *a, **kw):
+            return [], BrainStats()
+        def stats(self):
+            return BrainStats()
+
+    # Patch Memory where mcp_server.py imported it (top-level: from src.memory import Memory).
+    with patch("src.mcp_server.Memory", FakeMemory):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            r = ex.submit(_run_async, handle_brain_sync({
+                "target": "both", "memory_k": 2, "user_k": 2, "dry_run": True,
+            })).result()
     files = r.get("files", {})
     assert "openclaw/MEMORY.md" in files
     assert "openclaw/USER.md" in files

@@ -327,6 +327,40 @@ def test_resolve_backend_prefers_lmstudio_first(monkeypatch):
     assert backend.name == "lmstudio:fake"
 
 
+def test_resolve_backend_does_not_cache_noop(monkeypatch):
+    """If no backend is available yet, later availability should still be detected."""
+    import src.rerank as rerank_module
+
+    calls = {"lm": 0}
+
+    class FakeNoop:
+        name = "noop"
+
+    class FakeLMBackend:
+        name = "lmstudio:later"
+
+        def score(self, query, docs):
+            return [0.0] * len(docs)
+
+    def fail_lm():
+        calls["lm"] += 1
+        raise RuntimeError("LM Studio not ready")
+
+    monkeypatch.setattr(rerank_module, "LMStudioBackend", fail_lm)
+    monkeypatch.setattr(rerank_module, "SentenceTransformersBackend", lambda: FakeNoop())
+    rerank_module.reset_backend()
+
+    first = rerank_module._resolve_backend()
+    assert first.name == "noop"
+    assert rerank_module._BACKEND is None
+    assert calls["lm"] == 1
+
+    monkeypatch.setattr(rerank_module, "LMStudioBackend", lambda: FakeLMBackend())
+    second = rerank_module._resolve_backend()
+    assert second.name == "lmstudio:later"
+    assert rerank_module._BACKEND is second
+
+
 # -----------------------------------------------------------------------------
 # maybe_rerank — the integration hook used by src/query.py
 # -----------------------------------------------------------------------------

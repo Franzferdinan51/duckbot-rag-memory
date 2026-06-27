@@ -88,6 +88,7 @@ _RUN_ASYNC_LOCK = threading.Lock()
 @dataclass
 class BrainStats:
     """Combined snapshot across all 5 layers."""
+    total: int = 0
     vector_chunks: int = 0
     vector_by_tier: dict = field(default_factory=dict)
     graph_entities: int = 0
@@ -181,14 +182,22 @@ class Brain:
         graph_path: Optional[Path] = None,
         blocks_path: Optional[Path] = None,
         quarantine_path: Optional[Path] = None,
+        embedder: Any | None = None,
         scan_before_remember: bool = True,
     ):
         self.graph_path = Path(graph_path) if graph_path else DEFAULT_GRAPH_PATH
         self.blocks_path = Path(blocks_path) if blocks_path else DEFAULT_BLOCKS_PATH
         self.quarantine_path = Path(quarantine_path) if quarantine_path else DEFAULT_QUARANTINE_PATH
+        self._embedder = embedder
         self.scan_before_remember = scan_before_remember
         self._scanner = InjectionScanner()
         # Lazy-initialized memory (the heavy async one) is created on demand.
+
+    def _memory(self):
+        from src.memory import Memory
+        if self._embedder is not None:
+            return Memory(embedder=self._embedder)
+        return Memory()
 
     # ------------------------------------------------------------------ remember
     def remember(
@@ -203,7 +212,6 @@ class Brain:
         Save a memory. Runs the injection scan first unless skip_scan=True.
         If quarantined, returns RememberResult(quarantined=True) and does NOT store.
         """
-        from src.memory import Memory
         from src.tier import Tier
 
         # Pre-remember: scan for injection
@@ -224,7 +232,7 @@ class Brain:
                 )
 
         async def _remember() -> RememberResult:
-            mem = Memory()
+            mem = self._memory()
             ft = Tier(force_tier) if force_tier else None
             r = await mem.remember(
                 text,
@@ -285,11 +293,10 @@ class Brain:
                 metadata. Replaces L8 Ebbinghaus retention with FSRS-6
                 power-law. Public-domain algorithm spec.
         """
-        from src.memory import Memory
         from src.tier import Tier
 
         async def _recall() -> list[RecallResult]:
-            mem = Memory()
+            mem = self._memory()
             tier_enum = Tier(tier) if tier else None
             results, _ = await mem.recall(
                 query, k=k, tier=tier_enum,
@@ -807,7 +814,7 @@ class Brain:
             from src.memory import Memory
 
             async def _recall():
-                mem = Memory()
+                mem = self._memory()
                 store, _ = await mem._ensure_initialized()
                 embedder = await auto_detect_provider()
                 # Pass the embedder directly — hybrid_query expects an EmbeddingProvider,
@@ -1078,7 +1085,7 @@ class Brain:
         from src.fsrs import fsrs_retrievability
 
         async def _queue() -> list[dict]:
-            mem = Memory()
+            mem = self._memory()
             tier_enum = Tier(tier) if tier else None
             t = now if now is not None else time.time()
             # Get a wide net of recent chunks; the FSRS filter is cheap.
@@ -1147,7 +1154,7 @@ class Brain:
         from src.decay import ebbinghaus_retention
 
         async def _status() -> dict:
-            mem = Memory()
+            mem = self._memory()
             tier_enum = Tier(tier) if tier else None
             t = now if now is not None else time.time()
             results, _ = await mem.recall(
@@ -1231,7 +1238,7 @@ class Brain:
         from src.decay import ebbinghaus_retention
 
         async def _apply() -> dict:
-            mem = Memory()
+            mem = self._memory()
             tier_enum = Tier(tier) if tier else None
             t = now if now is not None else time.time()
             # Walk each tier (overfetch a bit so we don't bias to one tier).
@@ -1315,11 +1322,10 @@ class Brain:
 
         Returns: {deleted: int, deleted_ids: list[str], results: list}.
         """
-        from src.memory import Memory
         from src.tier import Tier
 
         async def _forget() -> dict:
-            mem = Memory()
+            mem = self._memory()
             tier_enum = Tier(tier) if tier else None
             results, _ = await mem.recall(query, k=k, tier=tier_enum)
             deleted = []
@@ -1354,10 +1360,8 @@ class Brain:
 
         Returns: list of {chunk_id, verbatim_text, source_path, tier, metadata}.
         """
-        from src.memory import Memory
-
         async def _search() -> list[dict]:
-            mem = Memory()
+            mem = self._memory()
             # Wide net — verbatim search is just substring on each chunk's
             # verbatim_text field (stored in metadata per L13).
             results, _ = await mem.recall(
@@ -1415,8 +1419,7 @@ class Brain:
         Returns a dict with new_entries, skipped, by_kind, sources.
         """
         from .dreaming import read_dreams
-        from src.memory import Memory
-        mem = Memory()
+        mem = self._memory()
         return read_dreams(mem)
 
     def dreaming_cycle(self, k: int = 10, min_importance: float = 0.5) -> dict:
@@ -1427,8 +1430,7 @@ class Brain:
         output_files.
         """
         from .dreaming import write_dream_cycle
-        from src.memory import Memory
-        mem = Memory()
+        mem = self._memory()
         return write_dream_cycle(mem, k=k, min_importance=min_importance)
 
     def learn(
@@ -1444,8 +1446,7 @@ class Brain:
         hermes_invoked, hermes_output.
         """
         from .learn import learn as _learn
-        from src.memory import Memory
-        mem = Memory()
+        mem = self._memory()
         return _learn(
             mem,
             text=text,

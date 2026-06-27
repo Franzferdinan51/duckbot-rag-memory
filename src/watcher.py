@@ -138,8 +138,16 @@ def save_state(state: dict) -> None:
 
 async def sync_files(paths: list[str], state: dict) -> dict:
     """One full sync pass. Returns stats: {added, updated, deleted, skipped, errors}."""
-    mem = Memory()
-    store, _ = await mem._ensure_initialized()
+    mem = None
+    store = None
+
+    async def _ensure_memory():
+        nonlocal mem, store
+        if mem is None:
+            mem = Memory()
+            store, _ = await mem._ensure_initialized()
+        return mem, store
+
     stats = {"added": 0, "updated": 0, "deleted": 0, "skipped": 0, "errors": []}
 
     # Build the set of current files. Sort by mtime DESC so newly-created
@@ -168,6 +176,7 @@ async def sync_files(paths: list[str], state: dict) -> dict:
     # 1. Handle deletes (files in state but no longer present)
     known_files = set(state.get("files", {}).keys())
     for path in known_files - set(current_files.keys()):
+        _, store = await _ensure_memory()
         chunk_ids = state["files"][path].get("chunk_ids", [])
         for cid in chunk_ids:
             for tier in Tier:
@@ -223,6 +232,7 @@ async def sync_files(paths: list[str], state: dict) -> dict:
         # Delete prior chunks for this file
         old_chunk_ids = prev.get("chunk_ids", [])
         for cid in old_chunk_ids:
+            _, store = await _ensure_memory()
             for tier in Tier:
                 try:
                     store.collection_for(tier).delete(ids=[cid])
@@ -238,6 +248,7 @@ async def sync_files(paths: list[str], state: dict) -> dict:
             try:
                 a = classify(c.source_path, c.text)
                 a = reclassify_for_working(c.source_path, a)
+                mem, _ = await _ensure_memory()
                 r = await mem.remember(
                     c.text, source_path=c.source_path, metadata={"section_header": c.section_header}
                 )
