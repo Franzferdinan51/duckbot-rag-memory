@@ -35,6 +35,11 @@ def test_create_duplicate_raises(store):
         store.create("foo", "baz")
 
 
+def test_create_rejects_blank_name(store):
+    with pytest.raises(ValueError, match="name is required"):
+        store.create("   ", "bar")
+
+
 def test_get_block(store):
     store.create("test", "hello")
     b = store.get("test")
@@ -63,6 +68,11 @@ def test_write_overwrites_existing(store):
     assert store.get("foo").content == "updated"
 
 
+def test_write_rejects_blank_name(store):
+    with pytest.raises(ValueError, match="name is required"):
+        store.write("   ", "updated")
+
+
 def test_append_to_existing(store):
     store.create("notes", "line 1")
     b = store.append("notes", "line 2")
@@ -73,6 +83,11 @@ def test_append_to_existing(store):
 def test_append_creates_if_missing(store):
     b = store.append("new", "first line")
     assert b.content == "first line"
+
+
+def test_append_rejects_blank_name(store):
+    with pytest.raises(ValueError, match="name is required"):
+        store.append("   ", "first line")
 
 
 def test_replace_first_occurrence(store):
@@ -102,6 +117,10 @@ def test_delete_block(store):
     assert store.delete("temp")
     assert store.get("temp") is None
     assert not store.delete("temp")  # second delete is a no-op
+
+
+def test_delete_blank_name_is_noop(store):
+    assert not store.delete("   ")
 
 
 # --- Char limits ------------------------------------------------------------

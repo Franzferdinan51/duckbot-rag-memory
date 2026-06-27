@@ -52,6 +52,24 @@ def test_block_write_updates(brain):
     assert read["text"] == "second"
 
 
+def test_block_write_rejects_blank_name(brain):
+    r = brain.block_write("   ", "second")
+    assert "error" in r
+    assert "name is required" in r["error"]
+
+
+def test_block_append_rejects_blank_name(brain):
+    r = brain.block_append("   ", "second")
+    assert "error" in r
+    assert "name is required" in r["error"]
+
+
+def test_block_delete_rejects_blank_name(brain):
+    r = brain.block_delete("   ")
+    assert "error" in r
+    assert "name is required" in r["error"]
+
+
 def test_block_read_missing(brain):
     assert brain.block_read("nonexistent") is None
 
@@ -96,6 +114,12 @@ def test_graph_upsert_and_query(brain):
     r = brain.graph_query("Alice")
     assert len(r) == 1
     assert r[0]["name"] == "Alice"
+
+
+def test_graph_upsert_rejects_blank_name(brain):
+    r = brain.graph_upsert_entity("   ", "person")
+    assert "error" in r
+    assert "name is required" in r["error"]
 
 
 def test_graph_add_relationship(brain):

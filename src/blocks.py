@@ -99,6 +99,9 @@ class BlockStore:
     # ---- CRUD --------------------------------------------------------------
 
     def get(self, name: str) -> Optional[Block]:
+        name = self._clean_name(name, required=False)
+        if name is None:
+            return None
         row = self._conn.execute("SELECT * FROM blocks WHERE name = ?", (name,)).fetchone()
         if not row:
             return None
@@ -120,6 +123,7 @@ class BlockStore:
                char_limit: Optional[int] = None,
                actor: str = "agent", note: Optional[str] = None) -> Block:
         """Create a new block. Errors if it already exists."""
+        name = self._clean_name(name, required=True)
         if self.get(name) is not None:
             raise ValueError(f"block '{name}' already exists; use write() or replace() to update")
         if char_limit is not None and len(content) > char_limit:
@@ -139,6 +143,7 @@ class BlockStore:
               note: Optional[str] = None) -> Block:
         """Set block content (overwrites). Creates block if it doesn't exist.
         Respects char_limit."""
+        name = self._clean_name(name, required=True)
         existing = self.get(name)
         if existing is None:
             return self.create(name, content, actor=actor, note=note)
@@ -160,6 +165,7 @@ class BlockStore:
     def append(self, name: str, text: str, actor: str = "agent",
                note: Optional[str] = None) -> Block:
         """Append text to a block (with newline separator)."""
+        name = self._clean_name(name, required=True)
         existing = self.get(name)
         if existing is None:
             return self.create(name, text, actor=actor, note=note)
@@ -170,6 +176,7 @@ class BlockStore:
                 note: Optional[str] = None) -> bool:
         """Replace the first occurrence of `old` with `new` in the block.
         Returns True if a replacement was made."""
+        name = self._clean_name(name, required=True)
         existing = self.get(name)
         if existing is None:
             raise ValueError(f"block '{name}' does not exist")
@@ -187,6 +194,9 @@ class BlockStore:
                           note=note or "rethink")
 
     def delete(self, name: str) -> bool:
+        name = self._clean_name(name, required=False)
+        if name is None:
+            return False
         cur = self._conn.execute("DELETE FROM blocks WHERE name = ?", (name,))
         self._conn.commit()
         return cur.rowcount > 0
@@ -204,6 +214,9 @@ class BlockStore:
     # ---- History -----------------------------------------------------------
 
     def history(self, name: str, limit: int = 50) -> list[dict]:
+        name = self._clean_name(name, required=False)
+        if name is None:
+            return []
         rows = self._conn.execute(
             "SELECT * FROM block_history WHERE name = ? ORDER BY created_at DESC LIMIT ?",
             (name, limit),
@@ -262,6 +275,15 @@ class BlockStore:
             (str(uuid.uuid4()), name, old_content, new_content, operation,
              actor, note, time.time()),
         )
+
+    @staticmethod
+    def _clean_name(name: str, *, required: bool) -> Optional[str]:
+        cleaned = (name or "").strip()
+        if not cleaned:
+            if required:
+                raise ValueError("name is required")
+            return None
+        return cleaned
 
 
 # ---------------------------------------------------------------------------

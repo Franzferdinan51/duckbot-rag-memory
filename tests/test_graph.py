@@ -40,6 +40,11 @@ def test_upsert_entity_is_idempotent_by_name(graph):
     assert "gateway" in e2.aliases
 
 
+def test_upsert_entity_rejects_blank_name(graph):
+    with pytest.raises(ValueError, match="name is required"):
+        graph.upsert_entity("   ", "concept")
+
+
 def test_find_entity_by_alias(graph):
     graph.upsert_entity("Duckets", "person", aliases=["Ryan"])
     found = graph.find_entity("Ryan")
@@ -56,6 +61,14 @@ def test_add_and_query_active_relationship(graph):
     active = graph.query_active(entity_id=duckets.id)
     assert len(active) == 1
     assert active[0].label == "maintains"
+
+
+def test_add_relationship_rejects_blank_fields(graph):
+    duckets = graph.upsert_entity("Duckets", "person")
+    with pytest.raises(ValueError, match="target_id is required"):
+        graph.add_relationship(duckets.id, "   ", "maintains")
+    with pytest.raises(ValueError, match="label is required"):
+        graph.add_relationship(duckets.id, duckets.id, "   ")
 
 
 def test_relationship_validity_window(graph):

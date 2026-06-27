@@ -197,9 +197,12 @@ class Graph:
                        notes: Optional[str] = None, entity_id: Optional[str] = None) -> Entity:
         """Insert or update an entity by name. If an entity with this name
         already exists, return the existing one (and merge aliases)."""
+        name = self._clean_required_text(name, "name")
+        kind = (kind or "concept").strip() or "concept"
+        clean_aliases = [a.strip() for a in aliases if a and a.strip()]
         existing = self._find_entity_by_name(name)
         if existing is not None:
-            new_aliases = list(set(existing.aliases) | set(aliases))
+            new_aliases = list(set(existing.aliases) | set(clean_aliases))
             self._conn.execute(
                 "UPDATE entities SET aliases = ? WHERE id = ?",
                 (self._encode_json(new_aliases), existing.id),
@@ -216,7 +219,7 @@ class Graph:
             self._conn.commit()
             return existing
         eid = entity_id or str(uuid.uuid4())
-        ent = Entity(id=eid, name=name, kind=kind, aliases=list(aliases), notes=notes)
+        ent = Entity(id=eid, name=name, kind=kind, aliases=clean_aliases, notes=notes)
         self._conn.execute(
             "INSERT INTO entities (id, name, kind, aliases, notes, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
@@ -291,6 +294,9 @@ class Graph:
         2024" might be valid_from=2024 but recorded_from=2026 (when we
         ingested the fact).
         """
+        source_id = self._clean_required_text(source_id, "source_id")
+        target_id = self._clean_required_text(target_id, "target_id")
+        label = self._clean_required_text(label, "label")
         if valid_from is None:
             valid_from = time.time()
         if recorded_from is None:
@@ -366,6 +372,11 @@ class Graph:
         If entity_id is given, only relationships touching that entity."""
         if at is None:
             at = time.time()
+        raw_entity_id = entity_id
+        entity_id = self._clean_optional_text(entity_id)
+        if raw_entity_id is not None and entity_id is None:
+            return []
+        label = self._clean_optional_text(label)
         if entity_id is not None:
             rows = self._conn.execute(
                 "SELECT * FROM relationships "
@@ -399,6 +410,11 @@ class Graph:
         """
         if at is None:
             at = time.time()
+        raw_entity_id = entity_id
+        entity_id = self._clean_optional_text(entity_id)
+        if raw_entity_id is not None and entity_id is None:
+            return []
+        label = self._clean_optional_text(label)
         if entity_id is not None:
             rows = self._conn.execute(
                 "SELECT * FROM relationships "
@@ -588,6 +604,10 @@ class Graph:
 
     def history(self, entity_id: str) -> list[Relationship]:
         """All relationships (active + ended) touching this entity, newest first."""
+        raw_entity_id = entity_id
+        entity_id = self._clean_optional_text(entity_id)
+        if raw_entity_id is not None and entity_id is None:
+            return []
         rows = self._conn.execute(
             "SELECT * FROM relationships WHERE source_id = ? OR target_id = ? "
             "ORDER BY valid_from DESC",
@@ -626,6 +646,9 @@ class Graph:
     # -- Internals ----------------------------------------------------------
 
     def _find_entity_by_name(self, name: str) -> Optional[Entity]:
+        name = self._clean_optional_text(name)
+        if not name:
+            return None
         # exact name match first (uses idx_entities_name)
         row = self._conn.execute(
             "SELECT * FROM entities WHERE name = ?", (name,)
@@ -684,3 +707,15 @@ class Graph:
             return json.loads(s)
         except Exception:
             return None
+
+    @staticmethod
+    def _clean_required_text(value: str, field: str) -> str:
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise ValueError(f"{field} is required")
+        return cleaned
+
+    @staticmethod
+    def _clean_optional_text(value: Optional[str]) -> Optional[str]:
+        cleaned = (value or "").strip()
+        return cleaned or None

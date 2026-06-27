@@ -529,15 +529,22 @@ class Brain:
         simple (name/kind/aliases/notes)."""
         if not self.graph_path.exists() and not self.graph_path.parent.exists():
             self.graph_path.parent.mkdir(parents=True, exist_ok=True)
-        with Graph(path=self.graph_path) as g:
-            e = g.upsert_entity(name, kind, aliases=[], notes=str(properties) if properties else None)
-            return {
-                "id": e.id,
-                "name": e.name,
-                "kind": e.kind,
-                "aliases": e.aliases,
-                "notes": e.notes,
-            }
+        name = (name or "").strip()
+        if not name:
+            return {"error": "name is required"}
+        kind = (kind or "concept").strip() or "concept"
+        try:
+            with Graph(path=self.graph_path) as g:
+                e = g.upsert_entity(name, kind, aliases=[], notes=str(properties) if properties else None)
+                return {
+                    "id": e.id,
+                    "name": e.name,
+                    "kind": e.kind,
+                    "aliases": e.aliases,
+                    "notes": e.notes,
+                }
+        except ValueError as exc:
+            return {"error": str(exc)}
 
     def graph_add_relationship(
         self,
@@ -549,18 +556,26 @@ class Brain:
         """Add a relationship between two named entities. Creates them if missing."""
         if not self.graph_path.exists() and not self.graph_path.parent.exists():
             self.graph_path.parent.mkdir(parents=True, exist_ok=True)
-        with Graph(path=self.graph_path) as g:
-            s = g.upsert_entity(source, "concept")
-            t = g.upsert_entity(target, "concept")
-            r = g.add_relationship(s.id, t.id, label, source=None)
-            return {
-                "id": r.id,
-                "source_id": r.source_id,
-                "target_id": r.target_id,
-                "label": r.label,
-                "valid_from": r.valid_from,
-                "valid_until": r.valid_until,
-            }
+        source = (source or "").strip()
+        target = (target or "").strip()
+        label = (label or "").strip()
+        if not source or not target or not label:
+            return {"error": "source, target, and label are required"}
+        try:
+            with Graph(path=self.graph_path) as g:
+                s = g.upsert_entity(source, "concept")
+                t = g.upsert_entity(target, "concept")
+                r = g.add_relationship(s.id, t.id, label, source=None)
+                return {
+                    "id": r.id,
+                    "source_id": r.source_id,
+                    "target_id": r.target_id,
+                    "label": r.label,
+                    "valid_from": r.valid_from,
+                    "valid_until": r.valid_until,
+                }
+        except ValueError as exc:
+            return {"error": str(exc)}
 
     def graph_query(
         self, name: Optional[str] = None, kind: Optional[str] = None, at: Optional[float] = None
@@ -569,6 +584,7 @@ class Brain:
         If `at` is given, only return those active at that time."""
         if not self.graph_path.exists():
             return []
+        name = (name or "").strip() or None
         with Graph(path=self.graph_path) as g:
             entities = g.list_entities(kind=kind)
             if name:
@@ -641,6 +657,9 @@ class Brain:
         """Get all active relationships for a named entity at time t (default: now)."""
         if not self.graph_path.exists():
             return []
+        entity_name = (entity_name or "").strip()
+        if not entity_name:
+            return []
         with Graph(path=self.graph_path) as g:
             ent = g.find_entity(entity_name)
             if not ent:
@@ -663,6 +682,9 @@ class Brain:
     def graph_history(self, entity_name: str) -> list[dict]:
         """Get the full history (active + ended) of relationships for an entity."""
         if not self.graph_path.exists():
+            return []
+        entity_name = (entity_name or "").strip()
+        if not entity_name:
             return []
         with Graph(path=self.graph_path) as g:
             ent = g.find_entity(entity_name)
@@ -705,6 +727,21 @@ class Brain:
         live graph. Returns an empty trace (with a note) if the
         graph file doesn't exist or the entity isn't found.
         """
+        entity_name = (entity_name or "").strip()
+        if not entity_name:
+            return {
+                "root": "",
+                "root_entity_id": "",
+                "total_nodes": 0,
+                "max_depth_reached": 0,
+                "critical_depth": 0,
+                "coverage": 0.0,
+                "immediate_edge_count": 0,
+                "precursors_with_upstream": 0,
+                "chain": [],
+                "influence_modes": [],
+                "notes": ["entity name is required"],
+            }
         if not self.graph_path.exists():
             return {
                 "root": entity_name, "root_entity_id": "",
@@ -765,6 +802,9 @@ class Brain:
 
         Public-domain graph walk + recall; no LLM call.
         """
+        entity = (entity or "").strip()
+        if not entity:
+            return {"error": "entity is required"}
         from src.tier import Tier
         from src.graph import Graph
         from src.memory import Memory
@@ -878,7 +918,8 @@ class Brain:
         pending entries from `block_rethink()` that an external LLM
         script should drain next. Empty list if no queue or queue empty.
         """
-        if not self.blocks_path.exists():
+        name = (name or "").strip()
+        if not name or not self.blocks_path.exists():
             return None
         with BlockStore(path=self.blocks_path) as s:
             b = s.get(name)
@@ -914,30 +955,39 @@ class Brain:
         """Replace a block's content (creates it if missing)."""
         if not self.blocks_path.exists() and not self.blocks_path.parent.exists():
             self.blocks_path.parent.mkdir(parents=True, exist_ok=True)
-        with BlockStore(path=self.blocks_path) as s:
-            existing = s.get(name)
-            if existing is None:
-                b = s.create(name, text)
-                return {"name": name, "action": "created", "updated_at": b.updated_at, "char_count": len(text)}
-            b = s.write(name, text)
-            return {
-                "name": b.name,
-                "action": "updated",
-                "updated_at": b.updated_at,
-                "char_count": len(text),
-            }
+        name = (name or "").strip()
+        if not name:
+            return {"error": "name is required"}
+        try:
+            with BlockStore(path=self.blocks_path) as s:
+                existing = s.get(name)
+                if existing is None:
+                    b = s.create(name, text)
+                    return {"name": name, "action": "created", "updated_at": b.updated_at, "char_count": len(text)}
+                b = s.write(name, text)
+                return {
+                    "name": b.name,
+                    "action": "updated",
+                    "updated_at": b.updated_at,
+                    "char_count": len(text),
+                }
+        except ValueError as exc:
+            return {"error": str(exc)}
 
     def block_append(self, name: str, text: str) -> dict:
         """Append text to an existing block."""
+        name = (name or "").strip()
+        if not name:
+            return {"error": "name is required"}
         if not self.blocks_path.exists():
             return {"error": f"block not found: {name}"}
-        with BlockStore(path=self.blocks_path) as s:
-            try:
+        try:
+            with BlockStore(path=self.blocks_path) as s:
                 s.append(name, text)
                 b = s.get(name)
-            except (KeyError, ValueError) as e:
-                return {"error": str(e)}
-            return {"name": b.name, "updated_at": b.updated_at, "char_count": len(b.content)}
+        except (KeyError, ValueError) as e:
+            return {"error": str(e)}
+        return {"name": b.name, "updated_at": b.updated_at, "char_count": len(b.content)}
 
     def block_rethink(self, name: str, instruction: str) -> dict:
         """Queue an LLM-driven rethink of a block.
@@ -967,6 +1017,9 @@ class Brain:
         import json
         import time
 
+        name = (name or "").strip()
+        if not name:
+            return {"error": "name is required"}
         # Ensure data/blocks/ exists
         self.blocks_path.parent.mkdir(parents=True, exist_ok=True)
         queue_path = self.blocks_path.parent / f"{name}.rethink.jsonl"
@@ -1004,6 +1057,9 @@ class Brain:
 
     def block_delete(self, name: str) -> dict:
         """Delete a memory block by name."""
+        name = (name or "").strip()
+        if not name:
+            return {"deleted": False, "error": "name is required"}
         if not self.blocks_path.exists():
             return {"deleted": False, "reason": "no blocks.db"}
         with BlockStore(path=self.blocks_path) as s:
