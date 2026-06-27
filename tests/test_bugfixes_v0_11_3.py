@@ -800,6 +800,8 @@ def test_dreaming_cycle_distills_to_semantic():
     assert "distilled_into_semantic" in fields
     # The cycle() body must call memory.remember with force_tier=semantic.
     src = inspect.getsource(DreamingBridge.cycle)
+    assert 'query="important memory"' in src
+    assert 'query=""' not in src
     assert 'force_tier="semantic"' in src
     assert "distillation" in src
 

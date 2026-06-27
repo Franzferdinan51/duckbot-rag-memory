@@ -233,14 +233,20 @@ class DreamingBridge:
         """
         result = DreamCycleResult()
 
-        # Sample episodic + procedural chunks via recall() with empty query.
-        # This returns the most recent chunks. Importance is read from
-        # the result metadata (set at remember() time). Dedupe by chunk_id
-        # in case recall() returns overlapping hits across tiers.
+        # Sample episodic + procedural chunks via a neutral query. This
+        # returns the most recent/high-signal chunks without relying on the
+        # now-invalid empty-query behavior. Importance is read from the
+        # result metadata (set at remember() time). Dedupe by chunk_id in
+        # case recall() returns overlapping hits across tiers.
         seen: set = set()
         chunks: list = []
         try:
-            r, _ = await self.memory.recall(query="", k=k, tier="episodic")
+            r, _ = await self.memory.recall(
+                query="important memory",
+                k=k,
+                tier="episodic",
+                min_importance=min_importance,
+            )
             for hit in r:
                 cid = getattr(hit, "chunk_id", None) or id(hit)
                 if cid not in seen:
@@ -250,7 +256,12 @@ class DreamingBridge:
             result.error = f"recall(episodic) failed: {e}"
             return result
         try:
-            r, _ = await self.memory.recall(query="", k=k, tier="procedural")
+            r, _ = await self.memory.recall(
+                query="important memory",
+                k=k,
+                tier="procedural",
+                min_importance=min_importance,
+            )
             for hit in r:
                 cid = getattr(hit, "chunk_id", None) or id(hit)
                 if cid not in seen:

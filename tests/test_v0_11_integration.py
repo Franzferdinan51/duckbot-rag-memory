@@ -299,7 +299,10 @@ def test_dreaming_bridge_cycle_writes_output_file(tmp_dreaming):
     from src.memory import Memory
 
     class FakeMemory:
+        seen_queries = []
+
         async def recall(self, query, k, tier=None, **kwargs):
+            self.seen_queries.append((query, tier, kwargs))
             # Return 3 high-importance chunks for the requested tier. If
             # called twice (episodic + procedural), return same data; the
             # cycle deduplicates by chunk_id, so we'll still get 3.
@@ -330,6 +333,7 @@ def test_dreaming_bridge_cycle_writes_output_file(tmp_dreaming):
     assert out_path.exists()
     body = out_path.read_text()
     assert "high-importance chunk" in body
+    assert all(q.strip() for q, _, _ in FakeMemory.seen_queries)
 
 
 def test_dreaming_bridge_cycle_skips_low_importance(tmp_dreaming):
@@ -337,7 +341,10 @@ def test_dreaming_bridge_cycle_skips_low_importance(tmp_dreaming):
     from src.connectors.dreaming import DreamingBridge
 
     class FakeMemory:
+        seen_queries = []
+
         async def recall(self, query, k, tier=None, **kwargs):
+            self.seen_queries.append((query, tier, kwargs))
             return _fake_recall([
                 _FakeRecallResult(
                     text="low importance chunk with enough text to pass the 40-char filter",
@@ -365,6 +372,7 @@ def test_dreaming_bridge_cycle_skips_low_importance(tmp_dreaming):
 
     r = asyncio.run(run())
     assert r.distilled_chunks == 1  # only the high-importance one
+    assert all(q.strip() for q, _, _ in FakeMemory.seen_queries)
 
 
 # -----------------------------------------------------------------------------
