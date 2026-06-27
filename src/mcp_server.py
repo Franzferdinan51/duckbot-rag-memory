@@ -510,7 +510,7 @@ TOOLS = [
     },
     {
         "name": "brain_import",
-        "description": "Import a markdown file into the brain. Each top-level section (## Heading) becomes one remembered chunk; the section text is the content; the section heading is auto-detected for tier (semantic if 'rule/preference/decision', episodic if 'YYYY-MM-DD', procedural if 'how to/always/never', else working). Use this to ingest chat-history exports, project docs, or another brain's brain_export dump. Source paths are stamped so brain_recall can cite provenance.",
+        "description": "Import a markdown file into the brain. Each top-level section (## Heading) becomes one remembered chunk; the section text is the content; the section heading is auto-detected for tier (semantic if 'decision/preference/setup', episodic if 'YYYY-MM-DD', procedural if 'rule/how to/always/never/must/should not/do not', else semantic). Use this to ingest chat-history exports, project docs, or another brain's brain_export dump. Source paths are stamped so brain_recall can cite provenance.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1876,9 +1876,10 @@ async def handle_brain_import(args: dict) -> dict:
     Each top-level section (## Heading) becomes one remembered chunk;
     the section text is the content. The section heading is
     auto-detected for tier:
-      - 'rule' / 'preference' / 'decision' / 'setup' / 'how to' / 'always' /
-        'never' / 'must' / 'should not' → procedural
       - 'YYYY-MM-DD' or 'today' / 'yesterday' → episodic
+      - 'rule' / 'how to' / 'always' / 'never' / 'must' / 'should not' /
+        'do not' → procedural
+      - 'decision' / 'preference' / 'setup' → semantic
       - otherwise → semantic (general knowledge)
     Source paths are stamped so brain_recall can cite provenance.
     """
@@ -1979,8 +1980,8 @@ async def handle_brain_import(args: dict) -> dict:
     parsed_chunks = _parse_export_chunks(text)
 
     # Heuristic tier classifier for the import.
-    PROC_KEYS = ("rule", "preference", "decision", "setup", "how to",
-                "always", "never", "must", "should not", "do not")
+    PROC_KEYS = ("rule", "how to", "always", "never", "must", "should not", "do not")
+    SEM_KEYS = ("preference", "prefers", "likes", "decision", "decided", "setup", "installed")
     EPIS_KEYS = ("today", "yesterday", "log", "session")
     DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -1990,6 +1991,8 @@ async def handle_brain_import(args: dict) -> dict:
             return "episodic"
         if any(k in head for k in PROC_KEYS):
             return "procedural"
+        if any(k in head for k in SEM_KEYS):
+            return "semantic"
         return "semantic"
 
     mem = Memory()

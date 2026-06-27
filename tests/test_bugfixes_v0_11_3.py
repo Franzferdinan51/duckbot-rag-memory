@@ -1865,6 +1865,63 @@ def test_brain_export_import_round_trip_preserves_chunk_boundaries(tmp_path, mon
     assert imported_calls[2]["source_path"] == "/src/rules.md"
 
 
+def test_brain_import_generic_sections_classifies_durable_facts_as_semantic(tmp_path, monkeypatch):
+    """Generic markdown imports should put decisions/preferences/setup in semantic.
+
+    Export round trips keep explicit tier metadata, but arbitrary user markdown
+    relies on the fallback classifier. The public schema advertises durable facts
+    as semantic and only rules/how-tos/imperatives as procedural.
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    from src.mcp_server import handle_brain_import
+
+    import_path = tmp_path / "import.md"
+    import_path.write_text(
+        "\n".join([
+            "# Import",
+            "",
+            "## Decision: local-first embeddings",
+            "",
+            "Use LM Studio by default.",
+            "",
+            "## Preference: dark mode",
+            "",
+            "Duckets prefers dark mode.",
+            "",
+            "## Setup: watcher",
+            "",
+            "Installed watcher daemon.",
+            "",
+            "## How to restart watcher",
+            "",
+            "Always use scripts/start-watcher.sh.",
+        ]),
+        encoding="utf-8",
+    )
+
+    calls = []
+
+    class _FakeImportMemory:
+        async def remember(self, text, source_path, metadata=None, force_tier=None):
+            calls.append({"text": text, "force_tier": force_tier})
+            return SimpleNamespace(stored=True)
+
+    monkeypatch.setattr("src.memory.Memory", _FakeImportMemory)
+    monkeypatch.setattr("src.memory._DEFAULT_MEMORY", None)
+
+    result = asyncio.run(handle_brain_import({"in_path": str(import_path)}))
+
+    assert result["stored"] == 4
+    assert [call["force_tier"] for call in calls] == [
+        "semantic",
+        "semantic",
+        "semantic",
+        "procedural",
+    ]
+
+
 def test_brain_seed_demo_handles_memory_recall_tuple(monkeypatch):
     """brain_seed_demo must unwrap Memory.recall()'s (results, stats) tuple.
 
