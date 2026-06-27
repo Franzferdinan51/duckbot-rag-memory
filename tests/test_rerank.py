@@ -452,6 +452,9 @@ def test_lmstudio_backend_uses_default_url(monkeypatch):
 
 
 def test_lmstudio_backend_respects_env(monkeypatch):
+    # delenv first to ensure clean slate regardless of .env or prior test state
+    monkeypatch.delenv("LMSTUDIO_RERANK_URL", raising=False)
+    monkeypatch.delenv("LMSTUDIO_RERANK_MODEL", raising=False)
     monkeypatch.setenv("LMSTUDIO_RERANK_URL", "http://localhost:9999/v1/rerank")
     monkeypatch.setenv("LMSTUDIO_RERANK_MODEL", "custom-reranker")
     be = LMStudioBackend()
@@ -460,6 +463,9 @@ def test_lmstudio_backend_respects_env(monkeypatch):
 
 
 def test_lmstudio_backend_explicit_overrides_env(monkeypatch):
+    # delenv first to ensure clean slate regardless of .env or prior test state
+    monkeypatch.delenv("LMSTUDIO_RERANK_URL", raising=False)
+    monkeypatch.delenv("LMSTUDIO_RERANK_MODEL", raising=False)
     monkeypatch.setenv("LMSTUDIO_RERANK_URL", "http://localhost:9999/v1/rerank")
     be = LMStudioBackend(url="http://other:8000/v1/rerank", model="x")
     assert be.url == "http://other:8000/v1/rerank"
