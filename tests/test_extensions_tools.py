@@ -245,6 +245,13 @@ def test_dispatch_brain_wake_up_queryless(fake_brain):
         assert kwargs.get("query") is None
 
 
+def test_brain_wake_up_description_matches_queryless_behavior():
+    wake = next(t for t in surface.TOOLS if t["name"] == "brain_wake_up")
+    desc = wake["description"]
+    assert "blank query" in desc.lower()
+    assert "query=''" not in desc
+
+
 def test_dispatch_brain_remember_is_non_blocking(fake_brain):
     """brain_remember returns immediately with status=queued, even
     before the background thread runs."""

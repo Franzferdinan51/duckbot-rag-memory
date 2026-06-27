@@ -52,8 +52,8 @@ TOOLS: list[dict] = [
             "(superseded filtered out), active memory blocks, graph summary, "
             "FSRS review queue, and brief stats — everything an agent needs "
             "to continue a previous conversation without N round-trips. "
-            "Use on session start. MemPalace-inspired. With query='', pulls "
-            "most-recent episodic + procedural chunks."
+            "Use on session start. MemPalace-inspired. With a blank query, "
+            "uses the recent-memory wake-up path instead of anchored recall."
         ),
         "inputSchema": {
             "type": "object",
