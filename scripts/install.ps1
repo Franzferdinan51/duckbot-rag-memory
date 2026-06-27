@@ -211,18 +211,65 @@ if ((Test-Path $HookPath) -and (Select-String -Path $HookPath -Pattern 'secret-s
     Write-Host "  pwsh scripts/install-pre-commit.ps1"
 }
 
-# --- 8. Done ---------------------------------------------------------------
+# --- 8. Seed demo corpus ----------------------------------------------------
 
 Write-Host ""
-Write-Host "=== Install complete ==="
+Write-Host "=== Seeding demo corpus ==="
+
+$VenvPython = Join-Path $VenvDir "Scripts\python.exe"
+$VenvPythonCmd = "& '$VenvPython'"
+
+try {
+    Invoke-Expression "$VenvPythonCmd -m src.cli seed-demo 2>&1" | ForEach-Object { Write-Host "  $_" }
+} catch {
+    Write-Host "  ⚠ Demo seed skipped (non-fatal)"
+}
+
+# --- 9. Run a sample query --------------------------------------------------
+
+Write-Host ""
+Write-Host "=== Sample query ==="
+Write-Host ""
+Write-Host "  Querying: 'How do I restart the BATMAN container?'"
+Write-Host ""
+
+try {
+    Invoke-Expression "$VenvPythonCmd -m src.cli query 'How do I restart the BATMAN container?' -n 3 2>&1" | Select-Object -First 25 | ForEach-Object { Write-Host "  $_" }
+} catch {
+    Write-Host "  ⚠ Query skipped (non-fatal)"
+}
+
+# --- 10. Done ---------------------------------------------------------------
+
+Write-Host ""
+Write-Host "────────────────────────────────────────────────────────"
+Write-Host "  ✅ Setup complete!"
+Write-Host "────────────────────────────────────────────────────────"
 Write-Host ""
 Write-Host "Next steps:"
-Write-Host "  1. Edit .env to set LMSTUDIO_URL + LMSTUDIO_KEY (and optional MiniMax key for fallback)"
-Write-Host "  2. .\.venv\Scripts\python.exe -m src.cli doctor                    # verify all green"
-Write-Host "  3. .\.venv\Scripts\python.exe -m src.watcher once                  # cold-start full sync"
-Write-Host "  4. pwsh scripts/start-watcher.ps1                                 # start in background now"
-Write-Host "  5. pwsh scripts/start-watcher.ps1 -Status                        # check status"
-Write-Host "  6. pwsh scripts/start-watcher.ps1 -Log                           # tail logs"
+Write-Host ""
+Write-Host "  Run the demo:"
+Write-Host "    .\scripts\demo.bat                 # double-click in Explorer"
+Write-Host "    pwsh .\scripts\setup.ps1           # re-run this setup"
+Write-Host ""
+Write-Host "  Start the watcher daemon:"
+Write-Host "    .\scripts\start.bat                # double-click in Explorer"
+Write-Host "    pwsh .\scripts\start-watcher.ps1  # background, auto-restart"
+Write-Host ""
+Write-Host "  Query the brain:"
+Write-Host "    .\scripts\duckbot-ask.bat `"your question`""
+Write-Host ""
+Write-Host "  Set up with OpenClaw:"
+Write-Host "    .\scripts\openclaw-bootstrap.bat"
+Write-Host ""
+Write-Host "  Set up with Hermes Agent:"
+Write-Host "    .\scripts\hermes-bootstrap.bat"
+Write-Host ""
+Write-Host "  Register as MCP server (Claude Code, Cursor, etc.):"
+Write-Host "    hermes mcp add duckbot-memory --command `"$RepoRoot\scripts\duckbot-memory-mcp.bat`""
+Write-Host ""
+Write-Host "  Edit your .env to configure embedding provider and API keys."
+Write-Host "     See README.md or INSTALL.md for the full guide."
 Write-Host ""
 Write-Host "Manage the scheduled task:"
 Write-Host "  Get-ScheduledTask -TaskName 'DuckBotMemoryWatcher'"

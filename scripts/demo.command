@@ -1,12 +1,7 @@
-#!/usr/bin/env bash
-# demo.sh — Run the DuckBot demo (Linux / macOS Terminal).
-#
-# Usage (from repo root):
-#   ./scripts/demo.sh
-#
-# Double-click on macOS? Use demo.command instead.
+#!/bin/bash
+# demo.command — Run the DuckBot demo (macOS Finder double-click).
+# See demo.sh for the equivalent that runs in any Terminal.
 
-set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
@@ -35,7 +30,8 @@ if [[ -x .venv/bin/python ]]; then
 elif [[ -x .venv/Scripts/python.exe ]]; then
     PYTHON=".venv/Scripts/python.exe"
 else
-    error "No venv found. Run ./scripts/setup.sh first."
+    error "No venv found. Run ./scripts/setup.command first."
+    read -p "Press Enter to exit..." _
     exit 1
 fi
 
@@ -44,7 +40,7 @@ info "Verifying setup..."
 if ! "$PYTHON" -m src.cli doctor 2>&1 | grep -q "✗"; then
     ok "All checks passed"
 else
-    warn "Some checks failed. Run ./scripts/setup.sh to fix."
+    warn "Some checks failed. Run ./scripts/setup.command to fix."
 fi
 echo ""
 
@@ -70,7 +66,9 @@ echo -e "${BOLD}✅ Demo complete!${RESET}"
 echo ""
 echo "Next:"
 echo "  ./scripts/duckbot-ask \"your question\""
-echo "  ./scripts/start.sh      # start watcher daemon (recommended)"
+echo "  ./scripts/start.command    # start watcher daemon (recommended)"
 echo "  ./scripts/openclaw-bootstrap.sh  # set up with OpenClaw"
 echo "  ./scripts/hermes-bootstrap.sh   # set up with Hermes Agent"
 echo ""
+echo "Press Enter to close..."
+read -p "" _

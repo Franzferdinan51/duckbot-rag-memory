@@ -65,26 +65,39 @@ The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs,
 
 ## Quick Start
 
+**One-command setup** (recommended — picks your OS automatically):
+
+| OS | Command |
+|---|---|
+| macOS | Double-click `scripts/setup.command` in Finder, or run `./scripts/setup.sh` in Terminal |
+| Linux | Run `./scripts/setup.sh` in Terminal |
+| Windows | Double-click `scripts/setup.bat` in Explorer, or run `pwsh .\scripts\setup.ps1` |
+
+The setup script creates the venv, installs deps, seeds the demo corpus, runs a sample query, and prints next steps.
+
+**What you get in 30 seconds:**
+
 ```bash
-cd ~/Desktop/duckbot-rag-memory
+# Query the brain
+./scripts/duckbot-ask "How do I restart the BATMAN container?"
+./scripts/duckbot-ask -f snippet "PRL pool wallet steps"
 
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# Start the watcher daemon (recommended — polls every 5 min)
+./scripts/start.sh          # macOS / Linux
+# Windows: double-click scripts\start.bat
 
-cp .env.example .env
-# Edit .env with your embedding provider settings.
+# Run the demo again
+./scripts/demo.sh            # macOS / Linux
+# Windows: double-click scripts\demo.bat
 
-# One-command bootstrap for OpenClaw users: ingest every .md in
-# ~/.openclaw/workspace into the brain and print the MCP registration step.
+# Bootstrap with OpenClaw or Hermes Agent
 ./scripts/openclaw-bootstrap.sh
-# Same for Hermes Agent:
 ./scripts/hermes-bootstrap.sh
 
-# Or do it manually:
-python -m src.cli doctor
-python -m src.cli ingest ~/.openclaw/workspace/memory
-python -m src.cli query "What did we decide about cloud-only models?" -n 5
+# Query from any shell (loads .env, cross-platform)
+./scripts/duckbot-ask "What did we decide about cloud-only models?"
+./scripts/duckbot-ask -f compact -n 3 "Duckets correction style"
+```
 
 # See the full brain in one markdown file (for backup / migration):
 python -m src.cli export --out-path data/brain_export.md
