@@ -840,6 +840,16 @@ async def build_doctor_checks_async() -> tuple[list[tuple[str, str, bool]], bool
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Sanity check: env, deps, store."""
     checks, all_ok = asyncio.run(build_doctor_checks_async())
+    if getattr(args, "json", False):
+        print(json.dumps({
+            "ok": all_ok,
+            "checks": [
+                {"name": name, "value": value, "ok": ok}
+                for name, value, ok in checks
+            ],
+        }, indent=2, default=str))
+        return 0 if all_ok else 1
+
     max_name = max(len(c[0]) for c in checks)
     for name, value, ok in checks:
         marker = "✓" if ok else "✗"
@@ -1049,6 +1059,7 @@ def main() -> int:
     p_compact.set_defaults(func=cmd_compact)
 
     p_doc = sub.add_parser("doctor", help="check env + deps")
+    p_doc.add_argument("--json", action="store_true", help="output as JSON")
     p_doc.set_defaults(func=cmd_doctor)
 
     # Update: pull latest from origin/main + upgrade deps + doctor.

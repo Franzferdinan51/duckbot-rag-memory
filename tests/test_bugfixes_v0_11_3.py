@@ -1043,6 +1043,35 @@ def test_cli_doctor_accepts_any_available_provider(monkeypatch):
     assert rc == 0
 
 
+def test_cli_doctor_json_flag_outputs_parseable_json(monkeypatch):
+    """doctor --json is the scripted health-check path and must not argparse-fail."""
+    import json
+    import os
+    import subprocess
+    import sys
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    env = os.environ.copy()
+    env["DUCKBOT_EMBEDDING"] = "local"
+    env["DUCKBOT_DISABLE_IMPORT_SIDE_EFFECTS"] = "1"
+
+    r = subprocess.run(
+        [sys.executable, "-m", "src.cli", "doctor", "--json"],
+        cwd=str(root),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert r.returncode in (0, 1), r.stderr
+    data = json.loads(r.stdout)
+    assert "ok" in data
+    assert isinstance(data["checks"], list)
+    assert all({"name", "value", "ok"} <= set(check) for check in data["checks"])
+    assert "unrecognized arguments" not in r.stderr
+
+
 def test_cli_doctor_flags_missing_lmstudio_reranker_model(monkeypatch):
     """When LM Studio is the selected provider, doctor should surface a missing reranker."""
     from src import cli
