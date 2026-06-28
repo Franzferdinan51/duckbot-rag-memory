@@ -81,5 +81,7 @@ _update_check() {
 # Run update check (fast, throttled to once per hour)
 _update_check "$@" &
 
-# Delegate to the CLI, passing all arguments
-"$PYTHON" -m src.cli "$@"
+# Delegate to the CLI, passing all arguments. PYTHONPATH= ensures
+# `import src.cli` works regardless of the caller's cwd.
+PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+    "$PYTHON" -m src.cli "$@"

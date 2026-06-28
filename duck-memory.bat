@@ -34,5 +34,8 @@ if exist "%REPO_ROOT%\.env" (
     for /f "usebackq tokens=1,* delims==" %%A in (`findstr /v "#" "%REPO_ROOT%\.env" ^| find "="`) do set "%%A=%%B"
 )
 
-:: Delegate to the CLI
+:: Delegate to the CLI. PYTHONPATH= ensures `import src.cli` works
+:: regardless of the caller's cwd.
+set "PYTHONPATH=%REPO_ROOT%"
+if defined PYTHONPATH_OLD set "PYTHONPATH=%PYTHONPATH%;%PYTHONPATH_OLD%"
 "%PYTHON%" -m src.cli %*
