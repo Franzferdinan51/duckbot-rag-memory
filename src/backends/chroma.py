@@ -125,6 +125,36 @@ class ChromaBackend(VectorBackend):
     def persist_dir(self) -> Path:
         return self._persist_dir
 
+    # ---- Admin ------------------------------------------------------------
+    def reset(self) -> None:
+        """Wipe all ChromaDB data and reinitialize empty collections.
+
+        Atomically: (1) close the client, (2) delete the persist dir,
+        (3) recreate the client, (4) re-create all tier collections.
+        After reset() the store is in a clean initialized state — no chunks,
+        no orphaned vectors. Used by tests and the CLI reset command.
+        """
+        import shutil
+        # 1. Close the client so ChromaDB releases file locks.
+        #    ChromaDB PersistentClient has no explicit close(); setting to None
+        #    releases the reference. On Windows, this is required before rmtree.
+        self._client = None
+        # 2. Delete the entire persist dir (wipes sqlite + all collection dirs).
+        if self._persist_dir.exists():
+            shutil.rmtree(str(self._persist_dir), ignore_errors=True)
+        # 3. Recreate the persist dir so client re-initializes cleanly.
+        self._persist_dir.mkdir(parents=True, exist_ok=True)
+        # 4. Re-create the client.
+        import chromadb
+        from chromadb.config import Settings as ChromaSettings
+        self._client = chromadb.PersistentClient(
+            path=str(self._persist_dir),
+            settings=ChromaSettings(anonymized_telemetry=False, allow_reset=True),
+        )
+        # 5. Re-create all tier collections (restores _collections dict).
+        for tier in self._tier_names:
+            self._get_or_create_collection(tier)
+
     # ---- Core ops ----------------------------------------------------------
 
     def add_chunks(
