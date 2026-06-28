@@ -436,6 +436,232 @@ def cmd_reset(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Maintenance commands (v0.15.2) — fsck / vacuum / reindex / prune / etc.
+# ---------------------------------------------------------------------------
+
+def cmd_fsck(args: argparse.Namespace) -> int:
+    """Per-collection health report.
+
+    Reports on-disk size, vector count, bytes/vector, and flags any
+    collection that looks like it has HNSW bloat (>100 KB/vector) or
+    that predates the explicit-HNSW-params fix.
+    """
+    async def run():
+        store, _ = await _resolve_store_and_embedder()
+        return store._backend.fsck()
+    report = asyncio.run(run())
+    print(json.dumps(report, indent=2, default=str))
+    # Exit non-zero if there are any issues, so cron/operators can alert.
+    return 1 if report.get("issues") else 0
+
+
+def cmd_vacuum(args: argparse.Namespace) -> int:
+    """Drop a single tier's ChromaDB collection (frees disk immediately).
+
+    The collection is recreated on the next add_chunks() call with the
+    current (fixed) HNSW params. Use `reindex-tier` to rebuild content
+    from the watcher state.
+    """
+    tier = args.tier
+    if not args.yes:
+        print(f"Refusing to vacuum tier={tier!r} without --yes", file=sys.stderr)
+        return 1
+    async def run():
+        store, _ = await _resolve_store_and_embedder()
+        return store._backend.vacuum_tier(tier)
+    result = asyncio.run(run())
+    print(json.dumps(result, indent=2, default=str))
+    print(
+        f"\nVacuumed tier={tier!r}. Run `python -m src.cli reindex-tier {tier}` "
+        f"to re-ingest from watcher state, or `python -m src.cli wake-up` to "
+        f"rehydrate from the live system.",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def cmd_reindex_tier(args: argparse.Namespace) -> int:
+    """Wipe a tier and re-ingest from the watcher state (or live sources).
+
+    Re-ingests every source_path tracked in `data/watcher_state.json`
+    for files that originally landed in the target tier. Tier routing
+    uses the existing tier.py classifier. Chunks that no longer match
+    the target tier are skipped (so reindexing semantic doesn't dump
+    procedural chunks back into semantic).
+    """
+    tier = args.tier
+    if not args.yes:
+        print(f"Refusing to reindex-tier {tier!r} without --yes", file=sys.stderr)
+        return 1
+    # 1. Vacuum the tier.
+    async def run():
+        store, _ = await _resolve_store_and_embedder()
+        return store._backend.vacuum_tier(tier)
+    asyncio.run(run())
+    print(f"Vacuumed tier={tier!r}. Now re-ingesting from watcher state…",
+          file=sys.stderr)
+
+    # 2. Load watcher state and re-ingest each file.
+    state_path = Path("data/watcher_state.json")
+    if not state_path.exists():
+        print("No watcher state — nothing to reindex. Use `ingest <paths>` "
+              "to import fresh sources.", file=sys.stderr)
+        return 0
+    try:
+        state = json.loads(state_path.read_text())
+    except Exception as e:
+        print(f"Failed to read watcher state: {e}", file=sys.stderr)
+        return 1
+    files = list((state.get("files") or {}).keys())
+    if not files:
+        print("Watcher state has no files.", file=sys.stderr)
+        return 0
+
+    # 3. Run the ingest pipeline.
+    cmd_args = argparse.Namespace(
+        paths=files,
+        chunk_size=getattr(args, "chunk_size", 512),
+        overlap=getattr(args, "overlap", 0.15),
+    )
+    return cmd_ingest(cmd_args)
+
+
+def cmd_prune_empty_collections(args: argparse.Namespace) -> int:
+    """Delete ChromaDB collections that are empty AND not in the
+    declared tier list. Cleans up orphaned collections left behind by
+    past schema renames."""
+    if not args.yes:
+        print("Refusing to prune without --yes", file=sys.stderr)
+        return 1
+    async def run():
+        store, _ = await _resolve_store_and_embedder()
+        return store._backend.prune_empty_collections()
+    result = asyncio.run(run())
+    print(json.dumps(result, indent=2, default=str))
+    if not result.get("deleted"):
+        print("No empty non-tier collections to prune.", file=sys.stderr)
+    return 0
+
+
+def cmd_purge_quarantine(args: argparse.Namespace) -> int:
+    """Delete quarantined items older than `--older-than-days` (default 30).
+
+    Items in `data/quarantine.db` are stored with an `added_at` timestamp.
+    Old quarantines pile up; this lets operators age them out without
+    touching the live store.
+    """
+    from datetime import datetime, timezone
+    qpath = Path(os.environ.get(
+        "DUCKBOT_QUARANTINE_PATH", "data/quarantine.db",
+    ))
+    if not qpath.exists():
+        print("No quarantine DB found.", file=sys.stderr)
+        return 0
+    try:
+        import sqlite3
+        conn = sqlite3.connect(str(qpath))
+        cutoff = datetime.now(timezone.utc).timestamp() - (args.older_than_days * 86400)
+        cur = conn.execute("DELETE FROM quarantine WHERE added_at < ?", (cutoff,))
+        deleted = cur.rowcount
+        conn.commit()
+        # VACUUM the file to reclaim space (SQLite stores deleted rows
+        # in the file until VACUUM runs).
+        conn.execute("VACUUM")
+        conn.close()
+        print(f"Deleted {deleted} quarantined items older than {args.older_than_days} days.")
+        print(f"VACUUMed {qpath}.")
+    except Exception as e:
+        print(f"Purge failed: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_rotate_events(args: argparse.Namespace) -> int:
+    """Rotate `data/events.db` when it exceeds `--max-mb` (default 50).
+
+    Renames the current DB to `events.<ts>.db` and starts fresh. The
+    rotated copy is NOT deleted (operators can inspect it). Use
+    `DUCKBOT_EVENTS_KEEP_ROTATED=N` to cap retention.
+    """
+    from datetime import datetime, timezone
+    import gzip
+    import shutil as _sh
+    epath = Path("data/events.db")
+    if not epath.exists():
+        print("No events.db to rotate.", file=sys.stderr)
+        return 0
+    size_mb = epath.stat().st_size / (1024 * 1024)
+    if size_mb < args.max_mb:
+        print(f"events.db is {size_mb:.1f} MB (under {args.max_mb} MB cap). "
+              f"No rotation needed.", file=sys.stderr)
+        return 0
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    archive = epath.parent / f"events.{ts}.db"
+    if args.gzip:
+        archive = epath.parent / f"events.{ts}.db.gz"
+        with open(epath, "rb") as f_in, gzip.open(archive, "wb") as f_out:
+            _sh.copyfileobj(f_in, f_out)
+    else:
+        epath.rename(archive)
+    # Drop the old WAL/SHM so the new file starts clean.
+    for ext in ("-wal", "-shm"):
+        p = Path(str(epath) + ext)
+        if p.exists():
+            try:
+                p.unlink()
+            except Exception:
+                pass
+    # Re-initialize the new DB by touching it (the next record_event()
+    # call will lazy-create the schema).
+    epath.touch()
+    print(f"Rotated {epath} ({size_mb:.1f} MB) → {archive}")
+    # Cap retention if DUCKBOT_EVENTS_KEEP_ROTATED is set.
+    keep = os.environ.get("DUCKBOT_EVENTS_KEEP_ROTATED")
+    if keep and keep.isdigit():
+        keep_n = int(keep)
+        pattern = "events.*.db*"
+        archives = sorted(
+            epath.parent.glob(pattern),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        for old in archives[keep_n:]:
+            try:
+                old.unlink()
+                print(f"  pruned old archive: {old.name}")
+            except Exception as e:
+                print(f"  could not prune {old}: {e}", file=sys.stderr)
+    return 0
+
+
+def cmd_maintenance(args: argparse.Namespace) -> int:
+    """Run a safe battery of cleanups in one shot.
+
+    Steps (each idempotent, all safe to run on a live system):
+      1. fsck — report health
+      2. prune-empty-collections — drop orphaned empty collections
+      3. purge-quarantine --older-than-days=30 — age out old quarantines
+      4. rotate-events --max-mb=50 — bound the events log
+      5. fsck again — show after-state
+
+    Does NOT touch: vacuum, reindex-tier, reset (those are destructive
+    and require explicit `--yes`).
+    """
+    print("=== maintenance: pass 1 (cleanup) ===")
+    args.yes = True
+    cmd_prune_empty_collections(args)
+    args.older_than_days = 30
+    cmd_purge_quarantine(args)
+    args.max_mb = 50
+    args.gzip = True
+    cmd_rotate_events(args)
+    print()
+    print("=== maintenance: pass 2 (fsck after) ===")
+    args_fsck = argparse.Namespace()
+    return cmd_fsck(args_fsck)
+
+
 def cmd_update(args: argparse.Namespace) -> int:
     """Check for updates from origin/main and pull if behind.
 
@@ -1057,6 +1283,51 @@ def main() -> int:
     p_reset.set_defaults(func=cmd_reset)
     p_compact = sub.add_parser("compact", help="dedupe + VACUUM the Chroma store (cross-platform)")
     p_compact.set_defaults(func=cmd_compact)
+
+    # ---- Maintenance (v0.15.2) --------------------------------------------
+    p_fsck = sub.add_parser("fsck", help="per-tier health report — disk size, "
+                                          "vector count, HNSW bloat check")
+    p_fsck.set_defaults(func=cmd_fsck)
+
+    p_vacuum = sub.add_parser("vacuum", help="drop a single tier's "
+                                              "ChromaDB collection (frees disk immediately)")
+    p_vacuum.add_argument("tier", help="tier to vacuum (working/episodic/"
+                                          "semantic/procedural)")
+    p_vacuum.add_argument("--yes", action="store_true", help="confirm")
+    p_vacuum.set_defaults(func=cmd_vacuum)
+
+    p_reindex = sub.add_parser("reindex-tier", help="wipe a tier and re-ingest "
+                                                      "from watcher state (use after vacuum)")
+    p_reindex.add_argument("tier", help="tier to reindex")
+    p_reindex.add_argument("--yes", action="store_true", help="confirm")
+    p_reindex.add_argument("--chunk-size", type=int, default=512)
+    p_reindex.add_argument("--overlap", type=float, default=0.15)
+    p_reindex.set_defaults(func=cmd_reindex_tier)
+
+    p_prune = sub.add_parser("prune-empty-collections",
+                              help="delete empty non-tier Chroma collections")
+    p_prune.add_argument("--yes", action="store_true", help="confirm")
+    p_prune.set_defaults(func=cmd_prune_empty_collections)
+
+    p_purge = sub.add_parser("purge-quarantine",
+                              help="delete old quarantined items")
+    p_purge.add_argument("--older-than-days", type=int, default=30,
+                          help="delete items added more than N days ago (default 30)")
+    p_purge.set_defaults(func=cmd_purge_quarantine)
+
+    p_rotate = sub.add_parser("rotate-events",
+                                help="rotate data/events.db when it exceeds a size cap")
+    p_rotate.add_argument("--max-mb", type=int, default=50,
+                            help="rotate when events.db > N MB (default 50)")
+    p_rotate.add_argument("--gzip", action="store_true", default=True,
+                            help="gzip-compress the rotated file (default true)")
+    p_rotate.set_defaults(func=cmd_rotate_events)
+
+    p_maint = sub.add_parser("maintenance",
+                                help="run a safe battery of cleanups in one shot "
+                                      "(prune-empty-collections + purge-quarantine + "
+                                      "rotate-events + fsck)")
+    p_maint.set_defaults(func=cmd_maintenance)
 
     p_doc = sub.add_parser("doctor", help="check env + deps")
     p_doc.add_argument("--json", action="store_true", help="output as JSON")

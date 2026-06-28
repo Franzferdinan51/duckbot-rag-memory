@@ -66,6 +66,30 @@ def make_dummy_chunks():
     return chunks
 
 
+def test_expand_query_adds_synonyms():
+    """_expand_query() must OR in synonym cluster members so that
+    'earthquake news' finds 'seismic' / 'tremor' / 'alert' chunks (not
+    just the exact word 'earthquake'). Without this, semantic search
+    returns no results when the agent and the stored chunk use
+    different vocabulary for the same concept."""
+    from src.query import _expand_query, QUERY_SYNONYMS
+    # Single-token synonym expansion: earthquake -> seismic/tremor/quake.
+    eq = _expand_query("earthquake")
+    for term in ("seismic", "tremor", "quake"):
+        assert term in eq, f"earthquake expansion missing {term!r}: {eq!r}"
+    # Multi-token: each token expanded independently, then merged.
+    multi = _expand_query("earthquake news")
+    assert "seismic" in multi, f"expected seismic in {multi!r}"
+    assert "alert" in multi, f"expected alert in {multi!r}"
+    # Order is stable: sorted() means deterministic across calls.
+    assert _expand_query("disaster") == _expand_query("disaster")
+    # No synonym for unknown token → only itself.
+    assert _expand_query("xyzzy") == "xyzzy"
+    # All clusters are non-empty.
+    for k, v in QUERY_SYNONYMS.items():
+        assert v, f"empty cluster for {k!r}"
+
+
 def test_rrf_score_basic():
     assert _rrf_score(None) == 0.0
     assert abs(_rrf_score(1) - 1/61) < 1e-6
