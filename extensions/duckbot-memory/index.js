@@ -3,7 +3,7 @@
  *
  * Pure Node.js, zero npm dependencies. Spawns the Python MCP server
  * (duckbot-rag-memory/src/mcp_server.py) as a subprocess and proxies
- * 67 brain tools + session_start / session_end hooks into OpenClaw.
+ * 68 brain tools + session_start / session_end hooks into OpenClaw.
  *
  * Pattern sources:
  *   - openclaw/openclaw `extensions/voice-call/index.ts` (definePluginEntry)
@@ -14,7 +14,7 @@
  * Why a shim and not a native Python plugin: OpenClaw plugins run in-process
  * inside the Node gateway (src/plugins/loader.ts). Python isn't supported
  * natively. So we spawn the existing Python MCP server as a subprocess and
- * bridge the 67 tools via JSON-RPC. No code duplication — the Python
+ * bridge the 68 tools via JSON-RPC. No code duplication — the Python
  * `src/mcp_server.py` IS the brain.
  */
 

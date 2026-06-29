@@ -15,7 +15,7 @@ spawns the Python MCP server (`src/mcp_server.py`) as a subprocess.
 
 The 12 tools exposed here delegate to the shared surface at
 `src.extensions.tools`, so an agent author can rely on the same tool
-names regardless of which platform they're on. The full 67 tools are
+names regardless of which platform they're on. The full 68 tools are
 available via `python -m src.mcp_server` for admin / CLI use.
 
 Pattern sources:

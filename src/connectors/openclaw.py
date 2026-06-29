@@ -399,6 +399,19 @@ TOOL_DEFINITIONS: list[dict] = [
         },
     },
     {
+        "name": "brain_supersede",
+        "description": "Mark a chunk as superseded by a new chunk (or just by reason). Keeps the old chunk in storage with metadata.superseded_by + superseded_reason markers so recall() filters it out but the audit trail is preserved. Non-destructive — use this instead of forget when correcting prior knowledge.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "old_chunk_id": {"type": "string"},
+                "new_chunk_id": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+            "required": ["old_chunk_id"],
+        },
+    },
+    {
         "name": "brain_search_verbatim",
         "description": "Exact substring match against stored verbatim text.",
         "inputSchema": {
@@ -949,6 +962,15 @@ def handle(tool_name: str, args: dict) -> dict:
                 query=query,
                 k=args.get("k", 5),
                 tier=args.get("tier"),
+            )
+        if tool_name == "brain_supersede":
+            old = (args.get("old_chunk_id") or "").strip()
+            if not old:
+                return {"error": "old_chunk_id is required", "tool": tool_name}
+            return brain.supersede(
+                old_chunk_id=old,
+                new_chunk_id=args.get("new_chunk_id"),
+                reason=args.get("reason"),
             )
         if tool_name == "brain_search_verbatim":
             needle = (args.get("needle") or "").strip()

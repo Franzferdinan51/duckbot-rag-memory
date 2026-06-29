@@ -13,7 +13,7 @@ Why 12 and not 64 (the full MCP server surface)?
   - The full 67 are still available via:
       * `python -m src.cli <verb>` (CLI)
       * `scripts/duckbot-ask "..."` (shell wrapper)
-      * The canonical MCP server at `src/mcp_server.py` (67 tools)
+      * The canonical MCP server at `src/mcp_server.py` (68 tools)
   - Keeping the thin surface tight means portable stdio JSON-RPC stays
     lightweight and the OpenClaw adapter doesn't have to bundle the
     graph / blocks / quarantine layers (those are admin concerns).

@@ -13,7 +13,7 @@ and can't load Python.
 This adapter exposes the 12-tool core agent surface (same list the
 Hermes MemoryProvider plugin advertises) so an agent author can rely
 on the same tool names regardless of which platform they're on. The
-full 67 tools are available via `python -m src.mcp_server`.
+full 68 tools are available via `python -m src.mcp_server`.
 
 The 12 tools:
 
