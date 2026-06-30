@@ -459,3 +459,34 @@ def test_hermes_cli_shim_help(capsys):
 
 
 import time
+
+
+def test_connector_routes_brain_update():
+    """Regression: brain_update was 'unknown tool' through the connector.
+    2026-06-30 12:38 EDT E2E smoke test."""
+    from src.connectors.openclaw import handle
+    r = handle("brain_update", {"dry_run": True})
+    assert "error" not in r or "unknown tool" not in r.get("error", ""), (
+        f"brain_update should route correctly, got: {r}"
+    )
+    assert "current_branch" in r
+
+
+def test_connector_routes_brain_doctor():
+    """Regression: brain_doctor was 'unknown tool' through the connector."""
+    from src.connectors.openclaw import handle
+    r = handle("brain_doctor", {})
+    assert "error" not in r or "unknown tool" not in r.get("error", ""), (
+        f"brain_doctor should route correctly, got: {r}"
+    )
+    assert "ok" in r
+
+
+def test_connector_routes_brain_decay_apply():
+    """Regression: brain_decay_apply was 'unknown tool' through the connector."""
+    from src.connectors.openclaw import handle
+    r = handle("brain_decay_apply", {"tier": "working", "dry_run": True})
+    assert "error" not in r or "unknown tool" not in r.get("error", ""), (
+        f"brain_decay_apply should route correctly, got: {r}"
+    )
+    assert "dry_run" in r
