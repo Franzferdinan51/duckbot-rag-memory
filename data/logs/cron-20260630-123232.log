@@ -253,3 +253,8 @@
 }
 [2026-06-30T16:33:52Z] stats OK
 [2026-06-30T16:33:52Z] Phase: commit
+[main 15df64b] cron: ingest + eval + consolidate at 20260630-123232
+ 1 file changed, 255 insertions(+)
+ create mode 100644 data/logs/cron-20260630-123232.log
+[2026-06-30T16:33:53Z] Commit OK
+[2026-06-30T16:33:53Z] === DuckBot RAG cron finished ===
