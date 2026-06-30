@@ -540,6 +540,25 @@ TOOLS = [
 
 # Tool definitions and handlers are loaded lazily so a missing layer doesn't
 # break the whole server. We populate them right after HANDLERS is defined below.
+
+def _src(r) -> str:
+    """Module-level source_path extractor for QueryResult objects.
+
+    Bug history 2026-06-30 12:42 EDT: handle_brain_inflate called _src(r)
+    before this helper was promoted to module scope, so every inflate
+    call hit NameError. Multiple other handlers (brain_sync, brain_palace)
+    kept their own local copies — moved them all to this single helper.
+    """
+    return (getattr(r, "metadata", None) or {}).get("source_path", "") or ""
+
+def _tier(r) -> str:
+    """Module-level tier extractor. r.tier may be a string or an enum."""
+    return r.tier.value if hasattr(r.tier, "value") else r.tier
+
+def _imp(r) -> float:
+    """Module-level importance extractor. importance lives in metadata."""
+    return (getattr(r, "metadata", None) or {}).get("importance", 0.0)
+
 def _register_connector_tools() -> None:
     try:
         from src.connectors.openclaw import TOOL_DEFINITIONS, handle as _handle
@@ -912,8 +931,12 @@ async def handle_brain_inflate(args: dict) -> dict:
     # the full over-fetched candidate set so each tier gets a fair shot.
     by_tier: dict[str, list] = {t.value: [] for t in [Tier.WORKING, Tier.EPISODIC, Tier.SEMANTIC, Tier.PROCEDURAL]}
     for r in results[:k * 4]:  # over-fetch so each tier can fill k/4
-        if r.importance >= min_imp and (tier_filter is None or r.tier.value == tier_filter):
-            by_tier[r.tier.value].append(r)
+        # QueryResult stores importance in metadata, not as a top-level attr.
+        # r.tier is a string ('episodic'), not an enum. Bug found 2026-06-30 12:40 EDT.
+        importance = r.metadata.get('importance', 0.0) if isinstance(r.metadata, dict) else 0.0
+        tier_value = r.tier if isinstance(r.tier, str) else r.tier.value
+        if importance >= min_imp and (tier_filter is None or tier_value == tier_filter):
+            by_tier[tier_value].append(r)
 
     # Format as markdown
     lines = [
@@ -943,10 +966,13 @@ async def handle_brain_inflate(args: dict) -> dict:
         emoji = tier_emoji.get(tier_name, "•")
         lines.append(f"### {emoji} {tier_name.title()} — {tier_desc.get(tier_name, '')}")
         for r in items[:k]:
-            imp_bar = "▓" * int(r.importance * 10) + "░" * (10 - int(r.importance * 10))
+            # QueryResult has importance in metadata, not as a top-level attr.
+            importance = r.metadata.get('importance', 0.0) if isinstance(r.metadata, dict) else 0.0
+            tier_val = r.tier if isinstance(r.tier, str) else r.tier.value
+            imp_bar = "▓" * int(importance * 10) + "░" * (10 - int(importance * 10))
             source = _src(r) or "memory"
             lines.append(f"- [{imp_bar}] {r.text[:300]}{'...' if len(r.text) > 300 else ''}")
-            lines.append(f"  _source: {source} | tier: {r.tier.value}_")
+            lines.append(f"  _source: {source} | tier: {tier_val}_")
         lines.append("")
 
     if not any(by_tier.values()):
@@ -988,11 +1014,6 @@ async def handle_brain_sync(args: dict) -> dict:
     import os
 
     def _src(r) -> str:
-        """Extract source_path from a QueryResult. QueryResult stores
-        source_path in metadata (not as a direct attribute), so a naive
-        r.source_path would AttributeError on every call. The previous
-        version had 4 sites that all crashed on this — centralizing here
-        means one fix covers all of them."""
         return (getattr(r, "metadata", None) or {}).get("source_path", "") or ""
 
     def _tier(r) -> str:
