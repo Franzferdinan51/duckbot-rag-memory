@@ -1,0 +1,255 @@
+[2026-06-30T16:32:32Z] === DuckBot RAG cron starting (python: /Users/duckets/Desktop/duckbot-rag-memory/.venv/bin/python) ===
+[2026-06-30T16:32:32Z] Repo: /Users/duckets/Desktop/duckbot-rag-memory
+[2026-06-30T16:32:32Z] Source memory: /Users/duckets/.openclaw/workspace/memory
+[2026-06-30T16:32:32Z] Embedding mode: lmstudio
+[2026-06-30T16:32:32Z] Phase: ingest
+  embedding provider: lmstudio (768d)
+{
+  "files_processed": 284,
+  "files_skipped": 0,
+  "chunks_created": 3429,
+  "chunks_embedded": 3429,
+  "chunks_added": 286,
+  "by_tier": {
+    "working": 56,
+    "episodic": 3143,
+    "semantic": 94,
+    "procedural": 136
+  },
+  "errors": [
+    "add episodic: chroma upsert failed for tier=episodic batch=96..128 (of 3143 chunks, batch_size=32): Expected IDs to be unique, found duplicates of: 1007c2bb36ec3922-0 in upsert."
+  ],
+  "duration_seconds": 67.13
+}
+[2026-06-30T16:33:46Z] ingest FAILED (exit 1) — see /Users/duckets/Desktop/duckbot-rag-memory/data/logs/cron-20260630-123232.log
+[2026-06-30T16:33:46Z] Phase: consolidate
+{
+  "scanned": 166,
+  "extracted": 42,
+  "after_dedup": 35,
+  "promoted": 35
+}
+[2026-06-30T16:33:50Z] consolidate OK
+[2026-06-30T16:33:50Z] Phase: eval
+{
+  "samples": [
+    {
+      "query": "When did we install cua-driver and what version?",
+      "recall_at_5": 0.0,
+      "recall_at_10": 1.0,
+      "mrr": 0.16666666666666666,
+      "first_hit_rank": 6,
+      "latency_seconds": 0.145
+    },
+    {
+      "query": "What was Duckets' rule about local models?",
+      "recall_at_5": 1.0,
+      "recall_at_10": 1.0,
+      "mrr": 1.0,
+      "first_hit_rank": 1,
+      "latency_seconds": 0.048
+    },
+    {
+      "query": "Why did we pivot from birdclaw to BrowserOS?",
+      "recall_at_5": 0.0,
+      "recall_at_10": 1.0,
+      "mrr": 0.1111111111111111,
+      "first_hit_rank": 9,
+      "latency_seconds": 0.048
+    },
+    {
+      "query": "What was the X outage data from Downdetector?",
+      "recall_at_5": 0.0,
+      "recall_at_10": 0.0,
+      "mrr": 0.0,
+      "first_hit_rank": null,
+      "latency_seconds": 0.048
+    },
+    {
+      "query": "What is the cua-driver install command?",
+      "recall_at_5": 1.0,
+      "recall_at_10": 1.0,
+      "mrr": 0.25,
+      "first_hit_rank": 4,
+      "latency_seconds": 0.052
+    },
+    {
+      "query": "What did we decide about RTX Spark?",
+      "recall_at_5": 0.0,
+      "recall_at_10": 0.0,
+      "mrr": 0.0,
+      "first_hit_rank": null,
+      "latency_seconds": 0.043
+    },
+    {
+      "query": "What new desktop control tools were added?",
+      "recall_at_5": 1.0,
+      "recall_at_10": 1.0,
+      "mrr": 0.3333333333333333,
+      "first_hit_rank": 3,
+      "latency_seconds": 0.044
+    },
+    {
+      "query": "What is Deno Desktop and is it production-ready?",
+      "recall_at_5": 0.0,
+      "recall_at_10": 0.0,
+      "mrr": 0.0,
+      "first_hit_rank": null,
+      "latency_seconds": 0.049
+    },
+    {
+      "query": "What's Duckets' favorite song and movie?",
+      "recall_at_5": 0.0,
+      "recall_at_10": 0.0,
+      "mrr": 0.0,
+      "first_hit_rank": null,
+      "latency_seconds": 0.049
+    },
+    {
+      "query": "What was the Hermes CUA upgrade commit hash?",
+      "recall_at_5": 0.0,
+      "recall_at_10": 0.0,
+      "mrr": 0.0,
+      "first_hit_rank": null,
+      "latency_seconds": 0.041
+    },
+    {
+      "query": "Why did check.sh fail before the fix?",
+      "recall_at_5": 0.0,
+      "recall_at_10": 1.0,
+      "mrr": 0.16666666666666666,
+      "first_hit_rank": 6,
+      "latency_seconds": 0.05
+    },
+    {
+      "query": "What was the check.sh bug fix commit?",
+      "recall_at_5": 0.0,
+      "recall_at_10": 0.0,
+      "mrr": 0.0,
+      "first_hit_rank": null,
+      "latency_seconds": 0.037
+    },
+    {
+      "query": "Where is the cua-driver binary located?",
+      "recall_at_5": 0.0,
+      "recall_at_10": 1.0,
+      "mrr": 0.16666666666666666,
+      "first_hit_rank": 6,
+      "latency_seconds": 0.05
+    },
+    {
+      "query": "What chunk size and overlap are used for memory chunks?",
+      "recall_at_5": 1.0,
+      "recall_at_10": 1.0,
+      "mrr": 0.5,
+      "first_hit_rank": 2,
+      "latency_seconds": 0.048
+    },
+    {
+      "query": "What are the four CoALA memory tiers?",
+      "recall_at_5": 1.0,
+      "recall_at_10": 1.0,
+      "mrr": 1.0,
+      "first_hit_rank": 1,
+      "latency_seconds": 0.049
+    },
+    {
+      "query": "Which projects did we borrow from for the RAG architecture?",
+      "recall_at_5": 1.0,
+      "recall_at_10": 1.0,
+      "mrr": 1.0,
+      "first_hit_rank": 1,
+      "latency_seconds": 0.054
+    },
+    {
+      "query": "What embedding model is the primary choice?",
+      "recall_at_5": 0.0,
+      "recall_at_10": 1.0,
+      "mrr": 0.14285714285714285,
+      "first_hit_rank": 7,
+      "latency_seconds": 0.044
+    },
+    {
+      "query": "Why is recursive chunking better than semantic for our use case?",
+      "recall_at_5": 1.0,
+      "recall_at_10": 1.0,
+      "mrr": 0.3333333333333333,
+      "first_hit_rank": 3,
+      "latency_seconds": 0.047
+    },
+    {
+      "query": "What is the cron schedule for this RAG system?",
+      "recall_at_5": 0.0,
+      "recall_at_10": 0.0,
+      "mrr": 0.0,
+      "first_hit_rank": null,
+      "latency_seconds": 0.047
+    },
+    {
+      "query": "What evaluation metrics are used?",
+      "recall_at_5": 0.0,
+      "recall_at_10": 0.0,
+      "mrr": 0.0,
+      "first_hit_rank": null,
+      "latency_seconds": 0.045
+    },
+    {
+      "query": "Who is the founder of MiniMax?",
+      "recall_at_5": 1.0,
+      "recall_at_10": 1.0,
+      "mrr": 1.0,
+      "first_hit_rank": 1,
+      "latency_seconds": 0.048
+    },
+    {
+      "query": "What is the cloud-only directive date?",
+      "recall_at_5": 1.0,
+      "recall_at_10": 1.0,
+      "mrr": 0.3333333333333333,
+      "first_hit_rank": 3,
+      "latency_seconds": 0.048
+    },
+    {
+      "query": "Where is the ai-Py-Boy project located?",
+      "recall_at_5": 1.0,
+      "recall_at_10": 1.0,
+      "mrr": 0.5,
+      "first_hit_rank": 2,
+      "latency_seconds": 0.046
+    }
+  ],
+  "summary": {
+    "mean_recall_at_5": 0.435,
+    "mean_recall_at_10": 0.652,
+    "mean_mrr": 0.305,
+    "p50_latency_seconds": 0.048,
+    "p95_latency_seconds": 0.054,
+    "n_samples": 23
+  }
+}
+
+--- trend ---
+{
+  "trend": {
+    "n_runs": 8,
+    "mean_recall_at_5_recent": 0.503,
+    "mean_recall_at_5_delta": -0.137,
+    "mean_mrr_recent": 0.343,
+    "mean_mrr_delta": -0.1402,
+    "p95_latency_recent": 0.295,
+    "p95_latency_delta_pct": 18.63
+  }
+}
+[2026-06-30T16:33:52Z] eval OK
+[2026-06-30T16:33:52Z] Phase: stats
+{
+  "working": 67,
+  "episodic": 167,
+  "semantic": 403,
+  "procedural": 209,
+  "total": 846,
+  "last_ingest_ts": 1782837230.0,
+  "last_query_ts": 0.0
+}
+[2026-06-30T16:33:52Z] stats OK
+[2026-06-30T16:33:52Z] Phase: commit
