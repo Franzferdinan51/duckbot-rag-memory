@@ -60,8 +60,19 @@ class Chunk:
 
     @property
     def id(self) -> str:
-        """Stable ID for vector store. Uses content hash so identical chunks dedupe."""
-        h = hashlib.sha256(self.text.encode("utf-8")).hexdigest()[:16]
+        """Stable ID for vector store. Hash of (source_path + text + chunk_index)
+        so two different files with identical chunk text produce different IDs.
+
+        Bug history: 2026-06-30 end-to-end cron test surfaced a ChromaDB
+        "Expected IDs to be unique, found duplicates" error when two markdown
+        files shared the same first-paragraph text — both produced the same
+        `text_hash + chunk_index` and the batched upsert rejected the
+        collision. Including source_path makes IDs globally unique while
+        keeping them stable across re-ingests of the same file.
+        """
+        h = hashlib.sha256(
+            f"{self.source_path}\x00{self.text}".encode("utf-8")
+        ).hexdigest()[:16]
         return f"{h}-{self.chunk_index}"
 
 
