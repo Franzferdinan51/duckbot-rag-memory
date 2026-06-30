@@ -1456,6 +1456,21 @@ async def handle_brain_skill_create(args: dict) -> dict:
     # from the repo root so we can resolve it relative to the file.
     repo_root = Path(__file__).resolve().parent.parent
     skills_dir = repo_root / "skills"
+
+    # dry_run returns the path without writing — useful for testing
+    # the templating without polluting the live skills/ directory.
+    if bool(args.get("dry_run", False)):
+        # Mirror write_skill's slug logic without I/O.
+        from src.skillgen import slugify
+        slug = slugify(name)
+        return {
+            "path": str(skills_dir / slug / "SKILL.md"),
+            "slug": slug,
+            "created": False,
+            "dry_run": True,
+            "body": body,
+        }
+
     try:
         path = write_skill(
             skills_dir=skills_dir,
