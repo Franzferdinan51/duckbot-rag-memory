@@ -346,6 +346,7 @@ class Brain:
         tier_priors: Optional[bool] = None,
         tier_priors_overrides: Optional[dict[str, float]] = None,
         fsrs: Optional[bool] = None,
+        skip_superseded: bool = True,
     ) -> list[RecallResult]:
         """Hybrid retrieval (vector + BM25 + RRF + optional cross-encoder rerank
         + optional Ebbinghaus decay weighting + optional tier priors
@@ -386,6 +387,7 @@ class Brain:
                 tier_priors=tier_priors,
                 tier_priors_overrides=tier_priors_overrides,
                 fsrs=fsrs,
+                skip_superseded=skip_superseded,
             )
             out = []
             for r in results:
@@ -419,6 +421,7 @@ class Brain:
         tier_priors: Optional[bool] = None,
         tier_priors_overrides: Optional[dict[str, float]] = None,
         fsrs: Optional[bool] = None,
+        skip_superseded: bool = True,
     ) -> list[VerbatimResult]:
         """Like `recall()` but returns only the verbatim (pre-overlap) text.
 
@@ -438,6 +441,7 @@ class Brain:
             tier_priors=tier_priors,
             tier_priors_overrides=tier_priors_overrides,
             fsrs=fsrs,
+            skip_superseded=skip_superseded,
         )
         out: list[VerbatimResult] = []
         for r in raw:

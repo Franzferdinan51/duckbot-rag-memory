@@ -112,6 +112,7 @@ TOOL_DEFINITIONS: list[dict] = [
                 "tier_priors": {"type": "boolean", "default": False, "description": "Layer 11: apply per-tier multiplicative priors (procedural=1.5, semantic=1.2, episodic=1.0, working=0.8). Default off; pass true to opt in. Boosts procedural rules and demotes working chatter."},
                 "tier_priors_overrides": {"type": "object", "description": "Optional per-tier prior overrides, e.g. {\"procedural\": 2.0}. Tier names not in the dict fall back to defaults."},
                 "fsrs": {"type": "boolean", "default": False, "description": "Layer 9: apply FSRS-6 power-law retrievability weighting. Default off; pass true to opt in. Uses per-chunk stability_days + difficulty from metadata. Public-domain algorithm spec."},
+                "skip_superseded": {"type": "boolean", "default": True, "description": "Filter out chunks marked with `superseded_by` (deprecation markers). Default ON so recall doesn't loop on duplicate text. Pass false to see the full supersede chain (e.g. for debugging)."},
             },
             "required": ["query"],
         },
@@ -828,6 +829,7 @@ def handle(tool_name: str, args: dict) -> dict:
                 tier_priors=args.get("tier_priors"),
                 tier_priors_overrides=tpo,
                 fsrs=args.get("fsrs"),
+                skip_superseded=args.get("skip_superseded", True),
             )
             return {"results": _serialize(results)}
         if tool_name == "brain_reflect":

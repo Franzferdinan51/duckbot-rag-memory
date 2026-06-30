@@ -561,6 +561,7 @@ class Memory:
         tier_priors: bool | None = None,
         tier_priors_overrides: dict[str, float] | None = None,
         fsrs: bool | None = None,
+        skip_superseded: bool = True,
     ) -> tuple[list[QueryResult], QueryStats]:
         """Hybrid retrieval with optional tier filter, importance threshold,
         cross-encoder rerank (Layer 7), Ebbinghaus decay (Layer 8), tier
@@ -607,6 +608,19 @@ class Memory:
         # Optional importance filter
         if min_importance is not None:
             results = [r for r in results if r.metadata.get("importance", 0.5) >= min_importance]
+
+        # Filter out superseded chunks (those with `superseded_by` in metadata).
+        # This is the "looping fix" — recall was returning both an old chunk and
+        # the chunk that replaced it, so the agent saw duplicated content.
+        # 2026-06-30 14:43 EDT: Duckets caught this on `brain_inflate` output
+        # returning the same text from cb7317c337a2a203-39 and its superseder
+        # fd594f75b7a9ab39-0. Default ON to match wake_up()'s contract
+        # (which already filters superseded). Pass skip_superseded=False
+        # to see the audit trail (e.g. for debugging a supersede chain).
+        if skip_superseded:
+            before = len(results)
+            results = [r for r in results if not (r.metadata or {}).get("superseded_by")]
+            stats.superseded_filtered = before - len(results)
 
         # Bump recall counters
         for r in results:
