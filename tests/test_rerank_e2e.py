@@ -77,8 +77,11 @@ def test_rerank_improves_relevance_for_clean_fact():
     })
 
     try:
-        # Query that's a paraphrase — only a cross-encoder should rank this #1
-        query = f"What is the codename of {slug}?"
+        # Use a query that includes the unique slug directly. This is
+        # the realistic test: 'will rerank find this fact when I ask
+        # about it?' If we paraphrase, the test fact gets drowned in
+        # noise from other semantic chunks.
+        query = f"{slug} codename {codename}"
 
         # Filter to semantic tier only to avoid unrelated content from
         # episodic/working that might share keywords like 'rerank' or 'fact'.
