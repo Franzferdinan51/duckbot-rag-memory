@@ -749,7 +749,7 @@ def handle(tool_name: str, args: dict) -> dict:
         "learn": "brain_learn",
         "search_verbatim": "brain_search_verbatim",
         "watch": "brain_wake_up",
-        "doctor": "brain_wake_up",
+        "doctor": "brain_doctor",
         "active_memory": "brain_active_memory",
     }
     tool_name = _legacy_alias.get(tool_name, tool_name)
@@ -1030,6 +1030,9 @@ def handle(tool_name: str, args: dict) -> dict:
             "brain_apply_fsrs_w20": _mcp.handle_brain_apply_fsrs_w20,
             "brain_fsrs_optimize_apply": _mcp.handle_brain_fsrs_optimize_apply,
             "brain_optimize_fsrs": _mcp.handle_brain_optimize_fsrs,
+            "brain_decay_apply": _mcp.handle_brain_decay_apply,
+            "brain_update": _mcp.handle_brain_update,
+            "brain_doctor": _mcp.handle_doctor,
         }
         if tool_name in _delegated:
             try:
