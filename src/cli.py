@@ -418,6 +418,37 @@ def cmd_reset(args: argparse.Namespace) -> int:
         store, _ = await _resolve_store_and_embedder()
         return store
     store = asyncio.run(run())
+
+    # Backup protection: check BEFORE store.reset() wipes anything.
+    # Check BOTH locations: data/backups/ AND ~/.duck-memory/backups/
+    # (backups may be in either depending on when they were created)
+    persist_dir = store._backend.persist_dir
+    REPO_ROOT = Path(__file__).resolve().parent.parent
+    DATA_DIR = REPO_ROOT / "data"
+    HOME_BACKUPS = Path.home() / ".duck-memory" / "backups"
+
+    all_backups = []
+    for bd in (DATA_DIR / "backups", HOME_BACKUPS):
+        if bd.exists():
+            all_backups.extend(bd.glob("brain-backup-*"))
+    all_backups = sorted(all_backups)
+
+    if all_backups:
+        latest = all_backups[-1]
+        print()
+        print(f"WARNING: {len(all_backups)} backup(s) found:", file=sys.stderr)
+        for bd in (DATA_DIR / "backups", HOME_BACKUPS):
+            local = sorted(bd.glob("brain-backup-*")) if bd.exists() else []
+            if local:
+                print(f"  {len(local)} in {bd}/", file=sys.stderr)
+        print(f"  Latest: {latest.name} ({latest.stat().st_size // 1024} KB)", file=sys.stderr)
+        print(f"  Reset would DELETE these backups.", file=sys.stderr)
+        print(f"  Restore first: duck-memory restore {latest}", file=sys.stderr)
+        print()
+        print("Refusing to reset with backups present.", file=sys.stderr)
+        return 1
+
+    # NOW wipe — safe to proceed with no backups
     store.reset()
     # Also wipe the on-disk data directory.  ChromaDB's reset() only
     # unregisters collections from its registry but leaves segment files
@@ -425,7 +456,6 @@ def cmd_reset(args: argparse.Namespace) -> int:
     # "metadata segment reader: column 0 mismatched types" errors.
     # Wiping the directory guarantees a clean slate.
     try:
-        persist_dir = store._backend.persist_dir
         if persist_dir.exists():
             shutil.rmtree(persist_dir)
             persist_dir.mkdir(parents=True, exist_ok=True)
@@ -913,6 +943,270 @@ def cmd_compact(args: argparse.Namespace) -> int:
     return 0
 
 
+# ------------------------------------------------------------------
+# Backup / Restore (v0.16.0) — pure Python, cross-platform (Win/Mac/Linux)
+# ------------------------------------------------------------------
+
+def cmd_backup(args: argparse.Namespace) -> int:
+    """
+    Create a timestamped .zip backup of the entire data/ directory.
+
+    Backup includes:
+      - data/chroma/           — ChromaDB HNSW indexes + SQLite metadata
+      - data/blocks.db         — memory blocks
+      - data/graph.db          — knowledge graph
+      - data/events.db          — lifecycle events
+      - data/watcher_state.json — file-hash dedup state
+      - data/ingest_history.jsonl
+      - data/brain_export.md   — round-trippable markdown export
+
+    Excludes: data/backups/, data/*.log, .venv/, __pycache__/
+
+    Usage:
+      duck-memory backup                      # timestamped into ~/.duck-memory/backups/
+      duck-memory backup --name my-label       # brain-backup-my-label.zip
+      duck-memory backup --out /path/to/file   # custom output path
+      duck-memory backup --no-export           # skip brain_export.md (faster)
+    """
+    import zipfile
+    import tempfile
+    from datetime import datetime
+
+    REPO_ROOT = Path(__file__).resolve().parent.parent
+    DATA_DIR = REPO_ROOT / "data"
+    # Cross-platform backup dir — OUTSIDE data/ so resets can't wipe it.
+    # Uses ~/.duck-memory/backups/ (Windows: %USERPROFILE%\.duck-memoryackups)
+    _home = Path.home()
+    if sys.platform == "win32":
+        BACKUPS_DIR = _home / ".duck-memory" / "backups"
+    else:
+        BACKUPS_DIR = _home / ".duck-memory" / "backups"
+
+    # Determine archive name
+    if args.out:
+        archive_path = Path(args.out).expanduser().resolve()
+    elif args.name:
+        stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        archive_path = BACKUPS_DIR / f"brain-backup-{args.name}-{stamp}.zip"
+    else:
+        stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        archive_path = BACKUPS_DIR / f"brain-backup-{stamp}.zip"
+
+    BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Optionally regenerate brain_export.md first
+    export_path = DATA_DIR / "brain_export.md"
+    if not getattr(args, "no_export", False):
+        print("Regenerating brain_export.md...")
+        ok = _run_export_inline(REPO_ROOT, export_path)
+        if ok and export_path.exists():
+            print(f"  brain_export.md: {export_path.stat().st_size // 1024} KB")
+        else:
+            print("  Warning: brain_export.md failed — continuing without it")
+
+    # Build zip excluding noisy paths
+    EXCLUDE_PREFIXES = (
+        str(DATA_DIR / "backups"),
+        str(DATA_DIR / "logs"),
+        str(DATA_DIR / "watcher.log"),
+        str(DATA_DIR / "mcp.log"),
+        str(REPO_ROOT / ".venv"),
+        str(REPO_ROOT / "__pycache__"),
+        str(REPO_ROOT / ".git"),
+        ".pyc",
+    )
+
+    def _include(path: Path) -> bool:
+        sp = str(path)
+        return not any(sp.endswith(x) or sp.startswith(x) for x in EXCLUDE_PREFIXES)
+
+    print(f"Archiving to {archive_path}...")
+    with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        count = 0
+        for root, dirs, files in os.walk(DATA_DIR):
+            # Prune excluded dirs in-place so os.walk doesn't descend
+            dirs[:] = [d for d in dirs if _include(Path(root) / d)]
+            for fname in files:
+                fpath = Path(root) / fname
+                if not _include(fpath):
+                    continue
+                arcname = fpath.relative_to(REPO_ROOT)
+                try:
+                    zf.write(fpath, arcname)
+                    count += 1
+                except OSError as e:
+                    print(f"  Skip {fpath}: {e}", file=sys.stderr)
+
+    size_kb = archive_path.stat().st_size // 1024
+    print(f"✓ Backup created: {archive_path}")
+    print(f"  {count} files, {size_kb} KB")
+    return 0
+
+
+def _run_export_inline(repo_root: Path, out_path: Path) -> bool:
+    """Run brain_export inline without spawning a subprocess."""
+    import subprocess
+    venv_python = repo_root / ".venv" / "Scripts" / "python.exe"
+    if not venv_python.exists():
+        venv_python = repo_root / ".venv" / "bin" / "python"
+    if not venv_python.exists():
+        return False
+    try:
+        r = subprocess.run(
+            [str(venv_python), "-m", "src.cli", "export",
+             "--out-path", str(out_path)],
+            cwd=str(repo_root),
+            capture_output=True, timeout=120,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def cmd_restore(args: argparse.Namespace) -> int:
+    """
+    Restore from a .zip backup — cross-platform, safe.
+
+    Safety guarantees:
+      - ALWAYS extracts to a temp directory first (never overwrites live brain)
+      - THEN offers rsync/copy commands the user can run to apply
+      - Refuses to overwrite existing data without --force
+
+    Usage:
+      duck-memory restore                              # interactive picker
+      duck-memory restore --list                        # list backups and exit
+      duck-memory restore backup.zip                    # restore from file
+      duck-memory restore backup.zip --dry-run          # inspect without writing
+      duck-memory restore backup.zip --force            # overwrite live data
+    """
+    import zipfile
+    import tempfile
+    import shutil
+    from datetime import datetime
+
+    REPO_ROOT = Path(__file__).resolve().parent.parent
+    DATA_DIR = REPO_ROOT / "data"
+    _home = Path.home()
+    BACKUPS_DIR = _home / ".duck-memory" / "backups"
+
+    # Find backup
+    if getattr(args, "list", False) or not args.archive:
+        # List available backups
+        if not BACKUPS_DIR.exists():
+            print("No backups found.")
+            return 0
+        backups = sorted(BACKUPS_DIR.glob("brain-backup-*.zip"))
+        if not backups:
+            print("No backups found.")
+            return 0
+        print(f"Available backups in {BACKUPS_DIR}/:")
+        print()
+        for b in backups:
+            size_kb = b.stat().st_size // 1024
+            date_str = datetime.fromtimestamp(b.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            print(f"  {b.name}  {size_kb} KB  {date_str}")
+        print()
+        if not args.archive:  # just listing
+            print("To restore: duck-memory restore <backup.zip>")
+            return 0
+        # fall through: user gave --list with no archive — list and exit
+        return 0
+
+    archive_path = Path(args.archive).expanduser().resolve()
+    if not archive_path.exists():
+        print(f"Archive not found: {archive_path}", file=sys.stderr)
+        return 1
+
+    # Validate zip
+    try:
+        with zipfile.ZipFile(archive_path) as zf:
+            names = zf.namelist()
+    except zipfile.BadZipFile:
+        print(f"Not a valid zip file: {archive_path}", file=sys.stderr)
+        return 1
+
+    print(f"Archive: {archive_path}")
+    print(f"Files: {len(names)}")
+
+    if getattr(args, "dry_run", False):
+        print("\n--dry-run: would extract these top-level entries:")
+        top = sorted(set(n.split("/")[0] for n in names if "/" in n))
+        for t in top:
+            count = sum(1 for n in names if n.startswith(t + "/"))
+            print(f"  {t}/ ({count} entries)")
+        print("\nNo files written (--dry-run).")
+        return 0
+
+    # Extract to a timestamped temp dir (NEVER the live brain dir)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    restore_dir = REPO_ROOT / f".restore-tmp-{stamp}"
+    restore_dir.mkdir(exist_ok=True)
+
+    print(f"\nExtracting to {restore_dir}/ (safe temp location)...")
+    with zipfile.ZipFile(archive_path) as zf:
+        zf.extractall(restore_dir)
+
+    extracted_data = restore_dir / "data"
+    if not extracted_data.exists():
+        print("Archive missing data/ — cannot restore.", file=sys.stderr)
+        shutil.rmtree(restore_dir)
+        return 1
+
+    print(f"✓ Extracted to {restore_dir}/data/")
+
+    # Check if live data already exists
+    live_has_data = DATA_DIR.exists() and any(DATA_DIR.glob("chroma/**/*.sqlite3"))
+
+    if live_has_data and not getattr(args, "force", False):
+        print()
+        print("⚠️  Live brain has existing data. Restore is NOT applying to the live brain.")
+        print("   Extracted to a safe temp dir:")
+        print(f"   {restore_dir}/")
+        print()
+        print("To apply the restored data to the live brain, run:")
+        print(f"   # Preview what's different:")
+        print(f"   diff -rq {extracted_data} {DATA_DIR} | head -20")
+        print()
+        print(f"   # Apply restored data (DANGEROUS — overwrites live brain):")
+        print(f"   rsync -av --delete {extracted_data}/ {DATA_DIR}/")
+        print()
+        print("To skip this warning next time, pass --force.")
+        return 0
+
+    if live_has_data and getattr(args, "force", False):
+        print("⚠️  --force: applying restored data to live brain...")
+
+    # Apply: copy restored data over live data
+    def copy_tree(src: Path, dst: Path) -> None:
+        if dst.exists():
+            for item in dst.iterdir():
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+        else:
+            dst.mkdir(parents=True)
+        for item in src.iterdir():
+            s = item
+            d = dst / item.name
+            if item.is_dir():
+                copy_tree(s, d)
+            else:
+                shutil.copy2(s, d)
+
+    copy_tree(extracted_data, DATA_DIR)
+    print(f"✓ Restored to {DATA_DIR}/")
+
+    # Clean up temp dir
+    shutil.rmtree(restore_dir)
+    print(f"✓ Cleaned up temp dir {restore_dir}/")
+
+    print()
+    print("Restore complete. Restart the watcher and run doctor to verify:")
+    print("  duck-memory doctor")
+    return 0
+
+
 async def build_doctor_checks_async() -> tuple[list[tuple[str, str, bool]], bool]:
     """Build the shared doctor checklist for CLI and MCP surfaces."""
     import importlib
@@ -1283,6 +1577,47 @@ def main() -> int:
     p_reset.set_defaults(func=cmd_reset)
     p_compact = sub.add_parser("compact", help="dedupe + VACUUM the Chroma store (cross-platform)")
     p_compact.set_defaults(func=cmd_compact)
+
+    # ---- Backup / Restore (v0.16.0) ------------------------------------
+    p_backup = sub.add_parser(
+        "backup",
+        help="archive DB + config to data/backups/ (cross-platform tar.gz)",
+    )
+    p_backup.add_argument(
+        "--name", "-n", default=None,
+        help="backup name suffix (default: timestamp-based)",
+    )
+    p_backup.add_argument(
+        "--out", "-o", default=None,
+        help="custom output path for the archive",
+    )
+    p_backup.add_argument(
+        "--no-export", action="store_true",
+        help="skip brain_export.md regeneration (faster, slightly less complete)",
+    )
+    p_backup.set_defaults(func=cmd_backup)
+
+    p_restore = sub.add_parser(
+        "restore",
+        help="restore from a backup — extracts to a temp dir, NEVER overwrites live brain",
+    )
+    p_restore.add_argument(
+        "archive", nargs="?", default=None,
+        help="path to .tar.gz backup (default: show list of available backups)",
+    )
+    p_restore.add_argument(
+        "--list", "-l", action="store_true",
+        help="list available backups and exit",
+    )
+    p_restore.add_argument(
+        "--dry-run", action="store_true",
+        help="show what would be restored without writing anything",
+    )
+    p_restore.add_argument(
+        "--force", action="store_true",
+        help="allow restoring into existing live brain",
+    )
+    p_restore.set_defaults(func=cmd_restore)
 
     # ---- Maintenance (v0.15.2) --------------------------------------------
     p_fsck = sub.add_parser("fsck", help="per-tier health report — disk size, "

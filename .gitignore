@@ -49,3 +49,7 @@ memory/
 **/* 2.md
 **/* 2.sh
 **/* 2.py
+
+# Backup archives and log files — never committed
+data/backups/
+data/logs/

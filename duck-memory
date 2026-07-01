@@ -65,7 +65,7 @@ _update_check() {
     # Check cache age
     if [[ -f "$CACHE_FILE" ]]; then
         local AGE
-        AGE=$(($(date +%s) - $(stat -f %m "$CACHE_FILE" 2>/dev/null || stat --format %Y "$CACHE_FILE" 2>/dev/null || echo 0)))
+        AGE=$(($(date +%s) - $(stat -c '%Y' "$CACHE_FILE" 2>/dev/null || stat --format '%Y' "$CACHE_FILE" 2>/dev/null || echo 0)))
         [[ "$AGE" -lt "$MAX_AGE" ]] && return 0  # still fresh
     fi
 
