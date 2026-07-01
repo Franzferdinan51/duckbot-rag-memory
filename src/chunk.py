@@ -60,8 +60,10 @@ class Chunk:
 
     @property
     def id(self) -> str:
-        """Stable ID for vector store. Uses content hash so identical chunks dedupe."""
-        h = hashlib.sha256(self.text.encode("utf-8")).hexdigest()[:16]
+        """Stable ID for vector store. Includes source_path to avoid cross-file collisions."""
+        h = hashlib.sha256(
+            (self.source_path + "|" + self.text).encode("utf-8")
+        ).hexdigest()[:16]
         return f"{h}-{self.chunk_index}"
 
 
