@@ -254,17 +254,17 @@ def test_call_requires_tool_name():
 
 
 def test_call_dispatches_with_json_args(capsys):
-    with patch.object(_surface, "dispatch", return_value={"ok": True}) as mock_disp:
+    with patch.object(openclaw_shim, "_call_full", return_value={"ok": True}) as mock_full:
         rc = openclaw_shim.main(["call", "brain_recall", '{"query": "x", "k": 2}'])
     assert rc == 0
-    mock_disp.assert_called_once_with("brain_recall", {"query": "x", "k": 2})
+    mock_full.assert_called_once_with("brain_recall", {"query": "x", "k": 2})
 
 
 def test_call_no_args_passes_empty_dict(capsys):
-    with patch.object(_surface, "dispatch", return_value={"ok": True}) as mock_disp:
+    with patch.object(openclaw_shim, "_call_full", return_value={"ok": True}) as mock_full:
         rc = openclaw_shim.main(["call", "brain_stats"])
     assert rc == 0
-    mock_disp.assert_called_once_with("brain_stats", {})
+    mock_full.assert_called_once_with("brain_stats", {})
 
 
 def test_call_invalid_json_returns_error(capsys):

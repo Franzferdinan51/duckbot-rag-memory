@@ -561,6 +561,7 @@ class Memory:
         tier_priors: bool | None = None,
         tier_priors_overrides: dict[str, float] | None = None,
         fsrs: bool | None = None,
+        skip_superseded: bool = True,
     ) -> tuple[list[QueryResult], QueryStats]:
         """Hybrid retrieval with optional tier filter, importance threshold,
         cross-encoder rerank (Layer 7), Ebbinghaus decay (Layer 8), tier
@@ -607,6 +608,19 @@ class Memory:
         # Optional importance filter
         if min_importance is not None:
             results = [r for r in results if r.metadata.get("importance", 0.5) >= min_importance]
+
+        # Filter out superseded chunks (those with `superseded_by` in metadata).
+        # This is the "looping fix" — recall was returning both an old chunk and
+        # the chunk that replaced it, so the agent saw duplicated content.
+        # 2026-06-30 14:43 EDT: Duckets caught this on `brain_inflate` output
+        # returning the same text from cb7317c337a2a203-39 and its superseder
+        # fd594f75b7a9ab39-0. Default ON to match wake_up()'s contract
+        # (which already filters superseded). Pass skip_superseded=False
+        # to see the audit trail (e.g. for debugging a supersede chain).
+        if skip_superseded:
+            before = len(results)
+            results = [r for r in results if not (r.metadata or {}).get("superseded_by")]
+            stats.superseded_filtered = before - len(results)
 
         # Bump recall counters
         for r in results:
@@ -774,6 +788,59 @@ class Memory:
             except Exception:
                 continue
         return False
+
+    # -------------------------------------------------------------------------
+    # supersede() — mark chunk as replaced by a new one (2026-06-29)
+    # -------------------------------------------------------------------------
+    async def supersede(
+        self,
+        old_chunk_id: str,
+        new_chunk_id: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> dict:
+        """Mark `old_chunk_id` as superseded by `new_chunk_id` (or just by
+        reason if no new chunk). Does NOT delete the old chunk — it stays
+        in the store with `metadata.superseded_by` + `metadata.superseded_reason`
+        + `metadata.superseded_at` so the audit trail is preserved.
+
+        Why not just delete: a fresh agent might re-import the same wrong fact
+        from a doc, or two contradicting memories might both be retrieved and
+        the agent needs to know which wins. The supersede marker is the
+        authoritative answer.
+
+        Returns: {superseded: bool, old_chunk_id, new_chunk_id, reason}.
+        """
+        import time as _time
+        store, _ = await self._ensure_initialized()
+        now = _time.time()
+        marker = {
+            "superseded_by": new_chunk_id or reason or "manual",
+            "superseded_at": now,
+        }
+        if reason:
+            marker["superseded_reason"] = reason
+
+        found = False
+        for t in Tier:
+            coll = store.collection_for(t)
+            try:
+                existing = coll.get(ids=[old_chunk_id], include=["metadatas"])
+                if not existing or not existing.get("ids"):
+                    continue
+                # Existing metadatas are flattened dicts; merge our marker in.
+                old_meta = existing["metadatas"][0] if existing.get("metadatas") else {}
+                new_meta = {**(old_meta or {}), **marker}
+                coll.update(ids=[old_chunk_id], metadatas=[new_meta])
+                found = True
+                break
+            except Exception:
+                continue
+        return {
+            "superseded": found,
+            "old_chunk_id": old_chunk_id,
+            "new_chunk_id": new_chunk_id,
+            "reason": reason,
+        }
 
     # -------------------------------------------------------------------------
     # stats() — dashboard snapshot

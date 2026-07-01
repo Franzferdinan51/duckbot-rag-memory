@@ -618,3 +618,17 @@ async def test_recall_rejects_empty_query(tmp_mem):
     for bad in ("", "   ", "\n\n  \t"):
         with pytest.raises(ValueError, match="query must be a non-empty string"):
             await mem.recall(bad, k=5)
+
+
+async def test_mcp_handle_brain_inflate_works_with_real_query():
+    """Regression test for 2026-06-30 12:42 EDT end-to-end bug:
+    brain_inflate raised AttributeError: 'QueryResult' object has no
+    attribute 'importance'. The fix pulls importance from r.metadata
+    and handles r.tier being a string OR enum.
+    """
+    from src.mcp_server import handle_brain_inflate
+    out = await handle_brain_inflate({"query": "test", "k": 1})
+    assert "error" not in out, f"brain_inflate should not error: {out.get('error')}"
+    assert "context" in out
+    assert isinstance(out["context"], str)
+    assert len(out["context"]) > 0

@@ -41,7 +41,7 @@ session-start call.
 
 All three thin entry points (OpenClaw Node.js shim, Hermes plugin, the
 JSON-RPC adapter) call the same dispatch in `src/extensions/tools.py`.
-The OpenClaw shim additionally proxies to the full 67-tool MCP server
+The OpenClaw shim additionally proxies to the full 68-tool MCP server
 via JSON-RPC over stdio. If you add a tool to `src/mcp_server.py`'s
 TOOLS list or to the thin surface, both surfaces pick it up.
 
@@ -59,7 +59,7 @@ TOOLS list or to the thin surface, both surfaces pick it up.
 ### OpenClaw (native plugin)
 
 The native plugin is `extensions/duckbot-memory/` — a Node.js shim that
-spawns the Python MCP server as a subprocess and registers all 67 tools
+spawns the Python MCP server as a subprocess and registers all 68 tools
 plus `session_start` / `session_end` hooks via OpenClaw's plugin SDK.
 See `extensions/duckbot-memory/README.md` for install + config.
 
@@ -106,7 +106,7 @@ context = provider.on_session_start()   # brain_wake_up shape
 provider.on_session_end(messages)        # persists durable rules as procedural
 ```
 
-### MCP server (canonical, 67 tools)
+### MCP server (canonical, 68 tools)
 
 ```bash
 ./scripts/duckbot-memory-mcp.sh &
@@ -171,7 +171,7 @@ point's surface.
 
 1. Add the schema + dispatch case to `src/extensions/tools.py` (one
    TOOLS dict entry + one `if name == "..."` block in `dispatch()`)
-   AND/OR to `src/mcp_server.py`'s TOOLS list (the canonical 67-tool
+   AND/OR to `src/mcp_server.py`'s TOOLS list (the canonical 68-tool
    surface). Pick whichever surface the tool belongs to.
 2. If it's a core-agent tool (used at runtime), no further work — the
    thin surface picks it up automatically. The OpenClaw shim

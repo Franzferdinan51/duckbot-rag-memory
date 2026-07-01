@@ -92,7 +92,7 @@ fi
 # Install the native OpenClaw plugin (extensions/duckbot-memory/) so
 # brain_wake_up auto-fires on session_start and brain_sync on session_end.
 # The plugin is a pure Node.js shim — zero npm deps — that spawns the
-# Python MCP server as a subprocess and proxies 67 tools + session hooks.
+# Python MCP server as a subprocess and proxies 68 tools + session hooks.
 # Idempotent: re-running replaces the symlink.
 OPENCLAW_PLUGINS_DIR="${OPENCLAW_HOME%/workspace}/extensions/duckbot-memory"
 PLUGIN_SRC="$REPO_ROOT/extensions/duckbot-memory"

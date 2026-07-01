@@ -117,3 +117,31 @@ def test_empty_input():
 def test_whitespace_only_input():
     chunks = chunk_markdown("   \n\n   \n", source_path="ws.md")
     assert chunks == []
+
+def test_chunks_have_unique_ids_across_files():
+    """Same chunk text in different files must produce different IDs.
+    Regression test for the 2026-06-30 duplicate-chunk-id bug surfaced by
+    the end-to-end cron run (chroma 'Expected IDs to be unique' error
+    on 3143 of 3429 chunks).
+    """
+    same_text = "This is the intro paragraph that will be chunk 0."
+    file_a = f"# File A\n\n{same_text}\n\n## More\nMore content A.\n"
+    file_b = f"# File B\n\n{same_text}\n\n## Different\nDifferent content B.\n"
+
+    chunks_a = chunk_markdown(file_a, source_path="/path/to/file_a.md")
+    chunks_b = chunk_markdown(file_b, source_path="/path/to/file_b.md")
+
+    ids_a = [c.id for c in chunks_a]
+    ids_b = [c.id for c in chunks_b]
+    overlap = set(ids_a) & set(ids_b)
+    assert not overlap, (
+        f"chunk IDs collide across files: {overlap}. "
+        f"Chunk.id must include source_path."
+    )
+
+
+def test_chunk_id_is_stable_across_ingests():
+    """Re-chunking the same file must produce the same IDs (idempotent)."""
+    chunks1 = chunk_markdown(SAMPLE_MD, source_path="test.md")
+    chunks2 = chunk_markdown(SAMPLE_MD, source_path="test.md")
+    assert [c.id for c in chunks1] == [c.id for c in chunks2]

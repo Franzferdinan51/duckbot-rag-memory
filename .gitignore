@@ -43,3 +43,9 @@ data/watcher_state.json
 # should NOT be committed. The watcher ingests them automatically; the git
 # repo stays clean.
 memory/
+
+# macOS Spotlight duplicate-name artifacts (e.g. "foo 2.md")
+# Created when multiple edits land on the same filename before fsync resolves.
+**/* 2.md
+**/* 2.sh
+**/* 2.py

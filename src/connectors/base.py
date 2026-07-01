@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -85,6 +86,54 @@ _RUN_ASYNC_LOCK = threading.Lock()
 # Result types — JSON-serializable for transport
 # -----------------------------------------------------------------------------
 
+# Per-process rate limiter for brain_remember (added 2026-06-29).
+# Docs claim 10/min; this enforces it as a soft token bucket so the
+# reality matches the contract. Memory write throughput is bounded;
+# burst callers get N writes then a small wait.
+_remember_bucket_lock = threading.Lock()
+_remember_bucket_tokens = 10.0  # burst capacity
+_remember_bucket_capacity = 10.0
+_remember_bucket_refill_per_sec = 10.0 / 60.0  # 10/min = 1 every 6s
+_remember_bucket_last_refill = time.time()
+
+
+def _remember_rate_limit(timeout_s: float = 30.0) -> None:
+    """Block until a token is available. Raises RuntimeError on timeout.
+
+    Token-bucket: refill at 10 tokens/min, capacity 10. Each remember()
+    call consumes 1 token. If the bucket is empty, wait up to timeout_s
+    for refill (worst case ~6s per excess write).
+    """
+    global _remember_bucket_tokens, _remember_bucket_last_refill
+    deadline = time.time() + timeout_s
+    while True:
+        with _remember_bucket_lock:
+            now = time.time()
+            elapsed = now - _remember_bucket_last_refill
+            _remember_bucket_tokens = min(
+                _remember_bucket_capacity,
+                _remember_bucket_tokens + elapsed * _remember_bucket_refill_per_sec,
+            )
+            _remember_bucket_last_refill = now
+            if _remember_bucket_tokens >= 1.0:
+                _remember_bucket_tokens -= 1.0
+                return
+            # Not enough — figure out how long to wait. If refill rate is
+            # 0 (rate limiter disabled via env var override in tests),
+            # bail out immediately instead of dividing by zero.
+            if _remember_bucket_refill_per_sec <= 0:
+                raise RuntimeError(
+                    "brain_remember rate limit: bucket empty and refill rate is 0"
+                )
+            wait_s = (1.0 - _remember_bucket_tokens) / _remember_bucket_refill_per_sec
+        if time.time() + wait_s > deadline:
+            raise RuntimeError(
+                f"brain_remember rate limit: would exceed 10/min "
+                f"(waited {timeout_s}s, need ~{wait_s:.1f}s more)"
+            )
+        time.sleep(min(wait_s, 1.0))
+
+
 @dataclass
 class BrainStats:
     """Combined snapshot across all 5 layers."""
@@ -117,6 +166,8 @@ class RememberResult:
     stored: bool = False
     duration_ms: float = 0.0
     quarantined: bool = False  # True if pre-remember scan flagged it
+    rate_limited: bool = False  # True if the 10/min rate limit rejected this call
+    error: Optional[str] = None  # human-readable error (rate-limit or other)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -219,8 +270,29 @@ class Brain:
         the host agent already pulled out of `text`. The brain stores each
         as its own semantic-tier chunk with metadata.kind="agent_fact" — no
         extra model load. The agent owns extraction; the brain owns storage.
+
+        Rate-limited to 10 writes/minute (token bucket). Burst of 10 then
+        one write every 6s; if a caller waits longer than 30s for a token,
+        raises RuntimeError. Use `skip_scan=True` for trusted internal
+        paths that don't need the injection scan.
         """
         from src.tier import Tier, coerce_optional_tier
+
+        # Enforce 10/min (matches docs claim from before the rate limit
+        # existed — 2026-06-29). Bypass with environment variable for
+        # bulk imports (e.g. the watcher re-ingesting a corpus).
+        import os as _os
+        if not _os.environ.get("DUCKBOT_BRAIN_RATE_LIMIT_OFF"):
+            try:
+                _remember_rate_limit(timeout_s=30.0)
+            except RuntimeError as exc:
+                # Surface a clean error to the caller rather than hanging.
+                return RememberResult(
+                    quarantined=False,
+                    stored=False,
+                    rate_limited=True,
+                    error=str(exc),
+                )
 
         # Pre-remember: scan for injection
         if self.scan_before_remember and not skip_scan:
@@ -274,6 +346,7 @@ class Brain:
         tier_priors: Optional[bool] = None,
         tier_priors_overrides: Optional[dict[str, float]] = None,
         fsrs: Optional[bool] = None,
+        skip_superseded: bool = True,
     ) -> list[RecallResult]:
         """Hybrid retrieval (vector + BM25 + RRF + optional cross-encoder rerank
         + optional Ebbinghaus decay weighting + optional tier priors
@@ -314,6 +387,7 @@ class Brain:
                 tier_priors=tier_priors,
                 tier_priors_overrides=tier_priors_overrides,
                 fsrs=fsrs,
+                skip_superseded=skip_superseded,
             )
             out = []
             for r in results:
@@ -347,6 +421,7 @@ class Brain:
         tier_priors: Optional[bool] = None,
         tier_priors_overrides: Optional[dict[str, float]] = None,
         fsrs: Optional[bool] = None,
+        skip_superseded: bool = True,
     ) -> list[VerbatimResult]:
         """Like `recall()` but returns only the verbatim (pre-overlap) text.
 
@@ -366,6 +441,7 @@ class Brain:
             tier_priors=tier_priors,
             tier_priors_overrides=tier_priors_overrides,
             fsrs=fsrs,
+            skip_superseded=skip_superseded,
         )
         out: list[VerbatimResult] = []
         for r in raw:
@@ -390,6 +466,7 @@ class Brain:
         include_blocks: bool = True,
         include_graph: bool = True,
         include_fsrs_review: bool = True,
+        deadline_ms: int = 8000,
     ) -> dict:
         """One-call "load context for a new session" — MemPalace-inspired.
 
@@ -412,10 +489,24 @@ class Brain:
           include_blocks: include active memory blocks.
           include_graph: include graph summary.
           include_fsrs_review: include FSRS review queue.
+          deadline_ms: soft wall-clock budget for the whole call (default
+            8000ms). If we exceed it, return whatever we have plus a
+            `wake_up_truncated: true` flag instead of hanging. The MCP
+            transport's timeout is around 10s so we stay under it.
         """
+        import os as _os_wu
+        # Allow callers (tests, bulk callers) to override the deadline.
+        deadline_ms = int(_os_wu.environ.get("DUCKBOT_WAKE_UP_DEADLINE_MS", deadline_ms))
+        deadline_s = deadline_ms / 1000.0
+        _wake_started = time.monotonic()
         query = (query or "").strip() or None
         out: dict = {"memories": [], "blocks": [], "graph_summary": {},
-                     "fsrs_review_queue": [], "stats": {}}
+                     "fsrs_review_queue": [], "stats": {},
+                     "wake_up_truncated": False,
+                     "wake_up_deadline_ms": deadline_ms}
+
+        def _over_deadline() -> bool:
+            return (time.monotonic() - _wake_started) > deadline_s
 
         # Memories — filter out superseded chunks (those with `superseded_by`).
         # Over-fetch aggressively: small k (1-3) was returning 0 results
@@ -424,8 +515,8 @@ class Brain:
         # we've tried hard enough.
         try:
             kept: list = []
-            fetch_size = max(k * 5, 20)  # first pass: 5x overshoot
-            max_attempts = 5  # cap to bound worst-case latency
+            fetch_size = max(k * 3, 12)  # reduced from 5x to 3x to cut wake_up latency
+            max_attempts = 3  # was 5; reduced now that deadline guards us
             # The fixed query "recent memory" (used when no anchor query
             # is supplied) was being re-embedded on every retry attempt
             # — up to 5 identical embed calls per wake_up. Use the
@@ -433,6 +524,10 @@ class Brain:
             # by default) and let LMStudioEmbeddings.embed hit it; this
             # drops the 5x redundant HTTP calls to 1.
             for attempt in range(max_attempts):
+                # Bail out early if we've already burned our deadline —
+                # better to return what we have than hang past MCP timeout.
+                if _over_deadline():
+                    break
                 if query:
                     raw = self.recall(query=query, k=fetch_size, rerank=True)
                 else:
@@ -472,7 +567,7 @@ class Brain:
             out["memories_error"] = str(e)
 
         # Blocks — pull every active block's name + first 200 chars.
-        if include_blocks:
+        if include_blocks and not _over_deadline():
             try:
                 from src.blocks import BlockStore
                 if self.blocks_path.exists():
@@ -490,7 +585,7 @@ class Brain:
                 out["blocks_error"] = str(e)
 
         # Graph summary — top entities by relationship count + recent edges.
-        if include_graph:
+        if include_graph and not _over_deadline():
             try:
                 with Graph(path=self.graph_path) as g:
                     # Cheap: just pull counts + recent activity.
@@ -510,7 +605,7 @@ class Brain:
                 out["graph_error"] = str(e)
 
         # FSRS review queue — small (k=5) so we don't blow the context budget.
-        if include_fsrs_review:
+        if include_fsrs_review and not _over_deadline():
             try:
                 q = self.fsrs_review_queue(k=5)
                 out["fsrs_review_queue"] = q
@@ -524,6 +619,11 @@ class Brain:
         except Exception:
             pass
 
+        # Flag if we ran past the deadline so callers can retry with a
+        # tighter scope (e.g. include_blocks=false) instead of hanging.
+        if _over_deadline():
+            out["wake_up_truncated"] = True
+            out["wake_up_elapsed_ms"] = int((time.monotonic() - _wake_started) * 1000)
         return out
 
     # -------------------------------------------------------------- graph: nodes
@@ -539,9 +639,21 @@ class Brain:
         if not name:
             return {"error": "name is required"}
         kind = (kind or "concept").strip() or "concept"
+        # FIX 2026-06-29: properties used to be stored via str(properties),
+        # which produced Python repr ("{'key': 'value'}") instead of valid
+        # JSON. Now we serialize via json.dumps so the notes field is
+        # parseable by anything that reads it (other agents, the graph UI,
+        # future migrations). Falls back to None on encoding failure.
+        import json as _json
+        notes_str: Optional[str] = None
+        if properties:
+            try:
+                notes_str = _json.dumps(properties, ensure_ascii=False, sort_keys=True)
+            except (TypeError, ValueError) as exc:
+                return {"error": f"properties not JSON-encodable: {exc}"}
         try:
             with Graph(path=self.graph_path) as g:
-                e = g.upsert_entity(name, kind, aliases=[], notes=str(properties) if properties else None)
+                e = g.upsert_entity(name, kind, aliases=[], notes=notes_str)
                 return {
                     "id": e.id,
                     "name": e.name,
@@ -1409,15 +1521,23 @@ class Brain:
                 ok = await mem.forget(r.chunk_id)
                 if ok:
                     deleted.append(r.chunk_id)
+            # FIX 2026-06-29: QueryResult has no `.source_path` attribute —
+            # it lives in metadata.source_path (or metadata.source). Use a
+            # safe accessor so the response is always well-formed even if
+            # the chunk lacks a recorded path.
+            def _source_path_of(qr) -> str:
+                md = getattr(qr, "metadata", None) or {}
+                return md.get("source_path") or md.get("source") or ""
+
             return {
                 "deleted": len(deleted),
                 "deleted_ids": deleted,
                 "matched": [
                     {
                         "chunk_id": r.chunk_id,
-                        "score": float(r.rrf_score or 0.0),
+                        "score": float(getattr(r, "rrf_score", 0.0) or 0.0),
                         "tier": r.tier if isinstance(r.tier, str) else (r.tier.value if r.tier else ""),
-                        "source_path": r.source_path,
+                        "source_path": _source_path_of(r),
                         "preview": (r.text[:120] + "…") if len(r.text) > 120 else r.text,
                     }
                     for r in results
@@ -1425,6 +1545,39 @@ class Brain:
             }
 
         return _run_async(_forget())
+
+    # -- Supersede (mark old memory as replaced by new — 2026-06-29) -----
+    def supersede(
+        self,
+        old_chunk_id: str,
+        new_chunk_id: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> dict:
+        """Mark `old_chunk_id` as superseded.
+
+        Unlike `forget` (which deletes), supersede keeps the old chunk in
+        storage with `metadata.superseded_by` + `metadata.superseded_reason`
+        markers. `recall()` and `wake_up()` already filter superseded chunks
+        from their results (see wake_up lines ~442 and ~1340).
+
+        Use this when:
+          - You have a new corrected memory that contradicts an old one
+            (pass new_chunk_id so the audit trail links old → new)
+          - You want to deprecate a memory but keep the trail (pass reason)
+          - You're correcting an operator error (e.g. "BrowserOS is broken"
+            vs the corrected "BrowserOS works, operator error")
+
+        Returns: {superseded: bool, old_chunk_id, new_chunk_id, reason}.
+        """
+        async def _supersede() -> dict:
+            mem = self._memory()
+            return await mem.supersede(
+                old_chunk_id=old_chunk_id,
+                new_chunk_id=new_chunk_id,
+                reason=reason,
+            )
+
+        return _run_async(_supersede())
 
     # -- Verbatim substring search ---------------------------------------
     def search_verbatim(self, needle: str, k: int = 5) -> list[dict]:

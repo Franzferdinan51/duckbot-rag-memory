@@ -111,6 +111,7 @@ class QueryStats:
     fused_results: int = 0
     duration_seconds: float = 0.0
     tiers_queried: list[str] = field(default_factory=list)
+    superseded_filtered: int = 0  # chunks dropped by the L16 skip_superseded filter
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -120,6 +121,7 @@ class QueryStats:
             "fused_results": self.fused_results,
             "duration_seconds": round(self.duration_seconds, 3),
             "tiers_queried": self.tiers_queried,
+            "superseded_filtered": self.superseded_filtered,
         }
 
 

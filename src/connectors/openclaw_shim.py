@@ -47,6 +47,14 @@ import sys
 from typing import Any, Optional
 
 from src.extensions import tools as _surface
+# For the `call` verb: route through the full OpenClaw connector (38+ tools)
+# instead of the 12-tool extensions surface. The extensions surface is the
+# L16 cross-runtime minimum, but `call` is a power-user escape hatch that
+# should expose everything the connector can dispatch.
+def _call_full(tool: str, args: dict) -> Any:
+    """Lazy import to avoid a circular import at module load."""
+    from src.connectors.openclaw import handle as _full_handle
+    return _full_handle(tool, args)
 
 
 # -----------------------------------------------------------------------------
@@ -263,7 +271,7 @@ def _cmd_call(rest: list[str]) -> Any:
                 return {"error": f"call args must be a JSON object, got {type(parsed).__name__}"}
         except json.JSONDecodeError as e:
             return {"error": f"call args not valid JSON: {e}"}
-    return _surface.dispatch(tool, args)
+    return _call_full(tool, args)
 
 
 _VERBS: dict[str, Any] = {

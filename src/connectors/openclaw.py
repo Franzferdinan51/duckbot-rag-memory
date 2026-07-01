@@ -112,6 +112,7 @@ TOOL_DEFINITIONS: list[dict] = [
                 "tier_priors": {"type": "boolean", "default": False, "description": "Layer 11: apply per-tier multiplicative priors (procedural=1.5, semantic=1.2, episodic=1.0, working=0.8). Default off; pass true to opt in. Boosts procedural rules and demotes working chatter."},
                 "tier_priors_overrides": {"type": "object", "description": "Optional per-tier prior overrides, e.g. {\"procedural\": 2.0}. Tier names not in the dict fall back to defaults."},
                 "fsrs": {"type": "boolean", "default": False, "description": "Layer 9: apply FSRS-6 power-law retrievability weighting. Default off; pass true to opt in. Uses per-chunk stability_days + difficulty from metadata. Public-domain algorithm spec."},
+                "skip_superseded": {"type": "boolean", "default": True, "description": "Filter out chunks marked with `superseded_by` (deprecation markers). Default ON so recall doesn't loop on duplicate text. Pass false to see the full supersede chain (e.g. for debugging)."},
             },
             "required": ["query"],
         },
@@ -396,6 +397,19 @@ TOOL_DEFINITIONS: list[dict] = [
                 "tier": {"type": "string", "enum": ["working", "episodic", "semantic", "procedural"]},
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "brain_supersede",
+        "description": "Mark a chunk as superseded by a new chunk (or just by reason). Keeps the old chunk in storage with metadata.superseded_by + superseded_reason markers so recall() filters it out but the audit trail is preserved. Non-destructive — use this instead of forget when correcting prior knowledge.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "old_chunk_id": {"type": "string"},
+                "new_chunk_id": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+            "required": ["old_chunk_id"],
         },
     },
     {
@@ -736,7 +750,7 @@ def handle(tool_name: str, args: dict) -> dict:
         "learn": "brain_learn",
         "search_verbatim": "brain_search_verbatim",
         "watch": "brain_wake_up",
-        "doctor": "brain_wake_up",
+        "doctor": "brain_doctor",
         "active_memory": "brain_active_memory",
     }
     tool_name = _legacy_alias.get(tool_name, tool_name)
@@ -815,6 +829,7 @@ def handle(tool_name: str, args: dict) -> dict:
                 tier_priors=args.get("tier_priors"),
                 tier_priors_overrides=tpo,
                 fsrs=args.get("fsrs"),
+                skip_superseded=args.get("skip_superseded", True),
             )
             return {"results": _serialize(results)}
         if tool_name == "brain_reflect":
@@ -950,6 +965,15 @@ def handle(tool_name: str, args: dict) -> dict:
                 k=args.get("k", 5),
                 tier=args.get("tier"),
             )
+        if tool_name == "brain_supersede":
+            old = (args.get("old_chunk_id") or "").strip()
+            if not old:
+                return {"error": "old_chunk_id is required", "tool": tool_name}
+            return brain.supersede(
+                old_chunk_id=old,
+                new_chunk_id=args.get("new_chunk_id"),
+                reason=args.get("reason"),
+            )
         if tool_name == "brain_search_verbatim":
             needle = (args.get("needle") or "").strip()
             if not needle:
@@ -1008,6 +1032,9 @@ def handle(tool_name: str, args: dict) -> dict:
             "brain_apply_fsrs_w20": _mcp.handle_brain_apply_fsrs_w20,
             "brain_fsrs_optimize_apply": _mcp.handle_brain_fsrs_optimize_apply,
             "brain_optimize_fsrs": _mcp.handle_brain_optimize_fsrs,
+            "brain_decay_apply": _mcp.handle_brain_decay_apply,
+            "brain_update": _mcp.handle_brain_update,
+            "brain_doctor": _mcp.handle_doctor,
         }
         if tool_name in _delegated:
             try:
