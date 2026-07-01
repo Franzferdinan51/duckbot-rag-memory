@@ -60,7 +60,7 @@ else
 fi
 
 # Source .env if present so LM Studio is reachable for export.
-ENV_FILE=""$HOME/Library/Application Support/duckbot-rag-memory/env""
+ENV_FILE="$HOME/Library/Application Support/duckbot-rag-memory/env"
 [ -f "$ENV_FILE" ] && set -a && . "$ENV_FILE" && set +a
 
 echo "[backup] brain dir: $BRAIN_DIR"

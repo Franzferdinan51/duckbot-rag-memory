@@ -3,13 +3,13 @@
 # The repo + .venv + .env live on ~/Desktop, which launchd blocks for
 # writable file ops (gatekeeper/provenance). Logs go to a safe dir.
 export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-export HOME="${HOME:-$HOME}"
+export HOME="${HOME:-/Users/duckets}"
 export PYTHONUNBUFFERED=1
 
 # Derive BRAIN_DIR from the script location (cross-platform)
 BRAIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="$BRAIN_DIR/.venv/bin/python"
-ENV_FILE=""$HOME/Library/Application Support/duckbot-rag-memory/env""
+ENV_FILE="$HOME/Library/Application Support/duckbot-rag-memory/env"
 LOG_DIR="$HOME/Library/Application Support/duckbot-rag-memory/logs"
 LOG_FILE="$LOG_DIR/watcher.log"
 

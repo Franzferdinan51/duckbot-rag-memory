@@ -16,7 +16,7 @@
 
 # 1. Re-establish the basics (launchd gives us a barren env).
 export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-export HOME="${HOME:-/home/$(whoami)}"
+export HOME="${HOME:-/Users/duckets}"
 export PYTHONUNBUFFERED=1
 
 # 2. Resolve repo paths.
