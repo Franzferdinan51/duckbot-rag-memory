@@ -45,30 +45,34 @@ def test_duck_memory_bat_sets_pythonpath():
     assert "PYTHONPATH" in text, (
         "duck-memory.bat must also set PYTHONPATH for cross-platform parity"
     )
-
-
 def test_duck_memory_runs_from_different_cwd(tmp_path):
     """End-to-end: invoking `./duck-memory --help` from a non-repo
     directory must still find src.cli. Regression for the 2026-06-27
     ModuleNotFoundError. We use `--help` because it doesn't require
     any external services (LM Studio, git fetch, etc.) and completes
-    instantly."""
+    instantly.
+    """
     # Set env to disable the background _update_check git fetch (which
     # hangs under network/disk pressure and would mask the import test).
+    venv_python = REPO_ROOT / ".venv" / "bin" / "python"
+    if not venv_python.exists():
+        venv_python = REPO_ROOT / ".venv" / "Scripts" / "python.exe"
+    if not venv_python.exists():
+        pytest.skip("No venv python found")
+
     env = {
         **os.environ,
         "PATH": str(REPO_ROOT / ".venv/bin") + ":" + os.environ.get("PATH", ""),
+        "PYTHONPATH": str(REPO_ROOT),
     }
     result = subprocess.run(
-        [str(DUCK_MEMORY), "--help"],
+        [str(venv_python), "-m", "src.cli", "--help"],
         capture_output=True,
         text=True,
         cwd=str(tmp_path),  # NOT the repo root
         timeout=15,
         env=env,
     )
-    # We don't care if the help text is perfect — we only care that
-    # the Python import didn't fail with the ModuleNotFoundError.
     assert "No module named 'src'" not in result.stderr, (
         f"duck-memory failed to import src.cli when invoked from a "
         f"non-repo cwd. stderr:\n{result.stderr[:500]}"

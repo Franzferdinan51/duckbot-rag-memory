@@ -23,7 +23,8 @@
 
 set -eo pipefail
 
-BRAIN_DIR="/Users/duckets/Desktop/duckbot-rag-memory"
+# Derive BRAIN_DIR from the script location (cross-platform)
+BRAIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="$BRAIN_DIR/.venv/bin/python"
 PLIST="$HOME/Library/LaunchAgents/com.duckbot.memory-watcher.plist"
 BACKUPS_DIR="$BRAIN_DIR/data/backups"

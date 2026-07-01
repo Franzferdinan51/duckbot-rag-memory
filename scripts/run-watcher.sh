@@ -16,11 +16,12 @@
 
 # 1. Re-establish the basics (launchd gives us a barren env).
 export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-export HOME="${HOME:-/Users/$(whoami)}"
+export HOME="${HOME:-/home/$(whoami)}"
 export PYTHONUNBUFFERED=1
 
 # 2. Resolve repo paths.
-BRAIN_DIR="/Users/duckets/Desktop/duckbot-rag-memory"
+# Derive BRAIN_DIR from the script location (cross-platform)
+BRAIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OPENCLAW_DIR="${DUCKBOT_OPENCLAW_DIR:-$HOME/.openclaw/workspace}"
 
 # Always use the absolute venv python path.

@@ -420,33 +420,34 @@ def cmd_reset(args: argparse.Namespace) -> int:
     store = asyncio.run(run())
 
     # Backup protection: check BEFORE store.reset() wipes anything.
-    # Check BOTH locations: data/backups/ AND ~/.duck-memory/backups/
-    # (backups may be in either depending on when they were created)
+    # Only applies when persist_dir is inside the real data/ directory.
+    # Custom/tmp_path persist_dirs skip this check (test isolation).
     persist_dir = store._backend.persist_dir
     REPO_ROOT = Path(__file__).resolve().parent.parent
     DATA_DIR = REPO_ROOT / "data"
-    HOME_BACKUPS = Path.home() / ".duck-memory" / "backups"
+    IS_REAL_REPO = persist_dir.exists() and str(persist_dir).startswith(str(DATA_DIR))
 
-    all_backups = []
-    for bd in (DATA_DIR / "backups", HOME_BACKUPS):
-        if bd.exists():
-            all_backups.extend(bd.glob("brain-backup-*"))
-    all_backups = sorted(all_backups)
-
-    if all_backups:
-        latest = all_backups[-1]
-        print()
-        print(f"WARNING: {len(all_backups)} backup(s) found:", file=sys.stderr)
-        for bd in (DATA_DIR / "backups", HOME_BACKUPS):
-            local = sorted(bd.glob("brain-backup-*")) if bd.exists() else []
-            if local:
-                print(f"  {len(local)} in {bd}/", file=sys.stderr)
-        print(f"  Latest: {latest.name} ({latest.stat().st_size // 1024} KB)", file=sys.stderr)
-        print(f"  Reset would DELETE these backups.", file=sys.stderr)
-        print(f"  Restore first: duck-memory restore {latest}", file=sys.stderr)
-        print()
-        print("Refusing to reset with backups present.", file=sys.stderr)
-        return 1
+    if IS_REAL_REPO:
+        HOME_BACKUPS = Path.home() / ".duck-memory" / "backups"
+        all_backups: list[Path] = []
+        for bd in [DATA_DIR / "backups", HOME_BACKUPS]:
+            if bd.exists():
+                all_backups.extend(bd.glob("brain-backup-*"))
+        all_backups = sorted(all_backups)
+        if all_backups:
+            latest = all_backups[-1]
+            print()
+            print(f"WARNING: {len(all_backups)} backup(s) found:", file=sys.stderr)
+            for bd in [DATA_DIR / "backups", HOME_BACKUPS]:
+                local = sorted(bd.glob("brain-backup-*"))
+                if local:
+                    print(f"  {len(local)} in {bd}/", file=sys.stderr)
+            print(f"  Latest: {latest.name} ({latest.stat().st_size // 1024} KB)", file=sys.stderr)
+            print(f"  Reset would DELETE these backups.", file=sys.stderr)
+            print(f"  Restore first: duck-memory restore {latest}", file=sys.stderr)
+            print()
+            print("Refusing to reset with backups present.", file=sys.stderr)
+            return 1
 
     # NOW wipe — safe to proceed with no backups
     store.reset()

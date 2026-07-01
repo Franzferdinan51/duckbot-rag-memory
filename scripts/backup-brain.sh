@@ -27,7 +27,8 @@
 
 set -eo pipefail
 
-BRAIN_DIR="/Users/duckets/Desktop/duckbot-rag-memory"
+# Derive BRAIN_DIR from the script location (cross-platform)
+BRAIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="$BRAIN_DIR/.venv/bin/python"
 BACKUPS_DIR="$BRAIN_DIR/data/backups"
 REGENERATE_EXPORT=1
@@ -59,7 +60,7 @@ else
 fi
 
 # Source .env if present so LM Studio is reachable for export.
-ENV_FILE="/Users/duckets/Library/Application Support/duckbot-rag-memory/env"
+ENV_FILE=""$HOME/Library/Application Support/duckbot-rag-memory/env""
 [ -f "$ENV_FILE" ] && set -a && . "$ENV_FILE" && set +a
 
 echo "[backup] brain dir: $BRAIN_DIR"
