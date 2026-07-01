@@ -262,22 +262,43 @@ async def sync_files(paths: list[str], state: dict) -> dict:
                 except Exception:
                     pass
 
-        # Chunk + ingest via the new remember() pipeline
+        # Chunk + ingest via batch pipeline — much faster than single-chunk remember()
+        # Groups all chunks by tier, then does one embed_batch() call per tier.
+        # Falls back to single-chunk remember() per chunk if batching fails.
         from .chunk import chunk_markdown
         from .tier import classify, reclassify_for_working
         chunks = chunk_markdown(content, source_path=path, chunk_size=512)
         new_chunk_ids = []
+        chunks_by_tier: dict = {}
         for c in chunks:
             try:
-                a = classify(c.source_path, c.text)
-                a = reclassify_for_working(c.source_path, a)
-                mem, _ = await _ensure_memory()
-                r = await mem.remember(
-                    c.text, source_path=c.source_path, metadata={"section_header": c.section_header}
-                )
-                new_chunk_ids.append(r.chunk_id)
+                tier = classify(c.source_path, c.text)
+                tier = reclassify_for_working(c.source_path, tier)
+                chunks_by_tier.setdefault(tier, []).append(c)
             except Exception as exc:
-                stats["errors"].append(f"remember {path}:{c.chunk_index}: {exc}")
+                stats["errors"].append(f"classify {path}:{c.chunk_index}: {exc}")
+        # Batch-embed per tier (one LM Studio call per tier instead of per chunk)
+        for tier, tier_chunks in chunks_by_tier.items():
+            texts = [c.text for c in tier_chunks]
+            mem, store = await _ensure_memory()
+            embedder = mem._embedder
+            try:
+                vecs = await embedder.embed(texts)
+                # add_chunks(chunks, embeddings, tier) — correct arg order
+                store.add_chunks(tier_chunks, vecs, tier)
+                new_chunk_ids.extend([c.chunk_id for c in tier_chunks])
+            except Exception as exc:
+                # Fallback: single-chunk remember() per chunk (slower but resilient)
+                for c in tier_chunks:
+                    try:
+                        r = await mem.remember(
+                            c.text,
+                            source_path=c.source_path,
+                            metadata={"section_header": getattr(c, "section_header", "")},
+                        )
+                        new_chunk_ids.append(r.chunk_id)
+                    except Exception as exc2:
+                        stats["errors"].append(f"remember {path}:{c.chunk_index}: {exc2}")
 
         state["files"][path] = {
             "mtime": mtime,
