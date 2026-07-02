@@ -1,6 +1,6 @@
 # INDEX.md — DuckBot Memory Corpus Index
 
-_Generated 2026-07-02 17:57:35_
+_Generated 2026-07-02 18:02:09_
 _Source: data/brain_export.md_
 
 ## Purpose
@@ -11,10 +11,10 @@ or "what rules has the system learned?".
 
 ## Corpus Summary
 
-- **Total chunks:** 1201
-  - Episodic: 1151 chunks
-  - Semantic: 18 chunks
-  - Procedural: 32 chunks
+- **Total chunks:** 1146
+  - Episodic: 1130 chunks
+  - Semantic: 14 chunks
+  - Procedural: 2 chunks
 
 ## Source Files
 
@@ -107,9 +107,7 @@ or "what rules has the system learned?".
 - `/2026-06-23.md_`
 - `/2026-06-24.md_`
 - `/2026-06-27.md_`
-- `/AGENTS.md_`
-- `/HEARTBEAT.md_`
-- `/IDENTITY.md_`
+- `/<test>_`
 - `/MEMORY.md_`
 - `/OSINT-sitrep-2026-03-03.md_`
 - `/SOUL.md_`
