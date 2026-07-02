@@ -53,3 +53,4 @@ memory/
 # Backup archives and log files — never committed
 data/backups/
 data/logs/
+data/chroma*.sqlite3

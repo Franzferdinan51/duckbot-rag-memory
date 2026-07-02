@@ -1788,6 +1788,10 @@ def main() -> int:
         "export",
         help="export the brain as a single markdown file (data/brain_export.md)",
     )
+    p_index = sub.add_parser('index-md', help='Generate INDEX.md from brain_export.md')
+    p_index.set_defaults(func=cmd_index_md)
+    p_index.add_argument('-o', '--output', default='INDEX.md')
+    p_index.add_argument('-s', '--source', default='data/brain_export.md')
     p_export.add_argument("--out-path", default="data/brain_export.md",
                          help="where to write the export (default: data/brain_export.md)")
     p_export.add_argument("--tier", choices=["working", "episodic", "semantic", "procedural"],
@@ -1847,6 +1851,19 @@ def main() -> int:
         parser.print_help()
         return 1
     return args.func(args)
+
+
+
+def cmd_index_md(args):
+    """Generate INDEX.md from brain_export.md — applies @rohit4verse vault-index technique."""
+    from src.dialect import emit_index_md
+    output = getattr(args, 'output', None) or 'INDEX.md'
+    source = getattr(args, 'source', None) or 'data/brain_export.md'
+    index_text = emit_index_md(source)
+    with open(output, 'w', encoding='utf-8') as f:
+        f.write(index_text)
+    print(f'INDEX.md written → {output}')
+    return 0
 
 
 if __name__ == "__main__":

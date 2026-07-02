@@ -147,3 +147,162 @@ def parse_entry(line: str) -> Optional[dict]:
         }
     except (ValueError, IndexError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# INDEX.md generation — article technique: "one INDEX.md per vault concern"
+#
+# From @rohit4verse / @wandermist "I Made My Hermes Agent 10x Faster":
+#   "Structure your vault with one INDEX.md per concern. Each INDEX.md
+#    acts as a high-signal table of contents for that topic area, giving
+#    the embedding model a coherent anchor to retrieve against."
+#
+# DuckBot applies this as: generate a structured index of the entire corpus
+# grouped by CoALA tier + source file. The index itself becomes a synthetic
+# high-value chunk that anchors retrieval around "what memory tiers exist",
+# "what files are in the system", and "what topics are covered" queries.
+# ---------------------------------------------------------------------------
+
+def emit_index_md(source_dir: str = "data/brain_export.md") -> str:
+    """Generate a structured INDEX.md for the corpus.
+
+    Groups brain_export.md chunks by tier and source file, then emits
+    a navigable markdown index. This is the "one INDEX.md per vault concern"
+    pattern from the Hermes speed-up article, applied at the corpus level.
+
+    Returns the full index text. Caller saves it or prints it.
+    """
+    from pathlib import Path
+    import re
+
+    export_path = Path(source_dir)
+    if not export_path.exists():
+        return f"# INDEX.md\n\n> Source not found: {source_dir}\n> Run `duck-memory export` first.\n"
+
+    text = export_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+
+    # Parse ## Tier sections
+    current_tier = None
+    current_section_lines: list[str] = []
+    sections: dict[str, list[str]] = {}
+
+    for line in lines:
+        tier_match = re.match(r"^## (\w+)$", line)
+        if tier_match:
+            if current_tier:
+                sections[current_tier] = current_section_lines
+            current_tier = tier_match.group(1)
+            current_section_lines = []
+        else:
+            current_section_lines.append(line)
+
+    if current_tier:
+        sections[current_tier] = current_section_lines
+
+    # Parse chunks within each tier section
+    # Format: ### <chunk_id>  (tier=<tier>, importance=<n>)
+    chunks_by_tier: dict[str, list[dict]] = {}
+
+    for tier, section_lines in sections.items():
+        chunks: list[dict] = []
+        i = 0
+        while i < len(section_lines):
+            line = section_lines[i]
+            chunk_match = re.match(r"^### (.+?)  \(tier=(\w+), importance=([\d.]+)\)$", line)
+            if chunk_match:
+                chunk_id = chunk_match.group(1)
+                chunk_tier = chunk_match.group(2)
+                importance = float(chunk_match.group(3))
+                # Collect content lines until next ### or end
+                content_lines = []
+                j = i + 1
+                while j < len(section_lines):
+                    next_line = section_lines[j]
+                    if next_line.startswith("### "):
+                        break
+                    if next_line.startswith("_source:") or next_line.startswith("  "):
+                        content_lines.append(next_line.strip())
+                    j += 1
+                content = " ".join(content_lines).strip()
+                # Extract source file
+                src_match = re.search(r"_source: (.+)$", "\n".join(section_lines[i+1:i+3]))
+                source = src_match.group(1) if src_match else "unknown"
+                chunks.append({
+                    "id": chunk_id,
+                    "importance": importance,
+                    "source": source,
+                    "preview": content[:120] + "..." if len(content) > 120 else content,
+                })
+            i += 1
+        chunks_by_tier[tier] = chunks
+
+    # Build INDEX.md
+    from datetime import datetime
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    lines_out = [
+        "# INDEX.md — DuckBot Memory Corpus Index",
+        "",
+        f"_Generated {now}_",
+        f"_Source: {source_dir}_",
+        "",
+        "## Purpose",
+        "",
+        "This index summarizes the entire memory corpus. Use it as a",
+        "high-signal anchor for queries like \"what topics exist in memory?\"",
+        "or \"what rules has the system learned?\".",
+        "",
+        "## Corpus Summary",
+        "",
+    ]
+
+    total = sum(len(v) for v in chunks_by_tier.values())
+    lines_out.append(f"- **Total chunks:** {total}")
+    for tier, chunks in chunks_by_tier.items():
+        lines_out.append(f"  - {tier.capitalize()}: {len(chunks)} chunks")
+
+    # Sources
+    all_sources = set()
+    for tier_chunks in chunks_by_tier.values():
+        for c in tier_chunks:
+            src = c["source"]
+            # Normalize Windows paths for display
+            display = src.replace("\\", "/").split("/")[-1]
+            all_sources.add(display)
+
+    lines_out.extend([
+        "",
+        "## Source Files",
+        "",
+    ])
+    for src in sorted(all_sources):
+        lines_out.append(f"- `/{src}`")
+
+    # Tier-by-tier index
+    tier_labels = {
+        "semantic": "🔹 Semantic — Distilled facts, entities, user preferences",
+        "procedural": "🔧 Procedural — Rules, behavioral norms, patterns",
+        "episodic": "📅 Episodic — Session logs, dated events, decisions",
+        "working": "⚡ Working — Today's active session",
+    }
+
+    for tier in ["semantic", "procedural", "episodic", "working"]:
+        chunks = chunks_by_tier.get(tier, [])
+        if not chunks:
+            continue
+        label = tier_labels.get(tier, tier.capitalize())
+        lines_out.extend(["", f"## {label}", ""])
+        # Group by source
+        by_source: dict[str, list[dict]] = {}
+        for c in chunks:
+            src = c["source"].replace("\\", "/").split("/")[-1]
+            by_source.setdefault(src, []).append(c)
+        for src, src_chunks in sorted(by_source.items()):
+            lines_out.append(f"### /{src}")
+            for c in sorted(src_chunks, key=lambda x: -x["importance"])[:5]:
+                importance_bar = "▓" * int(c["importance"] * 10) + "░" * (10 - int(c["importance"] * 10))
+                lines_out.append(f"- [{importance_bar}] {c['preview']}")
+
+    lines_out.extend(["", "---", "_End of INDEX.md_"])
+    return "\n".join(lines_out)

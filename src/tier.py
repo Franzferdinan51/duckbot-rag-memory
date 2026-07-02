@@ -102,10 +102,16 @@ class TierAssignment:
     confidence: float       # 0.0-1.0
 
 
+def _normalize_path(source_path: str) -> str:
+    """Normalize Windows backslash to forward slash so PATH_RULES match on all OSes."""
+    return source_path.replace("\\", "/")
+
+
 def classify_by_path(source_path: str) -> TierAssignment | None:
     """Classify a chunk by its source file path. Returns None if no rule matches."""
     for pattern, tier in PATH_RULES:
-        if pattern.search(source_path):
+        norm = _normalize_path(source_path)
+        if pattern.search(norm):
             return TierAssignment(
                 tier=tier,
                 source_path=source_path,
