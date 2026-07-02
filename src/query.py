@@ -210,8 +210,6 @@ async def hybrid_query(
             )
         by_id[cid].bm25_rank = rank
         by_id[cid].rrf_score += _rrf_score(rank)
-        if by_id[cid].bm25_hits is None or hit.get("bm25_hits", 0) > by_id[cid].bm25_hits:
-            by_id[cid].bm25_hits = hit.get("bm25_hits")
 
     # Phase 4.5: keyword boost on the expanded query
     # (the boost counts expanded synonym hits too, so "news" boosts chunks

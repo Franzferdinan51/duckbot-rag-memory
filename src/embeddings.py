@@ -460,7 +460,7 @@ class LMStudioEmbeddings:
     base_url: str = ""
     model: str = ""
     name: str = "lmstudio"
-    dim: int = 1024  # sensible default; will be updated by auto-detect
+    dim: int = 768  # embeddinggemma-300m
     api_key: str = "lm-studio"  # LM Studio ignores auth
     batch_size: int = 32  # smaller batches; LM Studio runs on consumer GPUs
     max_retries: int = 2  # retry transient local-server transport hiccups
@@ -579,6 +579,15 @@ class LMStudioEmbeddings:
 
     async def embed_one(self, text: str) -> list[float]:
         return (await self.embed([text]))[0]
+
+    def embed_query(self, text: str) -> list[float]:
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop.run_until_complete(self.embed_one(text))
 
 
 @dataclass

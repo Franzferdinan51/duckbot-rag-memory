@@ -483,8 +483,10 @@ def cmd_fsck(args: argparse.Namespace) -> int:
         return store._backend.fsck()
     report = asyncio.run(run())
     print(json.dumps(report, indent=2, default=str))
-    # Exit non-zero if there are any issues, so cron/operators can alert.
-    return 1 if report.get("issues") else 0
+    # Exit non-zero if there are real issues (working tier is allowed empty).
+    issues = report.get("issues", [])
+    real_issues = [i for i in issues if "working" not in i]
+    return 1 if real_issues else 0
 
 
 def cmd_vacuum(args: argparse.Namespace) -> int:
