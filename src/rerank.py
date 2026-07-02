@@ -160,6 +160,73 @@ class SentenceTransformersBackend:
         return scores
 
 
+class Qwen3RerankerBackend:
+    """Rerank via /v1/chat/completions using qwen3-0.6b-reranker.
+
+    LM Studio serves it as a chat model, NOT a /rerank endpoint.
+    We format docs as a prompt and parse float scores from the completion.
+    """
+
+    def __init__(self, url=None, model=None):
+        import os as _o
+        self.url = url or _o.environ.get("LMSTUDIO_RERANK_URL",
+                  "http://127.0.0.1:1234/v1/chat/completions")
+        self.model = model or _o.environ.get("LMSTUDIO_RERANK_MODEL",
+                     "qwen3-0.6b-reranker")
+        self.name = "qwen3-reranker:" + self.model
+
+    def score(self, query, docs):
+        if not docs:
+            return []
+        import httpx, os as _o, re
+        trunc = [(d or "")[:1500] for d in docs]
+        numbered = "\n".join("{}. {}".format(i + 1, d) for i, d in enumerate(trunc))
+        prompt = (
+            "Query: " + query + "\n\n"
+            "Rate each document relevance from 0.0 to 1.0.\n"
+            'Output ONLY valid JSON: {"scores": [0.1, 0.9, 0.3]}\n\n'
+            + numbered
+        )
+        key = _o.environ.get("LMSTUDIO_KEY", _o.environ.get("LMSTUDIO_API_KEY", ""))
+        hdrs = {"Content-Type": "application/json"}
+        if key:
+            hdrs["Authorization"] = "Bearer " + key
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": "You are a relevance scorer. Output ONLY valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.1,
+            "max_tokens": 300,
+        }
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.post(self.url, json=payload, headers=hdrs)
+            resp.raise_for_status()
+            text = (resp.json()
+                .get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", ""))
+            found = re.findall(r"[-+]?\d*\.?\d+", text)
+            scores = [float(x) for x in found[:len(docs)]]
+            if len(scores) == len(docs):
+                return scores
+            return [0.0] * len(docs)
+        except Exception:
+            return [0.0] * len(docs)
+
+    def available(self):
+        # Actually check LM Studio — don't assume just because the model is loaded
+        try:
+            import httpx
+            with httpx.Client(timeout=5.0) as client:
+                resp = client.get("http://127.0.0.1:1234/v1/models")
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+
 class LMStudioBackend:
     """LM Studio rerank endpoint. Some LM Studio builds expose a
     `/v1/rerank` route (e.g. via the llm-rerank plugin or TEI bridge)."""
@@ -284,18 +351,27 @@ def _resolve_backend(prefer: str | None = None) -> RerankBackend:
         _BACKEND = backend
         return backend
 
+    # Priority 1: qwen3-0.6b-reranker via /v1/chat/completions (the loaded model)
+    if prefer in (None, "lmstudio", "auto"):
+        try:
+            be = Qwen3RerankerBackend()
+            if be.available():
+                _cache_if_real(be)
+                logger.info("rerank backend: %s", be.name)
+                return be
+        except Exception as e:
+            logger.debug("Qwen3 reranker backend unavailable: %s", e)
+
+    # Priority 2: Cohere-compatible /v1/rerank (LM Studio builds with the plugin)
     if prefer in (None, "lmstudio", "auto"):
         try:
             be = LMStudioBackend()
-            # Don't cache unless the endpoint actually responds — LM Studio
-            # may have the reranker model loaded but not expose the /v1/rerank
-            # route (common on builds without the llm-rerank plugin).
             if be.available():
                 _cache_if_real(be)
                 logger.info("rerank backend: %s", be.name)
                 return be
             else:
-                logger.debug("LM Studio rerank endpoint not available; skipping")
+                logger.debug("LM Studio /rerank endpoint not available; skipping")
         except Exception as e:
             logger.debug("LM Studio rerank backend unavailable: %s", e)
 
