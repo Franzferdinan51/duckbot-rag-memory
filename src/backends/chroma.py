@@ -36,7 +36,7 @@ def _coerce(value: Any) -> str | int | float | bool:
 class ChromaBackend(VectorBackend):
     """VectorBackend backed by ChromaDB. One collection per tier."""
 
-    DEFAULT_PERSIST_DIR = Path("data") / "chroma"
+    DEFAULT_PERSIST_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "chroma"
 
     # Supported distance metrics for HNSW.
     #   "cosine" — default; works for any embedding, normalizes internally.
