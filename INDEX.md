@@ -1,6 +1,6 @@
 # INDEX.md — DuckBot Memory Corpus Index
 
-_Generated 2026-07-02 00:14:53_
+_Generated 2026-07-02 17:57:35_
 _Source: data/brain_export.md_
 
 ## Purpose
