@@ -671,8 +671,9 @@ async def handle_recall(args: dict) -> dict:
     # bypassing vector search entirely. embeddinggemma-300m doesn't reliably surface
     # short abstract identity queries against a noisy corpus.
     identity_keywords = [
-        "who am i", "what is my name", "my name is", "who is franz",
-        "where do i live", "what do i do for a living", "what's my name",
+        "who am i", "what is my name", "my name", "who is franz",
+        "where do i live", "what do i do", "what's my name",
+        "about me", "describe me",
     ]
     if any(kw in query for kw in identity_keywords):
         id_path = Path(__file__).resolve().parent.parent / "data" / "franz-identity.md"
