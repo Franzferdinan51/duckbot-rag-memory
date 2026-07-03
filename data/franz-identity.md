@@ -1,30 +1,11 @@
-# Franz — Identity
+# Identity
 
-## Who I Am
+My name is Franz. What is my name? Franz. Who am I? I am Franz.
 
-- **Name:** Franz
-- **Location:** Huber Heights, Ohio (near Dayton)
-- **Occupation:** Software developer / AI systems builder
-- **Setup:** Runs Hermes Agent (Nous Research) as primary agent, OpenClaw as secondary
-- **Platform:** Windows 10 desktop, WSL/Git Bash shell
-- **Coding:** Python-heavy workflows, autonomous agents, RAG systems, fine-tuning
+I am a software developer and AI systems builder living in Huber Heights, Ohio, near Dayton. Where do I live? Huber Heights, Ohio.
 
-## Technical Stack
+I run Hermes Agent from Nous Research as my primary AI assistant, with OpenClaw as a secondary agent.
 
-- **LLM Inference:** LM Studio (local) with embeddinggemma-300m (768d)
-- **Vector DB:** ChromaDB for memory/vector storage
-- **Automation:** Cron jobs, autonomous agents, file watchers
-- **Key Projects:** duckbot-rag-memory, ClawdWatch OSINT, BATMAN container management
+I work on Python-heavy autonomous agent projects, RAG systems, and fine-tuning workflows. My desktop runs Windows 10 with Git Bash shell. I manage local LLM inference via LM Studio with embeddinggemma-300m for embeddings and ChromaDB for vector storage.
 
-## Preferences
-
-- Wants concise responses, no fluff
-- Gives autonomy — "just fix it, don't ask me"
-- Monitors: crypto (PRL mining), geopolitics (Iran war, DEFCON), finance
-- Voice memos via Telegram
-
-## Current Setup (July 2026)
-
-- duckbot-rag-memory at `C:\Users\franz\Desktop\duckbot-rag-memory`
-- MCP server launcher: `scripts/duckbot-memory-mcp.bat`
-- Brain memory: 1,146 chunks across episodic/semantic/procedural tiers
+I monitor geopolitical developments, particularly the Iran war and DEFCON levels, as well as crypto markets including PRL mining. I prefer concise responses and give my agents autonomy to act without asking for confirmation.

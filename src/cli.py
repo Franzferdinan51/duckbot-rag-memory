@@ -151,6 +151,16 @@ def cmd_query(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_identity(args: argparse.Namespace) -> int:
+    """Print the identity seed file — bypasses vector search for identity queries."""
+    id_path = Path(__file__).resolve().parent.parent / "data" / "franz-identity.md"
+    if not id_path.exists():
+        print(json.dumps({"error": f"identity file not found: {id_path}"}))
+        return 1
+    print(id_path.read_text(encoding="utf-8"))
+    return 0
+
+
 def cmd_stats(args: argparse.Namespace) -> int:
     async def run():
         store, _ = await _resolve_store_and_embedder()
@@ -1563,6 +1573,9 @@ def main() -> int:
     p_query.add_argument("-n", type=int, default=5, help="number of results")
     p_query.add_argument("--max-chars", type=int, default=400, help="preview chars per result")
     p_query.set_defaults(func=cmd_query)
+
+    p_identity = sub.add_parser("identity", help="print identity seed (who Franz is)")
+    p_identity.set_defaults(func=cmd_identity)
 
     p_stats = sub.add_parser("stats", help="show store stats")
     p_stats.set_defaults(func=cmd_stats)
