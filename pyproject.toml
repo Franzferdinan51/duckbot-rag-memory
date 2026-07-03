@@ -1,0 +1,33 @@
+[project]
+name = "duckbot-rag-memory"
+version = "0.15.2"
+description = "Local-first RAG + memory layer for OpenClaw / Hermes agents"
+requires-python = ">=3.11"
+dependencies = [
+    "chromadb>=0.5.0,<0.6.0",
+    "httpx>=0.25.0",
+    "numpy>=1.24.0",
+    "openai>=1.30.0",
+    "sentence-transformers>=2.7.0",
+    "watchdog>=4.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-timeout>=0.23.0",
+]
+
+[project.scripts]
+duckbot-memory = "src.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-dir]
+"" = "."
