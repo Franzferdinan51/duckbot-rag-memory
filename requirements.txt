@@ -1,5 +1,5 @@
 # Core
-chromadb>=0.5.0
+chromadb>=0.5.0,<0.6.0   # upper bound: 0.6.x introduced schema/index changes that require a full reindex
 httpx>=0.25.0
 numpy>=1.24.0
 
@@ -13,3 +13,4 @@ watchdog>=4.0.0  # optional; falls back to polling if missing
 # Dev / tests
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+pytest-timeout>=0.23.0   # required by CI: pytest -v --timeout=60
