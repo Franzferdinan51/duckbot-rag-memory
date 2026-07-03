@@ -134,6 +134,19 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def cmd_query(args: argparse.Namespace) -> int:
+    # Identity fast-path: route self-reference queries directly to the seed file,
+    # bypassing vector search. embeddinggemma-300m doesn't reliably surface short
+    # abstract identity queries against a 1,100+ chunk noisy corpus.
+    question_lower = args.question.lower()
+    identity_keywords = [
+        "who am i", "what is my name", "my name is", "who is franz",
+        "where do i live", "what do i do", "what's my name",
+    ]
+    if any(kw in question_lower for kw in identity_keywords):
+        id_path = Path(__file__).resolve().parent.parent / "data" / "franz-identity.md"
+        if id_path.exists():
+            print(id_path.read_text(encoding="utf-8"))
+            return 0
     async def run():
         store, embedder = await _resolve_store_and_embedder()
         if embedder is None:
