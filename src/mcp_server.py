@@ -673,7 +673,7 @@ async def handle_recall(args: dict) -> dict:
     identity_keywords = [
         "who am i", "what is my name", "my name", "who is franz",
         "where do i live", "what do i do", "what's my name",
-        "about me", "describe me",
+        "about me", "describe me", "tell me about yourself", "about yourself",
     ]
     if any(kw in query for kw in identity_keywords):
         id_path = Path(__file__).resolve().parent.parent / "data" / "franz-identity.md"

@@ -139,8 +139,9 @@ def cmd_query(args: argparse.Namespace) -> int:
     # abstract identity queries against a 1,100+ chunk noisy corpus.
     question_lower = args.question.lower()
     identity_keywords = [
-        "who am i", "what is my name", "my name is", "who is franz",
+        "who am i", "what is my name", "my name", "who is franz",
         "where do i live", "what do i do", "what's my name",
+        "about me", "describe me", "tell me about yourself", "about yourself",
     ]
     if any(kw in question_lower for kw in identity_keywords):
         id_path = Path(__file__).resolve().parent.parent / "data" / "franz-identity.md"
