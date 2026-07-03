@@ -666,7 +666,26 @@ async def handle_remember(args: dict) -> dict:
 
 
 async def handle_recall(args: dict) -> dict:
-    query = (args.get("query") or "").strip()
+    query = (args.get("query") or "").lower()
+    # Identity fast-path: route self-reference queries directly to the seed file,
+    # bypassing vector search entirely. embeddinggemma-300m doesn't reliably surface
+    # short abstract identity queries against a noisy corpus.
+    identity_keywords = [
+        "who am i", "what is my name", "my name is", "who is franz",
+        "where do i live", "what do i do for a living", "what's my name",
+    ]
+    if any(kw in query for kw in identity_keywords):
+        id_path = Path(__file__).resolve().parent.parent / "data" / "franz-identity.md"
+        if id_path.exists():
+            return {
+                "results": [{
+                    "text": id_path.read_text(encoding="utf-8"),
+                    "source": "identity",
+                    "tier": "seed",
+                    "score": 1.0,
+                }],
+                "stats": {"identity_fast_path": True},
+            }
     if not query:
         return {"error": "query is required"}
     mem = Memory()
