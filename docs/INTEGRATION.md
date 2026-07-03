@@ -24,6 +24,26 @@ hermes mcp add duckbot-memory \
 The launcher reads your `.env` so the LMSTUDIO_API_KEY stays out of hermes config
 and out of `hermes mcp list` / `/api/mcp/servers` redaction leaks.
 
+## Identity fast-path
+
+For self-reference queries, both the CLI and MCP server bypass vector search
+entirely and return the identity seed file (`data/franz-identity.md`) directly:
+
+```bash
+duckbot-rag-memory identity                     # CLI subcommand
+duckbot-rag-memory query "who am I"            # CLI keyword routing
+# MCP: brain_recall("who am I") → identity_fast_path: true
+```
+
+Keywords that trigger this: `who am i`, `what is my name`, `my name`,
+`tell me about yourself`, `about yourself`, etc.
+
+This is a deliberate design decision — lightweight embedders like
+`embeddinggemma-300m` (768d) cannot reliably rank short abstract
+self-reference queries above high-term-frequency news chunks using
+cosine similarity alone. The fast-path guarantees correct identity recall
+regardless of corpus size or noise.
+
 ## Why a launcher script?
 
 Hermes's MCP config stores `command` + `args` + `env` in YAML. Three problems:
