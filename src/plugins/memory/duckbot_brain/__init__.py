@@ -29,8 +29,19 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Fix sys.path so `from src.connectors.base import Brain` resolves.
+# When Hermes loads this plugin, cwd is ~ and Python has no duckbot-rag-memory
+# on the path. We prepend the repo root so src.* imports work.
+# Hardcoded repo root — ensures `from src.connectors.base import Brain`
+# resolves correctly when Hermes loads this plugin from ~/.hermes/plugins/.
+_DUCKBOT_ROOT = "C:/Users/franz/duckbot-rag-memory"
+if _DUCKBOT_ROOT not in sys.path:
+    sys.path.insert(0, _DUCKBOT_ROOT)
 
 from src.connectors.base import Brain
 from src.extensions import tools as _tools
