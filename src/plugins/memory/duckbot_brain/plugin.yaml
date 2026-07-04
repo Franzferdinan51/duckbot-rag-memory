@@ -1,5 +1,5 @@
 name: duckbot-brain
-version: 0.3.0
+version: 0.3.1
 description: "DuckBot brain — local hybrid RAG with cross-encoder rerank (Layer 7), Ebbinghaus decay (Layer 8), and verbatim-first storage (Layer 13). MIT, zero paid APIs."
 # v0.15.0: surface expanded to 12 tools (incl. brain_wake_up as the
 # canonical session-start call + brain_skills_list/promote for the
