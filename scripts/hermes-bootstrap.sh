@@ -167,7 +167,7 @@ echo "    $REPO_ROOT/scripts/hermes-preflight.sh --query OpenClaw"
 # Verify the plugin can be imported + instantiated.
 echo
 echo "→ Verifying plugin loads..."
-if "$PY" -c "import sys; sys.path.insert(0, '$REPO_ROOT/hermes'); from hermes.plugins.duckbot_brain import DuckBotBrainProvider; print('✓ Plugin loads:', DuckBotBrainProvider().name, '(is_available =', DuckBotBrainProvider().is_available(), ')')" 2>&1; then
+if "$PY" -c "import sys; sys.path.insert(0, '$REPO_ROOT'); from hermes.plugins.duckbot_brain import DuckBotBrainProvider; print('✓ Plugin loads:', DuckBotBrainProvider().name, '(is_available =', DuckBotBrainProvider().is_available(), ')')" 2>&1; then
     :
 else
     echo "  ⚠ Plugin import failed — check the Python path above" >&2
