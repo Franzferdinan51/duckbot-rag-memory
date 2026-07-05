@@ -68,25 +68,27 @@ echo
 # Auto-install the Hermes plugin symlink so Hermes's plugin loader finds
 # us on next session start. Idempotent: re-running is a no-op.
 HERMES_PLUGINS_DIR="${HERMES_HOME%/memories}/plugins/memory/duckbot_brain"
-PLUGIN_SRC_DIR="$REPO_ROOT/hermes/plugins/duckbot_brain"
-if [ -f "$PLUGIN_SRC_DIR/__init__.py" ]; then
+PLUGIN_SRC_INIT="$REPO_ROOT/src/plugins/memory/duckbot_brain/__init__.py"
+PLUGIN_SRC_YAML="$REPO_ROOT/src/plugins/memory/duckbot_brain/plugin.yaml"
+if [ -f "$PLUGIN_SRC_INIT" ]; then
     mkdir -p "$HERMES_PLUGINS_DIR"
-    cp "$PLUGIN_SRC_DIR/__init__.py"  "$HERMES_PLUGINS_DIR/__init__.py"  && \
-    cp "$PLUGIN_SRC_DIR/schemas.py"   "$HERMES_PLUGINS_DIR/schemas.py"   && \
-    cp "$PLUGIN_SRC_DIR/tools.py"     "$HERMES_PLUGINS_DIR/tools.py"     && \
-    cp "$PLUGIN_SRC_DIR/plugin.yaml"  "$HERMES_PLUGINS_DIR/plugin.yaml"  && \
-    echo "[OK] Plugin installed: $HERMES_PLUGINS_DIR/"
+    # Copy (not symlink) the Python module so the plugin loader's import
+    # machinery picks it up — Hermes imports plugin packages, it doesn't
+    # follow symlinks in all configurations.
+    cp "$PLUGIN_SRC_INIT" "$HERMES_PLUGINS_DIR/__init__.py" 2>/dev/null && \
+        cp "$PLUGIN_SRC_YAML" "$HERMES_PLUGINS_DIR/plugin.yaml" 2>/dev/null && \
+        echo "✓ Plugin installed: $HERMES_PLUGINS_DIR/"
 fi
 
 # Activate the plugin in ~/.hermes/config.yaml. Without this, Hermes
 # never instantiates the provider — the plugin files are on disk but
 # the agent never sees them. Idempotent: re-running on a config that
-# already has memory.provider: duckbot_brain is a no-op.
+# already has memory.provider: duckbot-brain is a no-op.
 HERMES_ROOT_DIR="${HERMES_HOME%/memories}"
 HERMES_CONFIG="$HERMES_ROOT_DIR/config.yaml"
 if [ -f "$HERMES_CONFIG" ]; then
-    if grep -qE '^[[:space:]]*provider:[[:space:]]*duckbot_brain' "$HERMES_CONFIG" 2>/dev/null; then
-        echo "✓ memory.provider: duckbot_brain already set in $HERMES_CONFIG"
+    if grep -qE '^[[:space:]]*provider:[[:space:]]*duckbot-brain' "$HERMES_CONFIG" 2>/dev/null; then
+        echo "✓ memory.provider: duckbot-brain already set in $HERMES_CONFIG"
     else
         # Back up before mutating.
         BACKUP="$HERMES_CONFIG.bak.$(date +%Y%m%d-%H%M%S)"
@@ -94,7 +96,7 @@ if [ -f "$HERMES_CONFIG" ]; then
         echo "  Backed up: $BACKUP"
         if grep -qE '^[[:space:]]*memory:[[:space:]]*$' "$HERMES_CONFIG" 2>/dev/null; then
             # `memory:` block exists but no provider set. Insert
-            # `provider: duckbot_brain` as the first child of that block,
+            # `provider: duckbot-brain` as the first child of that block,
             # preserving comments and other keys. Pure awk — no Python
             # import gymnastics.
             TMP="$(mktemp)"
@@ -116,7 +118,7 @@ if [ -f "$HERMES_CONFIG" ]; then
                         # First real child — insert provider at same indent.
                         match($0, /^[[:space:]]+/)
                         indent = substr($0, RSTART, RLENGTH)
-                        print indent "provider: duckbot_brain"
+                        print indent "provider: duckbot-brain"
                         inserted = 1
                         in_mem = 0
                     }
@@ -126,20 +128,20 @@ if [ -f "$HERMES_CONFIG" ]; then
                     if (!inserted) {
                         print ""
                         print "memory:"
-                        print "  provider: duckbot_brain"
+                        print "  provider: duckbot-brain"
                     }
                 }
             ' "$HERMES_CONFIG" > "$TMP" && mv "$TMP" "$HERMES_CONFIG"
         else
             # No `memory:` block — append one at the end.
-            printf '\nmemory:\n  provider: duckbot_brain\n' >> "$HERMES_CONFIG"
+            printf '\nmemory:\n  provider: duckbot-brain\n' >> "$HERMES_CONFIG"
         fi
-        echo "✓ Activated plugin in $HERMES_CONFIG (memory.provider: duckbot_brain)"
+        echo "✓ Activated plugin in $HERMES_CONFIG (memory.provider: duckbot-brain)"
     fi
 else
     echo "  ⚠ No config.yaml at $HERMES_CONFIG — create one and add:"
     echo "      memory:"
-    echo "        provider: duckbot_brain"
+    echo "        provider: duckbot-brain"
     echo "    (Hermes will pick up the plugin on next start.)"
 fi
 
@@ -165,7 +167,7 @@ echo "    $REPO_ROOT/scripts/hermes-preflight.sh --query OpenClaw"
 # Verify the plugin can be imported + instantiated.
 echo
 echo "→ Verifying plugin loads..."
-if "$PY" -c "import sys; sys.path.insert(0, '$HERMES_ROOT_DIR'); from plugins.memory.duckbot_brain import DuckBotBrainProvider; print('✓ Plugin loads:', DuckBotBrainProvider().name, '(is_available =', DuckBotBrainProvider().is_available(), ')')" 2>&1; then
+if "$PY" -c "import sys; sys.path.insert(0, '$REPO_ROOT'); from hermes.plugins.duckbot_brain import DuckBotBrainProvider; print('✓ Plugin loads:', DuckBotBrainProvider().name, '(is_available =', DuckBotBrainProvider().is_available(), ')')" 2>&1; then
     :
 else
     echo "  ⚠ Plugin import failed — check the Python path above" >&2
