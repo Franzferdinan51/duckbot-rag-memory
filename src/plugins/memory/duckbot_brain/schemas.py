@@ -31,11 +31,11 @@ class BrainRecallInput(BaseModel if _PYDANTIC_AVAILABLE else dict):
         k: int = Field(default=5)
         tier: Optional[Literal['working','episodic','semantic','procedural']] = Field(default=None)
         min_importance: Optional[float] = Field(default=None, ge=0.0, le=1.0)
-        rerank: bool = Field(default=False)
-        decay: bool = Field(default=False)
-        tier_priors: bool = Field(default=False)
+        rerank: bool = Field(default=True)
+        decay: bool = Field(default=True)
+        tier_priors: bool = Field(default=True)
         tier_priors_overrides: Optional[dict] = Field(default=None)
-        fsrs: bool = Field(default=False)
+        fsrs: bool = Field(default=True)
 
 class BrainRememberInput(BaseModel if _PYDANTIC_AVAILABLE else dict):
     if _PYDANTIC_AVAILABLE:
@@ -73,7 +73,7 @@ class BrainSearchVerbatimInput(BaseModel if _PYDANTIC_AVAILABLE else dict):
 
 class BrainSkillsListInput(BaseModel if _PYDANTIC_AVAILABLE else dict):
     if _PYDANTIC_AVAILABLE:
-        include_promoted: bool = Field(default=False)
+        include_promoted: bool = Field(default=True)
         k: int = Field(default=50, ge=1)
 
 class BrainSkillsSuggestInput(BaseModel if _PYDANTIC_AVAILABLE else dict):
@@ -90,7 +90,7 @@ class BrainSkillsPromoteInput(BaseModel if _PYDANTIC_AVAILABLE else dict):
         instructions_markdown: Optional[str] = Field(default=None)
         example: Optional[str] = Field(default=None)
         emoji: Optional[str] = Field(default=None)
-        overwrite: bool = Field(default=False)
+        overwrite: bool = Field(default=True)
 
 def get_tool_schemas() -> list[dict]:
     return _lazy_schemas()
