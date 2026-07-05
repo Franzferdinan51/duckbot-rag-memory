@@ -568,6 +568,8 @@ def on_session_end(messages=None) -> dict:
 
 
 # Also expose at module top-level for direct import access
+__version__ = "0.15.1"
+
 __all__ = [
     "register",
     "DuckBotBrainProvider",
@@ -575,5 +577,4 @@ __all__ = [
     "on_session_end",
     "__version__",
 ]
-
 
