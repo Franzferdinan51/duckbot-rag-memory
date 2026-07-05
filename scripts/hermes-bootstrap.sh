@@ -68,7 +68,7 @@ echo
 # Auto-install the Hermes plugin symlink so Hermes's plugin loader finds
 # us on next session start. Idempotent: re-running is a no-op.
 HERMES_PLUGINS_DIR="${HERMES_HOME%/memories}/plugins/memory/duckbot_brain"
-PLUGIN_SRC_DIR="$REPO_ROOT/hermes/plugins/duckbot-brain"
+PLUGIN_SRC_DIR="$REPO_ROOT/hermes/plugins/duckbot_brain"
 if [ -f "$PLUGIN_SRC_DIR/__init__.py" ]; then
     mkdir -p "$HERMES_PLUGINS_DIR"
     cp "$PLUGIN_SRC_DIR/__init__.py"  "$HERMES_PLUGINS_DIR/__init__.py"  && \
@@ -81,12 +81,12 @@ fi
 # Activate the plugin in ~/.hermes/config.yaml. Without this, Hermes
 # never instantiates the provider — the plugin files are on disk but
 # the agent never sees them. Idempotent: re-running on a config that
-# already has memory.provider: duckbot-brain is a no-op.
+# already has memory.provider: duckbot_brain is a no-op.
 HERMES_ROOT_DIR="${HERMES_HOME%/memories}"
 HERMES_CONFIG="$HERMES_ROOT_DIR/config.yaml"
 if [ -f "$HERMES_CONFIG" ]; then
-    if grep -qE '^[[:space:]]*provider:[[:space:]]*duckbot-brain' "$HERMES_CONFIG" 2>/dev/null; then
-        echo "✓ memory.provider: duckbot-brain already set in $HERMES_CONFIG"
+    if grep -qE '^[[:space:]]*provider:[[:space:]]*duckbot_brain' "$HERMES_CONFIG" 2>/dev/null; then
+        echo "✓ memory.provider: duckbot_brain already set in $HERMES_CONFIG"
     else
         # Back up before mutating.
         BACKUP="$HERMES_CONFIG.bak.$(date +%Y%m%d-%H%M%S)"
@@ -94,7 +94,7 @@ if [ -f "$HERMES_CONFIG" ]; then
         echo "  Backed up: $BACKUP"
         if grep -qE '^[[:space:]]*memory:[[:space:]]*$' "$HERMES_CONFIG" 2>/dev/null; then
             # `memory:` block exists but no provider set. Insert
-            # `provider: duckbot-brain` as the first child of that block,
+            # `provider: duckbot_brain` as the first child of that block,
             # preserving comments and other keys. Pure awk — no Python
             # import gymnastics.
             TMP="$(mktemp)"
@@ -116,7 +116,7 @@ if [ -f "$HERMES_CONFIG" ]; then
                         # First real child — insert provider at same indent.
                         match($0, /^[[:space:]]+/)
                         indent = substr($0, RSTART, RLENGTH)
-                        print indent "provider: duckbot-brain"
+                        print indent "provider: duckbot_brain"
                         inserted = 1
                         in_mem = 0
                     }
@@ -126,20 +126,20 @@ if [ -f "$HERMES_CONFIG" ]; then
                     if (!inserted) {
                         print ""
                         print "memory:"
-                        print "  provider: duckbot-brain"
+                        print "  provider: duckbot_brain"
                     }
                 }
             ' "$HERMES_CONFIG" > "$TMP" && mv "$TMP" "$HERMES_CONFIG"
         else
             # No `memory:` block — append one at the end.
-            printf '\nmemory:\n  provider: duckbot-brain\n' >> "$HERMES_CONFIG"
+            printf '\nmemory:\n  provider: duckbot_brain\n' >> "$HERMES_CONFIG"
         fi
-        echo "✓ Activated plugin in $HERMES_CONFIG (memory.provider: duckbot-brain)"
+        echo "✓ Activated plugin in $HERMES_CONFIG (memory.provider: duckbot_brain)"
     fi
 else
     echo "  ⚠ No config.yaml at $HERMES_CONFIG — create one and add:"
     echo "      memory:"
-    echo "        provider: duckbot-brain"
+    echo "        provider: duckbot_brain"
     echo "    (Hermes will pick up the plugin on next start.)"
 fi
 
