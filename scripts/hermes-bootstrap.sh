@@ -68,16 +68,14 @@ echo
 # Auto-install the Hermes plugin symlink so Hermes's plugin loader finds
 # us on next session start. Idempotent: re-running is a no-op.
 HERMES_PLUGINS_DIR="${HERMES_HOME%/memories}/plugins/memory/duckbot_brain"
-PLUGIN_SRC_INIT="$REPO_ROOT/src/plugins/memory/duckbot_brain/__init__.py"
-PLUGIN_SRC_YAML="$REPO_ROOT/src/plugins/memory/duckbot_brain/plugin.yaml"
-if [ -f "$PLUGIN_SRC_INIT" ]; then
+PLUGIN_SRC_DIR="$REPO_ROOT/hermes/plugins/duckbot-brain"
+if [ -f "$PLUGIN_SRC_DIR/__init__.py" ]; then
     mkdir -p "$HERMES_PLUGINS_DIR"
-    # Copy (not symlink) the Python module so the plugin loader's import
-    # machinery picks it up — Hermes imports plugin packages, it doesn't
-    # follow symlinks in all configurations.
-    cp "$PLUGIN_SRC_INIT" "$HERMES_PLUGINS_DIR/__init__.py" 2>/dev/null && \
-        cp "$PLUGIN_SRC_YAML" "$HERMES_PLUGINS_DIR/plugin.yaml" 2>/dev/null && \
-        echo "✓ Plugin installed: $HERMES_PLUGINS_DIR/"
+    cp "$PLUGIN_SRC_DIR/__init__.py"  "$HERMES_PLUGINS_DIR/__init__.py"  && \
+    cp "$PLUGIN_SRC_DIR/schemas.py"   "$HERMES_PLUGINS_DIR/schemas.py"   && \
+    cp "$PLUGIN_SRC_DIR/tools.py"     "$HERMES_PLUGINS_DIR/tools.py"     && \
+    cp "$PLUGIN_SRC_DIR/plugin.yaml"  "$HERMES_PLUGINS_DIR/plugin.yaml"  && \
+    echo "[OK] Plugin installed: $HERMES_PLUGINS_DIR/"
 fi
 
 # Activate the plugin in ~/.hermes/config.yaml. Without this, Hermes

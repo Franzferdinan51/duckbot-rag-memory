@@ -506,3 +506,74 @@ class DuckBotBrainProvider:
         if self._brain is None:
             self._brain = Brain()
         return self._brain
+
+# -----------------------------------------------------------------------------
+# Module-level hook shims (Hermes plugin loader calls these at module scope)
+# Hermes plugin.yaml:  handler: on_session_start  → calls this function
+# -----------------------------------------------------------------------------
+
+_provider_instance = None
+
+
+def _get_provider():
+    """Return a cached DuckBotBrainProvider instance for module-level hooks."""
+    global _provider_instance
+    if _provider_instance is None:
+        _provider_instance = DuckBotBrainProvider()
+    return _provider_instance
+
+
+def on_session_start() -> dict:
+    """Module-level shim for Hermes plugin loader.
+
+    Instantiates the provider and delegates to the class method.
+    Reads config from DUCKBOT_PLUGIN_CFG env var (JSON) or uses defaults.
+
+    Returns the same dict as DuckBotBrainProvider.on_session_start().
+    """
+    import os, json as _json
+    cfg = {}
+    cfg_raw = os.environ.get("DUCKBOT_PLUGIN_CFG", "")
+    if cfg_raw:
+        try:
+            cfg = _json.loads(cfg_raw)
+        except Exception:
+            pass
+    # auto_wake_up defaults to True (matching the class method behavior)
+    if not cfg.get("auto_wake_up", True):
+        return {"status": "disabled"}
+    try:
+        p = _get_provider()
+        p._session_id = os.environ.get("HERMES_SESSION_ID", "module-level")
+        p._platform = os.environ.get("HERMES_PLATFORM", "cli")
+        p._agent_context = os.environ.get("HERMES_AGENT_CONTEXT", "primary")
+        return p.on_session_start() or {"status": "ok"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def on_session_end(messages=None) -> dict:
+    """Module-level shim for Hermes plugin loader.
+
+    Delegates to DuckBotBrainProvider.on_session_end().
+    If messages is None/empty, returns None (no-op, no error).
+    """
+    if not messages:
+        return {"status": "skipped_empty_messages"}
+    try:
+        p = _get_provider()
+        return p.on_session_end(messages) or {"status": "ok"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# Also expose at module top-level for direct import access
+__all__ = [
+    "register",
+    "DuckBotBrainProvider",
+    "on_session_start",
+    "on_session_end",
+    "__version__",
+]
+
+

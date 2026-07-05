@@ -1,11 +1,105 @@
+# plugin.yaml - DuckBot Brain MemoryProvider for Hermes Agent
+#
+# Canonical location: hermes/plugins/duckbot-brain/plugin.yaml
+# Synced copy:        src/plugins/memory/duckbot_brain/plugin.yaml
+#
+# Hermes plugin schema: https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins
+
+version: "0.4.0"
 name: duckbot-brain
-version: 0.3.2
-description: "DuckBot brain — local hybrid RAG with cross-encoder rerank (Layer 7), Ebbinghaus decay (Layer 8), and verbatim-first storage (Layer 13). MIT, zero paid APIs."
-# v0.15.0: surface expanded to 12 tools (incl. brain_wake_up as the
-# canonical session-start call + brain_skills_list/promote for the
-# agent-driven skill pipeline) so the skill files' instructions
-# actually work. The tool list is delegated to src.extensions.tools so
-# the OpenClaw extension and Hermes plugin stay in lock-step.
-# v0.3.2: _DUCKBOT_ROOT is now auto-detected via Path(__file__).resolve().parents
-# walking upward — no longer hardcoded to a single machine's home path.
-hooks: []
+type: memory_provider
+description: >
+  DuckBot RAG brain -- 4-tier CoALA-style persistent memory (working,
+  episodic, semantic, procedural). Provides brain_wake_up, brain_recall,
+  brain_remember, brain_reflect, brain_stats, brain_fsrs_review,
+  brain_decay_status, brain_search_verbatim, brain_skills_list,
+  brain_skills_suggest, brain_skills_promote, and brain_recall_verbatim.
+  Auto-fires brain_wake_up on session_start and brain_sync on session_end.
+
+author: Franzferdinan51
+homepage: https://github.com/Franzferdinan51/duckbot-rag-memory
+license: MIT
+keywords:
+  - memory
+  - rag
+  - long-term-memory
+  - episodic
+  - semantic
+  - procedural
+  - fsrs
+  - spaced-repetition
+  - duckbot
+  - hermes-agent
+  - mcp
+
+# Minimum Hermes version (MemoryProvider hooks stabilised in 0.14.x).
+hermes_version: ">=0.14.0"
+
+# Tools exposed by this plugin.
+tools:
+  - brain_wake_up
+  - brain_recall
+  - brain_recall_verbatim
+  - brain_remember
+  - brain_reflect
+  - brain_stats
+  - brain_fsrs_review
+  - brain_decay_status
+  - brain_search_verbatim
+  - brain_skills_list
+  - brain_skills_suggest
+  - brain_skills_promote
+
+# Lifecycle hooks -- auto-fire brain_wake_up / brain_sync.
+hooks:
+  on_session_start:
+    handler: on_session_start
+    description: >
+      Called automatically when a Hermes session starts. Fires brain_wake_up
+      and injects the result into the agent context. Configurable via
+      plugin config (auto_wake_up, default_k).
+  on_session_end:
+    handler: on_session_end
+    description: >
+      Called automatically when a Hermes session ends. Fires brain_sync to
+      persist high-importance facts back to the Hermes memory layer
+      (MEMORY.md / USER.md / SOUL.md). Configurable via plugin config (auto_sync).
+
+# Configuration options (override in ~/.hermes/config.yaml under plugins.duckbot-brain).
+config:
+  repo_path:
+    type: string
+    required: true
+    description: >
+      Absolute path to the duckbot-rag-memory repository on disk.
+      Can also be set via DUCKBOT_REPO_PATH environment variable.
+  python_path:
+    type: string
+    required: false
+    description: >
+      Path to Python interpreter for the venv. Defaults to
+      {repo_path}/.venv/Scripts/python.exe on Windows.
+      Can also be set via DUCKBOT_PYTHON_PATH environment variable.
+  default_k:
+    type: integer
+    default: 8
+    description: Max memories to return from brain_wake_up.
+  auto_wake_up:
+    type: boolean
+    default: true
+    description: >
+      If true, on_session_start fires brain_wake_up and injects the result.
+      Set false to call brain_wake_up manually in the agent prompt.
+  auto_sync:
+    type: boolean
+    default: true
+    description: >
+      If true, on_session_end fires brain_sync. Set false to disable.
+  timeout_ms:
+    type: integer
+    default: 15000
+    description: Per-call timeout in milliseconds.
+  default_embedding:
+    type: string
+    required: false
+    description: Embedding provider passed to the Python brain (default: lmstudio).
