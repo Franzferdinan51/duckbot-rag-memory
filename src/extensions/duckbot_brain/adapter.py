@@ -58,8 +58,8 @@ logger = logging.getLogger("duckbot-brain-extension")
 
 
 _DEFAULT_K = int(os.environ.get("DUCKBOT_BRAIN_DEFAULT_K", "5"))
-_ENABLE_RERANK = os.environ.get("DUCKBOT_BRAIN_RERANK", "0") == "1"
-_ENABLE_DECAY = os.environ.get("DUCKBOT_BRAIN_DECAY", "0") == "1"
+_ENABLE_RERANK = os.environ.get("DUCKBOT_BRAIN_RERANK", "1") == "1"
+_ENABLE_DECAY = os.environ.get("DUCKBOT_BRAIN_DECAY", "1") == "1"
 
 
 # -----------------------------------------------------------------------------
