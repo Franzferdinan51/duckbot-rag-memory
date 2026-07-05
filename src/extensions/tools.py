@@ -443,11 +443,11 @@ def dispatch(name: str, args: dict) -> dict:
                 k=args.get("k", 5),
                 tier=tier,
                 min_importance=args.get("min_importance"),
-                rerank=bool(args.get("rerank") or False),
-                decay=bool(args.get("decay") or False),
-                tier_priors=bool(args.get("tier_priors") or False),
+                rerank=args.get("rerank"),
+                decay=args.get("decay"),
+                tier_priors=args.get("tier_priors"),
                 tier_priors_overrides=tpo,
-                fsrs=bool(args.get("fsrs") or False),
+                fsrs=args.get("fsrs"),
             )
             return {"results": _serialize_recall(results)}
 
@@ -466,11 +466,11 @@ def dispatch(name: str, args: dict) -> dict:
                 k=args.get("k", 5),
                 tier=tier,
                 min_importance=args.get("min_importance"),
-                rerank=bool(args.get("rerank") or False),
-                decay=bool(args.get("decay") or False),
-                tier_priors=bool(args.get("tier_priors") or False),
+                rerank=args.get("rerank"),
+                decay=args.get("decay"),
+                tier_priors=args.get("tier_priors"),
                 tier_priors_overrides=tpo,
-                fsrs=bool(args.get("fsrs") or False),
+                fsrs=args.get("fsrs"),
             )
             # Convert VerbatimResult dataclasses to dicts for JSON
             # serialization (otherwise the OpenClaw CLI / MCP client sees
