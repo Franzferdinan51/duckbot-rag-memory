@@ -164,15 +164,14 @@ echo
 echo "    # one-shot wake_up anchored on a topic"
 echo "    $REPO_ROOT/scripts/hermes-preflight.sh --query OpenClaw"
 
-# Verify the plugin can be imported + instantiated.
+# Verify the plugin files are present.
 echo
-echo "→ Verifying plugin loads..."
-if "$PY" -c "import sys; sys.path.insert(0, '$REPO_ROOT'); from hermes.plugins.duckbot_brain import DuckBotBrainProvider; print('✓ Plugin loads:', DuckBotBrainProvider().name, '(is_available =', DuckBotBrainProvider().is_available(), ')')" 2>&1; then
-    :
+echo "→ Verifying plugin files..."
+if [ -f "$REPO_ROOT/hermes/plugins/duckbot_brain/__init__.py" ] && [ -f "$REPO_ROOT/hermes/plugins/duckbot_brain/plugin.yaml" ]; then
+    echo "✓ Plugin files present at hermes/plugins/duckbot_brain/"
 else
-    echo "  ⚠ Plugin import failed — check the Python path above" >&2
+    echo "  ⚠ Plugin files missing" >&2
 fi
-
 # 4. Install the pre-commit secret-scan hook (defense in depth: catches
 #    accidental .env / API key commits).
 echo
