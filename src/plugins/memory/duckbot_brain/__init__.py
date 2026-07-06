@@ -35,46 +35,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Fix sys.path so `from src.connectors.base import Brain` resolves.
-# When Hermes loads this plugin the cwd is ~ and Python has no
-# duckbot-rag-memory on the path.  We locate the repo root using a
-# two-pass strategy:
-#
-#  PASS 1 — expanduser("~") primary (Windows-safe, works on all platforms).
-#    ~/duckbot-rag-memory is the canonical install location.
-#
-#  PASS 2 — upward walk from __file__ (dev / IDE layouts).
-#    Handles the case where the repo IS above the plugin dir.
-#
-#  If both fail we raise ImportError with a useful message.
-from pathlib import Path as _P
-import os as _os
-
-_DUCKBOT_ROOT: str | None = None
-
-# PASS 1 — expanduser primary (handles Windows correctly; no .parent math)
-_home = _P(_os.path.expanduser("~"))                    # ~  (C:\Users\franz on Windows)
-_repo_home_sibling = _home / "duckbot-rag-memory"
-if (_repo_home_sibling / "src" / "connectors" / "base.py").exists():
-    _DUCKBOT_ROOT = str(_repo_home_sibling)
-
-# PASS 2 — upward walk from __file__ (dev layout)
-if _DUCKBOT_ROOT is None:
-    for _up in range(8):
-        _candidate = _P(__file__).resolve().parents[_up]
-        if (_candidate / "src" / "connectors" / "base.py").exists():
-            _DUCKBOT_ROOT = str(_candidate)
-            break
-
-if _DUCKBOT_ROOT is None:
-    raise ImportError(
-        "duckbot-brain plugin could not locate duckbot-rag-memory.\n"
-        f"  Tried: {_repo_home_sibling}\n"
-        f"  Walked from: {_P(__file__).resolve()}\n"
-        "Expected to find src/connectors/base.py either at\n"
-        "  ~/duckbot-rag-memory/ (expanduser path) or\n"
-        "  somewhere above the plugin __init__.py location."
-    )
-
 if _DUCKBOT_ROOT not in sys.path:
     sys.path.insert(0, _DUCKBOT_ROOT)
 
