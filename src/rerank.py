@@ -167,19 +167,23 @@ class SentenceTransformersBackend:
     def _ensure_model(self):
         if self._model is not None:
             return self._model
-        # Bug fix 2026-07-09: pre-check with find_spec before importing
-        # CrossEncoder. In some Windows/torch 2.10/sentence-transformers
-        # 5.6 combinations, `import sentence_transformers` hangs
-        # indefinitely after `import src.rerank` (suspected cpp-extension
-        # init deadlock). `find_spec` only inspects the package registry
-        # and never runs the module's top-level code, so it's safe to
-        # call here. If the import would hang, find_spec returns None and
-        # we raise a clean ImportError that the caller can catch.
-        import importlib.util as _ilu
-        if _ilu.find_spec("sentence_transformers") is None:
+        # Bug fix 2026-07-09: refuse to trigger the actual `import
+        # sentence_transformers` here if it's not already in
+        # sys.modules. In our Windows + torch 2.10 + sentence-transformers
+        # 5.6 environment, the import hangs indefinitely after `import
+        # src.rerank` (suspected cpp-extension init deadlock). The
+        # _resolve_backend() check uses find_spec() which doesn't run
+        # any module code — so if the module is found but never
+        # imported yet, we know that *trying* to import it would hang,
+        # and we should refuse rather than block the caller.
+        import sys as _sys
+        if "sentence_transformers" not in _sys.modules:
             raise RuntimeError(
-                "sentence-transformers not installed. "
-                "Run: pip install sentence-transformers"
+                "sentence_transformers was never successfully imported "
+                "in this process. Refusing to attempt a load that hangs "
+                "indefinitely. To enable cross-encoder rerank, import "
+                "sentence_transformers at module load time (e.g. in "
+                "src/mcp_server.py) BEFORE handle_brain_sync is called."
             )
         try:
             from sentence_transformers import CrossEncoder  # type: ignore
@@ -386,10 +390,17 @@ _BACKEND_TRIED: set[str] = set()
 # `with ThreadPoolExecutor(...) as ex:` calls `ex.shutdown(wait=True)` on
 # exit, which blocks forever if the worker thread is hung on a broken
 # import or a wedged HTTP request. Using a long-lived executor with
-# `future.result(timeout=...)` + a manual `wait=False` shutdown lets us
-# abandon the hung worker instead of waiting for it.
+# `future.result(timeout=...)` lets us abandon the hung worker instead
+# of waiting for it.
+#
+# MAX_WORKERS = 4: brain_sync calls mem.recall() ~6 times in sequence
+# (4 tiers + user + soul). With max_workers=1, a hung worker blocks
+# every subsequent submission — the brain_sync would still hang after
+# the first timeout because the next recall would queue behind the
+# hung worker. With max_workers=4, brain_sync can absorb up to 4
+# concurrent hangs before being serialized.
 from concurrent.futures import ThreadPoolExecutor as _TPE
-_SCORE_EXECUTOR = _TPE(max_workers=1)
+_SCORE_EXECUTOR = _TPE(max_workers=4)
 
 
 def _resolve_backend(prefer: str | None = None) -> RerankBackend:
