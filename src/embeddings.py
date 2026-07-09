@@ -610,7 +610,8 @@ class LocalEmbeddings:
     def _get_model(self):
         if self._model is None:
             from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(self.model_name)
+            # Force CPU on Apple Silicon to avoid MPS OOM with large batches
+            self._model = SentenceTransformer(self.model_name, device="cpu")
         return self._model
 
     async def embed(self, texts: list[str]) -> list[list[float]]:

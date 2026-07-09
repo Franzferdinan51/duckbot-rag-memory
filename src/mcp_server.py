@@ -25,6 +25,9 @@ import sys
 import time
 from pathlib import Path
 
+# Graceful restart flag — set by handle_brain_restart, checked by the main loop.
+_restart_requested = False
+
 # Add parent to path so this can be run as `python -m src.mcp_server`
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -182,6 +185,17 @@ TOOLS = [
                     "description": "Skip doctor check after update.",
                 },
             },
+        },
+    },
+    {
+        "name": "brain_restart",
+        "description": "Gracefully restart the Python MCP server process. "
+            "The plugin shim respawns a new process automatically — the gateway stays up. "
+            "Use this after brain_update or when code changes need to be picked up without "
+            "restarting the entire OpenClaw gateway.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
         },
     },
 
@@ -2231,6 +2245,29 @@ async def handle_brain_update(args: dict) -> dict:
     return result
 
 
+async def handle_brain_restart(args: dict) -> dict:
+    """Gracefully restart this Python MCP server process.
+
+    Sets the _restart_requested flag, which causes the main stdio loop to
+    exit cleanly after draining the current request. The OpenClaw plugin
+    shim's child.on('exit') handler respawns a new Python process, so the
+    gateway stays up throughout.
+
+    Use this after brain_update or whenever code changes need to be picked up
+    without restarting the entire OpenClaw gateway.
+    """
+    global _restart_requested
+    _restart_requested = True
+    return {
+        "restarting": True,
+        "message": (
+            "Graceful restart requested. The Python MCP server will exit cleanly "
+            "and the plugin shim will respawn a new process. "
+            "The gateway stays up."
+        ),
+    }
+
+
 async def handle_brain_seed_demo(args: dict) -> dict:
     """Seed the brain with a small bundled sample corpus.
 
@@ -2337,6 +2374,7 @@ HANDLERS = {
     "watch": handle_watch,
     "doctor": handle_doctor,
     "brain_update": handle_brain_update,
+    "brain_restart": handle_brain_restart,
     # v0.10.0 — useful MCP tools extension
     "recall_verbatim": handle_recall_verbatim,
     "fsrs_review": handle_fsrs_review,
@@ -2460,7 +2498,7 @@ def mcp_stdio():
     _event_store = _get_event_store()
     _current_session_id: str = ""
     try:
-        while True:
+        while not _restart_requested:
             try:
                 line = _s.stdin.readline()
                 if not line:
@@ -2590,6 +2628,10 @@ def mcp_stdio():
                     _s.stdout.flush()
                 except Exception:
                     pass
+            # Check restart flag after each message so a graceful restart
+            # drains the current response before exiting.
+            if _restart_requested:
+                break
     finally:
         # Close the long-lived event loop on server exit. Cancels any
         # pending tasks and releases the loop-bound shared httpx client.
@@ -2597,6 +2639,24 @@ def mcp_stdio():
             _server_loop.close()
         except Exception:
             pass
+
+        if _restart_requested:
+            sys.stdout.write(
+                json.dumps({
+                    "jsonrpc": "2.0",
+                    "result": {
+                        "content": [{
+                            "type": "text",
+                            "text": json.dumps({
+                                "restarted": True,
+                                "message": "Python MCP server restarting gracefully. "
+                                           "The plugin shim will respawn a new process."
+                            })
+                        }]
+                    }
+                }) + "\n"
+            )
+            sys.stdout.flush()
 
 
 def main():
