@@ -25,36 +25,35 @@ brain_restart({})
 
 ---
 
-## 2. Double MCP Servers (Known Behavior)
+## 2. Double MCP Servers ~~(Known Behavior)~~ → FIXED in v0.15.2
 
-**Symptom:** `ps aux | grep mcp_server` shows 2 Python MCP server processes running.
+**Previous Symptom:** `ps aux | grep mcp_server` showed 2 Python MCP server processes.
 
-**Root Cause:** OpenClaw gateway runs multiple worker threads (one per channel/instance).
-Each worker independently loads the duckbot-memory plugin, which spawns its own Python
-subprocess. This is expected — all instances share the same SQLite database.
+**Root Cause:** Each gateway worker independently loaded the plugin and spawned its own
+Python subprocess.
 
-**Status:** Not a bug. Both instances are fully functional and share state via the
-same `data/brain.db` SQLite file. Closing one instance doesn't affect the other.
+**Fix (v0.15.2):** Singleton pattern — module-level globals (`_sharedRpc`, `_sharedChild`,
+`_refCount`) are shared across all gateway workers. First worker spawns the Python
+process; subsequent workers join the singleton. Reference counting ensures only the last
+worker to shut down kills the process.
 
-**Note:** If this causes issues (e.g., rate limits hit twice), the plugin should be
-converted to a singleton pattern where only one Python process runs globally and all
-gateway workers connect to it via IPC.
+**Result:** `ps aux | grep mcp_server` now shows exactly **1** Python process regardless
+of gateway worker count.
 
 ---
 
-## 3. Workspace venv Uses System Python (Minor)
+## 3. Workspace venv Uses System Python (Low Priority)
 
-**Symptom:** `.venv/bin/python` is a symlink to `/Library/Developer/CommandLineTools/...python3.9`
-instead of a proper venv interpreter.
+**Symptom:** `.venv/bin/python` symlinks to CommandLineTools Python instead of a
+standalone copy.
 
-**Root Cause:** The venv creation on macOS with CommandLineTools Python creates symlinks
-rather than copying the interpreter.
+**Impact:** Low — works fine in practice. Only noticeable if the system Python
+version changes.
 
-**Impact:** Low — works fine in practice. Both workspace and desktop installs have this quirk.
-
-**Fix if needed:** Recreate the venv using a standard Homebrew Python:
+**Fix if needed:**
 ```bash
 python3 -m venv --clear .venv
+.venv/bin/pip install -r requirements.txt
 ```
 
 ---
@@ -135,9 +134,11 @@ launchctl load ~/Library/LaunchAgents/com.duckbot.memory-watcher.plist
 
 ## Future Improvements
 
-1. **Singleton MCP server**: Only one Python process regardless of gateway worker count
+1. ~~Singleton MCP server~~ — ✅ Done in v0.15.2
 2. **Plugin hot-reload**: Reload plugin code without restarting gateway
 3. **LM Studio embeddings on Mac mini**: Currently using local sentence-transformers
    because LM Studio runs on Windows PC and is not reachable from Mac mini
 4. **FSEvents watcher**: Currently polling (every 5 min); FSEvents available but
    disabled — set `DUCKBOT_WATCH_USE_FSEVENTS=1` to enable native macOS file watching
+5. **Clean up orphaned desktop repo**: `~/Desktop/duckbot-rag-memory/` is deprecated;
+   the canonical location is `~/.openclaw/workspace/duckbot-rag-memory/`
