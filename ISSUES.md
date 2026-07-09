@@ -138,7 +138,12 @@ launchctl load ~/Library/LaunchAgents/com.duckbot.memory-watcher.plist
 2. **Plugin hot-reload**: Reload plugin code without restarting gateway
 3. **LM Studio embeddings on Mac mini**: Currently using local sentence-transformers
    because LM Studio runs on Windows PC and is not reachable from Mac mini
-4. **FSEvents watcher**: Currently polling (every 5 min); FSEvents available but
-   disabled — set `DUCKBOT_WATCH_USE_FSEVENTS=1` to enable native macOS file watching
+4. **FSEvents watcher**: watchdog FSEvents causes segfaults when ChromaDB + httpx are
+   also loaded in the same process (known macOS issue). Polling is safe and reliable.
+   Poll interval reduced from 300s to 60s (5× more responsive). If you set
+   `DUCKBOT_WATCH_USE_FSEVENTS=1` and the watcher crashes, that's the known bug —
+   don't file it, just unset the env var and use polling.
 5. **Clean up orphaned desktop repo**: `~/Desktop/duckbot-rag-memory/` is deprecated;
-   the canonical location is `~/.openclaw/workspace/duckbot-rag-memory/`
+   the canonical location is `~/.openclaw/workspace/duckbot-rag-memory/`. The desktop
+   repo is still running its own watcher and MCP server (on different paths). Safe
+   to delete once the workspace-based system is fully verified.

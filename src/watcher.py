@@ -16,7 +16,7 @@ How others do it (research 2026-06-23):
   - Cognee: add() is the canonical entry; cognify() is opt-in batch
   - Hermes Agent: FTS5 + periodic nudge
 
-We use **polling** (300s interval) by default. On macOS, `watchdog`'s FSEvents
+We use **polling** (60s interval) by default. On macOS, `watchdog`'s FSEvents
 segfaults when combined with `chromadb` + `httpx` in the same process. Polling
 gives us the same latency profile (seconds, not hours) without the crash.
 Set `DUCKBOT_WATCH_USE_FSEVENTS=1` to opt into watchdog. Sort by mtime DESC
@@ -330,7 +330,7 @@ class PollingHandler:
 
     Every poll_interval seconds, runs a sync pass.
     """
-    def __init__(self, paths: list[str], interval: float = 300.0):
+    def __init__(self, paths: list[str], interval: float = 60.0):
         self.paths = paths
         self.interval = interval
         self.state = load_state()
@@ -352,12 +352,12 @@ class PollingHandler:
         log("Polling watcher stopped")
 
 
-def start_watchdog_handler(paths: list[str], interval: float = 300.0, initial_sync: bool = True):
+def start_watchdog_handler(paths: list[str], interval: float = 60.0, initial_sync: bool = True):
     """Block on a watchdog Observer until killed. Optionally does an initial sync first.
 
     Args:
       paths: list of files/directories to watch
-      interval: poll interval for coalesced events (default 300s)
+      interval: poll interval for coalesced events (default 60s)
       initial_sync: if True, ingest all existing markdown before watching for events.
         This can segfault on macOS when ChromaDB+httpx+watchdog are all loaded in
         the same process — if that happens, run `watcher once` separately first.
@@ -804,7 +804,7 @@ def main():
 
     p_run = sub.add_parser("run", help="run in foreground")
     p_run.add_argument("paths", nargs="*", help="paths to watch (files or directories)")
-    p_run.add_argument("--interval", type=float, default=300.0, help="poll interval seconds (default 300 = 5 min)")
+    p_run.add_argument('--interval', type=float, default=60.0, help='poll interval in seconds (default 60)')
     p_run.add_argument("--no-initial-sync", dest="initial_sync", action="store_false",
                        help="skip the startup backfill (use `watcher once` separately)")
     p_run.set_defaults(func=cmd_run)
