@@ -285,7 +285,7 @@ async def sync_files(paths: list[str], state: dict) -> dict:
             try:
                 vecs = await embedder.embed(texts)
                 # add_chunks(chunks, embeddings, tier) — correct arg order
-                store.add_chunks(tier_chunks, vecs, tier)
+                added = await store.add_chunks(tier_chunks, vecs, tier)
                 new_chunk_ids.extend([c.chunk_id for c in tier_chunks])
             except Exception as exc:
                 # Fallback: single-chunk remember() per chunk (slower but resilient)

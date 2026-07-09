@@ -94,12 +94,15 @@ CONTENT_RULES: list[tuple[re.Pattern[str], Tier, str]] = [
 ]
 
 
-@dataclass
+@dataclass(eq=False, frozen=True)
 class TierAssignment:
     tier: Tier
     source_path: str
     rule_matched: str       # why we picked this tier
     confidence: float       # 0.0-1.0
+
+    def __hash__(self) -> int:
+        return hash((self.tier, self.source_path, self.rule_matched, self.confidence))
 
 
 def _normalize_path(source_path: str) -> str:
@@ -163,7 +166,13 @@ def classify(source_path: str, text: str) -> TierAssignment:
     if by_path is not None:
         return reclassify_for_working(source_path, by_path)
     assignment = classify_by_content(text)
-    assignment.source_path = source_path
+    # Re-create with correct source_path (frozen dataclass — no in-place mutation)
+    assignment = TierAssignment(
+        tier=assignment.tier,
+        source_path=source_path,
+        rule_matched=assignment.rule_matched,
+        confidence=assignment.confidence,
+    )
     return reclassify_for_working(source_path, assignment)
 
 

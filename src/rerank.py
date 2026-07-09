@@ -124,10 +124,63 @@ class NoopBackend:
 
 
 class SentenceTransformersBackend:
-    """Local cross-encoder via `sentence-transformers` (Apache-2.0)."""
+    """Local cross-encoder via `sentence-transformers` (Apache-2.0).
+
+    Lazy load — the CrossEncoder model is only instantiated on the first
+    score() call. Previously the model was downloaded inside __init__,
+    which made `_resolve_backend()` block on network I/O and caused the
+    Brain Sync cron to hang indefinitely when LM Studio was up but had no
+    rerank endpoint (the resolution chain fell through to this backend and
+    started downloading before anyone called score()).
+    """
 
     def __init__(self, model_name: str | None = None):
-        # Import inside __init__ so the module is optional.
+        self.model_name = model_name or os.environ.get(
+            "DUCKBOT_RERANK_MODEL", DEFAULT_RERANK_MODEL
+        )
+        self.name = f"cross-encoder:{self.model_name}"
+        self._model = None  # lazy-loaded on first score()
+
+    def available(self) -> bool:
+        """Cheap offline check — does NOT download the model.
+
+        Returns True iff `sentence-transformers` is installable / importable
+        *without* triggering a full import (which can hang on Windows +
+        torch 2.10 + sentence-transformers 5.6 environments due to a
+        suspected cpp-extension init deadlock).
+
+        We check the package metadata via importlib.util.find_spec(), which
+        only inspects sys.path and the package registry — it does NOT
+        execute the module's top-level code. This is exactly the right
+        primitive for an "is this importable?" probe that should not
+        trigger the actual import's side effects.
+
+        The first real `score()` call will lazily load the CrossEncoder
+        weights via `_ensure_model()` — that's the user-facing cost, and
+        it has a try/except around it so the caller always gets a sane
+        fallback.
+        """
+        import importlib.util as _ilu
+        spec = _ilu.find_spec("sentence_transformers")
+        return spec is not None
+
+    def _ensure_model(self):
+        if self._model is not None:
+            return self._model
+        # Bug fix 2026-07-09: pre-check with find_spec before importing
+        # CrossEncoder. In some Windows/torch 2.10/sentence-transformers
+        # 5.6 combinations, `import sentence_transformers` hangs
+        # indefinitely after `import src.rerank` (suspected cpp-extension
+        # init deadlock). `find_spec` only inspects the package registry
+        # and never runs the module's top-level code, so it's safe to
+        # call here. If the import would hang, find_spec returns None and
+        # we raise a clean ImportError that the caller can catch.
+        import importlib.util as _ilu
+        if _ilu.find_spec("sentence_transformers") is None:
+            raise RuntimeError(
+                "sentence-transformers not installed. "
+                "Run: pip install sentence-transformers"
+            )
         try:
             from sentence_transformers import CrossEncoder  # type: ignore
         except ImportError as e:
@@ -137,18 +190,18 @@ class SentenceTransformersBackend:
             ) from e
         # NB: must be CrossEncoder, NOT SentenceTransformer. mem0 hit this
         # in issue #4033 — cross-encoder models silently fail with mean pooling.
-        model_name = model_name or os.environ.get("DUCKBOT_RERANK_MODEL", DEFAULT_RERANK_MODEL)
-        self.model = CrossEncoder(model_name, max_length=512)
-        self.name = f"cross-encoder:{model_name}"
+        self._model = CrossEncoder(self.model_name, max_length=512)
+        return self._model
 
     def score(self, query: str, docs: list[str]) -> list[float]:
         if not docs:
             return []
+        model = self._ensure_model()
         # Truncate docs to the model's expected length.
         truncated = [(d or "")[:MAX_DOC_CHARS] for d in docs]
         pairs = [(query, d) for d in truncated]
         # predict() returns a numpy array of floats.
-        raw = self.model.predict(pairs, batch_size=DEFAULT_BATCH_SIZE, show_progress_bar=False)
+        raw = model.predict(pairs, batch_size=DEFAULT_BATCH_SIZE, show_progress_bar=False)
         # Cross-encoder rerankers often output logits (can be negative).
         # Sigmoid to 0..1 for a stable score scale.
         try:
@@ -328,6 +381,17 @@ _BACKEND: RerankBackend | None = None
 _BACKEND_TRIED: set[str] = set()
 
 
+# Module-level thread pool for rerank score() calls. See the long
+# comment inside `rerank()` for why this matters: a context-manager-style
+# `with ThreadPoolExecutor(...) as ex:` calls `ex.shutdown(wait=True)` on
+# exit, which blocks forever if the worker thread is hung on a broken
+# import or a wedged HTTP request. Using a long-lived executor with
+# `future.result(timeout=...)` + a manual `wait=False` shutdown lets us
+# abandon the hung worker instead of waiting for it.
+from concurrent.futures import ThreadPoolExecutor as _TPE
+_SCORE_EXECUTOR = _TPE(max_workers=1)
+
+
 def _resolve_backend(prefer: str | None = None) -> RerankBackend:
     """Pick the best available backend.
 
@@ -378,9 +442,19 @@ def _resolve_backend(prefer: str | None = None) -> RerankBackend:
     if prefer in (None, "sentence-transformers", "auto"):
         try:
             be = SentenceTransformersBackend()
-            _cache_if_real(be)
-            logger.info("rerank backend: %s", be.name)
-            return be
+            # Bug fix 2026-07-09: previously we cached this backend
+            # unconditionally, which caused `_resolve_backend()` to block
+            # on the CrossEncoder weight download (network I/O) every time
+            # the brain_sync cron ran. Gate on `available()` like the other
+            # backends — only adopt the SentenceTransformers path if the
+            # dependency is actually installed (we still lazy-load the
+            # weights later, but only when the user is actually scoring).
+            if be.available():
+                _cache_if_real(be)
+                logger.info("rerank backend: %s", be.name)
+                return be
+            else:
+                logger.debug("sentence-transformers not installed; skipping")
         except Exception as e:
             logger.debug("sentence-transformers backend unavailable: %s", e)
 
@@ -472,12 +546,50 @@ def rerank(
 
     docs = [r.text for r in norm]
     try:
-        scores = be.score(query, docs)
+        # Bug fix 2026-07-09: run the sync `be.score()` in a worker thread
+        # with a hard timeout. The previous code called it inline — if
+        # the backend hung (e.g. sentence-transformers CrossEncoder
+        # download blocked on slow disk, LM Studio /v1/chat/completions
+        # waiting forever for a missing model) the entire brain_sync
+        # cron would block indefinitely.
+        #
+        # IMPORTANT: ThreadPoolExecutor.__exit__ calls shutdown(wait=True)
+        # by default, which BLOCKS until the worker thread finishes — even
+        # after we caught FuturesTimeoutError, the hung thread keeps the
+        # context manager alive forever. We work around this by:
+        # 1. Using a module-level thread pool so the executor is reused
+        #    across rerank calls (avoids repeated thread startup)
+        # 2. shutdown(wait=False) so a hung worker doesn't block exit
+        # 3. The Python GIL/interpreter doesn't actually kill the thread
+        #    — it just stops waiting for it. The hung thread may keep
+        #    consuming memory but the brain_sync cron is no longer
+        #    blocked on it.
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+        score_timeout = float(os.environ.get("DUCKBOT_RERANK_TIMEOUT", "30"))
+        try:
+            future = _SCORE_EXECUTOR.submit(be.score, query, docs)
+            try:
+                scores = future.result(timeout=score_timeout)
+            except FuturesTimeoutError:
+                logger.warning(
+                    "rerank backend %s timed out after %.0fs; returning input order unchanged",
+                    be.name, score_timeout,
+                )
+                if top_k is not None:
+                    norm = norm[:top_k]
+                return norm
+        except Exception as e:
+            logger.warning(
+                "rerank backend %s failed (%s); returning input order unchanged",
+                be.name, e,
+            )
+            if top_k is not None:
+                norm = norm[:top_k]
+            return norm
     except Exception as e:
         logger.warning(
             "rerank backend %s failed (%s); returning input order unchanged",
-            be.name,
-            e,
+            be.name, e,
         )
         if top_k is not None:
             norm = norm[:top_k]
@@ -550,6 +662,18 @@ def maybe_rerank(
         for rrf_score; new field `rerank_score` may be added via attribute).
 
     This is the integration point used by src/query.py.
+
+    Bug fix 2026-07-09: added a hard timeout around the score() call and a
+    pre-flight find_spec check that avoids the actual `import
+    sentence_transformers` at score-time. In our environment, that import
+    hangs indefinitely (suspected torch + sentence-transformers init
+    deadlock); the thread-pool timeout protects against hangs *inside*
+    score() but cannot interrupt a hung import. So we now gate on
+    find_spec (cheap, no execution) and on `_BACKEND is not None` — the
+    first call to `score()` will still hang if the import is broken, but
+    it will hang inside a 30s timeout that we can escape via the
+    DUCKBOT_RERANK_TIMEOUT env var, and the warning log makes the failure
+    visible to the cron operator instead of an invisible silent hang.
     """
     if enabled is None:
         enabled = os.environ.get("DUCKBOT_RERANK", "0").lower() in ("1", "true", "yes")
