@@ -372,6 +372,10 @@ class EmbeddingProvider(Protocol):
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
     async def embed_one(self, text: str) -> list[float]: ...
 
+    # Optional per-call HTTP timeout. None = use the provider's default
+    # (currently 120s for LM Studio / OpenAI). wake_up() passes a tighter
+    # budget here so its deadline guard can hold. v0.15.3.
+
 
 class EmbeddingError(RuntimeError):
     """Raised when an embedding provider cannot produce a result."""
@@ -396,7 +400,7 @@ class OpenAIEmbeddings:
                 "OpenAI API key not set. Set OPENAI_API_KEY env var or pass api_key=..."
             )
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed(self, texts: list[str], timeout_ms: Optional[int] = None) -> list[list[float]]:
         if not texts:
             return []
         # Check cache first; only send uncached to the server.
@@ -410,6 +414,9 @@ class OpenAIEmbeddings:
                 to_fetch.append((i, t))
         if not to_fetch:
             return results  # type: ignore[return-value]
+        # Per-call HTTP timeout. None = 60s OpenAI default; wake_up() can
+        # pass a tighter budget (e.g. 1-2s) so its deadline guard holds.
+        timeout_s = (timeout_ms / 1000.0) if timeout_ms else 60.0
         for i in range(0, len(to_fetch), self.batch_size):
             batch = to_fetch[i:i + self.batch_size]
             batch_texts = [t for _, t in batch]
@@ -419,7 +426,7 @@ class OpenAIEmbeddings:
                 "Content-Type": "application/json",
             }
             await _rate_limiter.acquire()
-            client = await _get_http_client(timeout=60.0)
+            client = await _get_http_client(timeout=timeout_s)
             resp = await client.post(
                 f"{self.base_url}/embeddings",
                 json=payload,
@@ -433,8 +440,8 @@ class OpenAIEmbeddings:
                 _embed_cache.put(text, self.model, vec)
         return results  # type: ignore[return-value]
 
-    async def embed_one(self, text: str) -> list[float]:
-        return (await self.embed([text]))[0]
+    async def embed_one(self, text: str, timeout_ms: Optional[int] = None) -> list[float]:
+        return (await self.embed([text], timeout_ms=timeout_ms))[0]
 
 
 @dataclass
@@ -525,7 +532,7 @@ class LMStudioEmbeddings:
             _EMBEDDER_DIM_CACHE[cache_key] = None
         return False
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed(self, texts: list[str], timeout_ms: Optional[int] = None) -> list[list[float]]:
         if not texts:
             return []
         results: list = [None] * len(texts)  # type: ignore[list-item]
@@ -547,9 +554,13 @@ class LMStudioEmbeddings:
                 "Content-Type": "application/json",
             }
             transient_statuses = {429, 500, 502, 503, 504}
+            # Per-call HTTP timeout. None falls through to the LM Studio
+            # default (120s); wake_up() passes a tighter budget (e.g. 1-2s)
+            # so its deadline guard can hold even on a hung local model.
+            timeout_s = (timeout_ms / 1000.0) if timeout_ms else 120.0
             for attempt in range(self.max_retries + 1):
                 await _rate_limiter.acquire()
-                client = await _get_http_client(timeout=120.0)
+                client = await _get_http_client(timeout=timeout_s)
                 try:
                     resp = await client.post(
                         f"{self.base_url}/embeddings",
@@ -577,8 +588,8 @@ class LMStudioEmbeddings:
                 _embed_cache.put(text, self.model, vec)
         return results  # type: ignore[return-value]
 
-    async def embed_one(self, text: str) -> list[float]:
-        return (await self.embed([text]))[0]
+    async def embed_one(self, text: str, timeout_ms: Optional[int] = None) -> list[float]:
+        return (await self.embed([text], timeout_ms=timeout_ms))[0]
 
     def embed_query(self, text: str) -> list[float]:
         import asyncio
@@ -614,7 +625,10 @@ class LocalEmbeddings:
             self._model = SentenceTransformer(self.model_name, device="cpu")
         return self._model
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed(self, texts: list[str], timeout_ms: Optional[int] = None) -> list[list[float]]:
+        # Local sentence-transformers doesn't take an HTTP timeout (no
+        # network) but we accept the param for protocol consistency with
+        # LM Studio / OpenAI. timeout_ms is ignored.
         if not texts:
             return []
         model = self._get_model()
@@ -627,8 +641,8 @@ class LocalEmbeddings:
             self.dim = len(vectors[0])
         return vectors
 
-    async def embed_one(self, text: str) -> list[float]:
-        return (await self.embed([text]))[0]
+    async def embed_one(self, text: str, timeout_ms: Optional[int] = None) -> list[float]:
+        return (await self.embed([text], timeout_ms=timeout_ms))[0]
 
 
 @dataclass
@@ -751,8 +765,8 @@ class MiniMaxEmbeddings:
                 _embed_cache.put(text, self.model, vec)
         return results  # type: ignore[return-value]
 
-    async def embed_one(self, text: str) -> list[float]:
-        return (await self.embed([text]))[0]
+    async def embed_one(self, text: str, timeout_ms: Optional[int] = None) -> list[float]:
+        return (await self.embed([text], timeout_ms=timeout_ms))[0]
 
 
 async def auto_detect_provider(prefer: str | None = None) -> EmbeddingProvider:

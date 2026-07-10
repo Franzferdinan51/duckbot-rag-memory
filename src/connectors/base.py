@@ -347,33 +347,39 @@ class Brain:
         tier_priors_overrides: Optional[dict[str, float]] = None,
         fsrs: Optional[bool] = None,
         skip_superseded: bool = True,
+        timeout_ms: Optional[int] = None,
     ) -> list[RecallResult]:
         """Hybrid retrieval (vector + BM25 + RRF + optional cross-encoder rerank
         + optional Ebbinghaus decay weighting + optional tier priors
         + optional FSRS-6 spaced repetition).
 
         Args:
-            query: search text
-            k: top-k results
-            tier: restrict to one tier (working/episodic/semantic/procedural)
-            min_importance: drop chunks below this importance score
-            rerank: True/None forces/enables the cross-encoder pass (Layer 7).
-                None reads DUCKBOT_RERANK env var (default off). Pass False to
-                explicitly disable for one call.
-            decay: True/None forces/enables Ebbinghaus decay (Layer 8). None
-                reads DUCKBOT_DECAY env var (default off). Pass False to
-                disable. Pure public-domain math, no LLM call.
-            tier_priors: True/None forces/enables per-tier prior weighting
-                (Layer 11). None reads DUCKBOT_TIER_PRIORS env var (default
-                off). Pass False to disable. Defaults: procedural=1.5,
-                semantic=1.2, episodic=1.0, working=0.8.
-            tier_priors_overrides: Optional dict mapping tier name -> prior
-                weight. Tier names not in the dict fall back to defaults.
-            fsrs: True/None forces/enables FSRS-6 spaced repetition (Layer 9).
-                None reads DUCKBOT_FSRS env var (default off). Pass False to
-                disable. Uses per-chunk stability_days + difficulty from
-                metadata. Replaces L8 Ebbinghaus retention with FSRS-6
-                power-law. Public-domain algorithm spec.
+          query: search text
+          k: top-k results
+          tier: restrict to one tier (working/episodic/semantic/procedural)
+          min_importance: drop chunks below this importance score
+          rerank: True/None forces/enables the cross-encoder pass (Layer 7).
+            None reads DUCKBOT_RERANK env var (default off). Pass False to
+            explicitly disable for one call.
+          decay: True/None forces/enables Ebbinghaus decay (Layer 8). None
+            reads DUCKBOT_DECAY env var (default off). Pass False to
+            disable. Pure public-domain math, no LLM call.
+          tier_priors: True/None forces/enables per-tier prior weighting
+            (Layer 11). None reads DUCKBOT_TIER_PRIORS env var (default
+            off). Pass False to disable. Defaults: procedural=1.5,
+            semantic=1.2, episodic=1.0, working=0.8.
+          tier_priors_overrides: Optional dict mapping tier name -> prior
+            weight. Tier names not in the dict fall back to defaults.
+          fsrs: True/None forces/enables FSRS-6 spaced repetition (Layer 9).
+            None reads DUCKBOT_FSRS env var (default off). Pass False to
+            disable. Uses per-chunk stability_days + difficulty from
+            metadata. Replaces L8 Ebbinghaus retention with FSRS-6
+            power-law. Public-domain algorithm spec.
+          timeout_ms: optional per-call HTTP timeout in milliseconds.
+            Propagates to the embedding client so a hung LM Studio /
+            OpenAI endpoint can't block past this. None = use the global
+            default (currently 120s). The wake_up() function uses this to
+            enforce its own deadline budget per recall() call. v0.15.3.
         """
         from src.tier import Tier, coerce_optional_tier
 
@@ -388,6 +394,7 @@ class Brain:
                 tier_priors_overrides=tier_priors_overrides,
                 fsrs=fsrs,
                 skip_superseded=skip_superseded,
+                timeout_ms=timeout_ms,
             )
             out = []
             for r in results:
@@ -493,6 +500,14 @@ class Brain:
             8000ms). If we exceed it, return whatever we have plus a
             `wake_up_truncated: true` flag instead of hanging. The MCP
             transport's timeout is around 10s so we stay under it.
+
+        v0.15.3: deadline is now ALSO enforced as an HTTP timeout for each
+        individual recall() call. Previously the deadline was only checked
+        between attempts — if a single recall() blocked (e.g. LM Studio
+        hung), wake_up would exceed the deadline before the next check
+        fired. The HTTP client now gets a per-call timeout derived from
+        remaining deadline budget so each recall() can never block more
+        than ~2s past the wake_up deadline.
         """
         import os as _os_wu
         # Allow callers (tests, bulk callers) to override the deadline.
@@ -507,6 +522,9 @@ class Brain:
 
         def _over_deadline() -> bool:
             return (time.monotonic() - _wake_started) > deadline_s
+
+        def _remaining_ms() -> int:
+            return max(1, deadline_ms - int((time.monotonic() - _wake_started) * 1000))
 
         # Memories — filter out superseded chunks (those with `superseded_by`).
         # Over-fetch aggressively: small k (1-3) was returning 0 results
@@ -528,11 +546,22 @@ class Brain:
                 # better to return what we have than hang past MCP timeout.
                 if _over_deadline():
                     break
+                # Per-call HTTP timeout: never let a single recall() block
+                # more than the remaining deadline budget. Leaves 1s headroom
+                # for the post-recall sections (blocks/graph/fsrs/stats).
+                recall_timeout_ms = max(500, _remaining_ms() - 1000)
                 if query:
-                    raw = self.recall(query=query, k=fetch_size, rerank=True)
+                    raw = self.recall(query=query, k=fetch_size, rerank=True,
+                                      timeout_ms=recall_timeout_ms)
                 else:
-                    raw = self.recall(query="recent memory", k=fetch_size, rerank=False)
+                    raw = self.recall(query="recent memory", k=fetch_size, rerank=False,
+                                      timeout_ms=recall_timeout_ms)
                 for r in raw:
+                    # Check deadline between filter iterations too — a single
+                    # large recall() result set shouldn't blow past the deadline
+                    # silently.
+                    if _over_deadline():
+                        break
                     md = r.metadata or {}
                     if md.get("superseded_by"):
                         continue
@@ -556,11 +585,12 @@ class Brain:
             # RRF order (semantic similarity); priority re-ranking surfaces
             # old-but-important chunks above fresh-but-noisy ones.
             # Falls back gracefully if scoring.py isn't importable.
-            try:
-                from src.scoring import sort_by_priority
-                kept = sort_by_priority(kept)
-            except ImportError:
-                pass
+            if not _over_deadline():
+                try:
+                    from src.scoring import sort_by_priority
+                    kept = sort_by_priority(kept)
+                except ImportError:
+                    pass
 
             out["memories"] = kept
         except Exception as e:

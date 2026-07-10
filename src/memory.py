@@ -562,6 +562,7 @@ class Memory:
         tier_priors_overrides: dict[str, float] | None = None,
         fsrs: bool | None = None,
         skip_superseded: bool = True,
+        timeout_ms: int | None = None,
     ) -> tuple[list[QueryResult], QueryStats]:
         """Hybrid retrieval with optional tier filter, importance threshold,
         cross-encoder rerank (Layer 7), Ebbinghaus decay (Layer 8), tier
@@ -587,6 +588,10 @@ class Memory:
             fsrs: True/False forces on/off. None reads DUCKBOT_FSRS env.
                 Replaces Ebbinghaus retention with the FSRS-6 power-law
                 forgetting curve; per-chunk stability_days + difficulty.
+            timeout_ms: optional per-call HTTP timeout in milliseconds.
+                Propagates to hybrid_query -> embedder so a hung
+                LM Studio / OpenAI endpoint can't block past this.
+                None = use the default 120s. v0.15.3.
         """
         store, embedder = await self._ensure_initialized()
         # Reject empty/whitespace queries — they'd return random semantically-
@@ -603,6 +608,7 @@ class Memory:
             tier_priors=tier_priors,
             tier_priors_overrides=tier_priors_overrides,
             fsrs=fsrs,
+            timeout_ms=timeout_ms,
         )
 
         # Optional importance filter
