@@ -30,6 +30,7 @@ import asyncio
 import json
 import logging
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -132,8 +133,10 @@ class DuckBotBrainProvider:
 
     def __init__(self) -> None:
         self._brain: Optional[Brain] = None
+        self._brain_ready: bool = False
+        self._brain_lock = threading.Lock()
         self._executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="duckbot-brain-sync"
+            max_workers=2, thread_name_prefix="duckbot-brain-sync"
         )
         self._session_id: str = ""
         self._hermes_home: str = ""
@@ -198,6 +201,13 @@ class DuckBotBrainProvider:
         Per Hermes ABC: `hermes_home` and `platform` are guaranteed in kwargs.
         We may also receive `agent_context` ("primary"|"subagent"|"cron"|"flush")
         and skip writes for non-primary contexts.
+
+        v0.15.2: kicks off brain warm-up in a background thread so the FIRST
+        prefetch() doesn't block the agent's typing indicator waiting for
+        ChromaDB + LM Studio + reranker to initialize. Previously the first
+        prefetch called `_get_brain()` synchronously, which could take 2-5+
+        seconds on cold start (file locks, model loads, embedding warmup) and
+        was visible to the user as a stuck typing indicator.
         """
         self._session_id = session_id
         self._hermes_home = kwargs.get("hermes_home", "")
@@ -214,12 +224,46 @@ class DuckBotBrainProvider:
             },
         )
 
-        # Lazy brain — only construct on first recall/sync to keep startup fast.
+        # Reset warm-up state so a re-initialize (e.g. new session_id)
+        # triggers a fresh background warm-up.
         self._brain = None
+        self._brain_ready = False
+
+        # Kick off brain construction in the background. The agent loop
+        # can call prefetch() immediately and get an empty result until
+        # the brain is warm; subsequent prefetches are fast.
+        try:
+            self._executor.submit(self._warm_brain_background)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to queue brain warm-up: %s", e)
+
         logger.info(
-            "DuckBot brain provider initialized for session=%s platform=%s context=%s",
+            "DuckBot brain provider initialized for session=%s platform=%s context=%s (warm-up queued)",
             session_id, self._platform, self._agent_context,
         )
+
+    def _warm_brain_background(self) -> None:
+        """Background brain construction. Runs on the executor thread.
+
+        Sets `_brain_ready = True` on success. If construction raises, the
+        error is logged but never propagated — prefetch will fall back to
+        an empty result and the next prefetch (after brain is fixed) will
+        succeed.
+        """
+        try:
+            brain = self._get_brain()
+            # Touch the brain with a no-op recall so we know embedding
+            # providers + ChromaDB collections are initialized end-to-end.
+            # Empty query is a no-op in the recall path, so this just
+            # validates the pipeline works without returning junk.
+            try:
+                brain.recall("", k=1, rerank=False, decay=False)
+            except Exception as warmup_err:  # noqa: BLE001
+                logger.debug("brain warm-up probe failed (non-fatal): %s", warmup_err)
+            self._brain_ready = True
+            logger.info("DuckBot brain warm-up complete")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Brain warm-up failed (prefetch will return empty): %s", e)
 
     def shutdown(self) -> None:
         """Best-effort cleanup on agent exit."""
@@ -245,6 +289,11 @@ class DuckBotBrainProvider:
 
         Hermes ABC: should be fast (cached background result preferred).
         We do a tiny recall (k=3, no rerank, no decay) to stay under ~150ms.
+
+        v0.15.2: if the brain is not yet warm (initial session-startup race),
+        return "" immediately instead of blocking on brain construction. The
+        agent's typing indicator stays active and the brain finishes warming
+        in the background. Subsequent prefetches will hit the warm cache.
         """
         # Strip whitespace — a query of just spaces should be treated like
         # an empty query, otherwise we'd embed meaningless whitespace and
@@ -252,6 +301,11 @@ class DuckBotBrainProvider:
         if not query or not query.strip():
             return ""
         query = query.strip()
+        # Don't block the agent loop waiting for the brain to warm up.
+        # If background warm-up hasn't completed yet, return empty.
+        if not self._brain_ready or self._brain is None:
+            logger.debug("prefetch: brain not ready yet, returning empty")
+            return ""
         try:
             brain = self._get_brain()
             results = brain.recall(query, k=3, rerank=False, decay=False)
@@ -568,7 +622,7 @@ def on_session_end(messages=None) -> dict:
 
 
 # Also expose at module top-level for direct import access
-__version__ = "0.15.1"
+__version__ = "0.15.2"
 
 __all__ = [
     "register",
