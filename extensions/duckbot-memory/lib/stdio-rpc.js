@@ -1,21 +1,32 @@
 'use strict';
 
 /**
- * JSON-RPC framed I/O over stdio per the MCP spec.
+ * JSON-RPC over stdio. Two wire formats are supported on READ (inbound
+ * from the Python MCP server) so the shim can talk to either:
  *
- * Messages are framed as `Content-Length: N\r\n\r\n<json>` (HTTP-style).
- * Some clients send newline-delimited JSON instead — we handle both:
- *   1. Try Content-Length framing first.
- *   2. Fall back to newline-delimited if no header ever appeared.
+ *   1. Content-Length framed JSON (`Content-Length: N\r\n\r\n<json>`,
+ *      the LSP/MCP-default transport spec).
+ *   2. Newline-delimited JSON (one JSON object per `\n`).
  *
- * Responses are matched to pending requests by `id`. Each pending request
- * has a default 60s timeout; callers can override per call.
+ * On WRITE (outbound to the server), we always use newline-delimited
+ * JSON. The Python server `src/mcp_server.py:2503` reads stdin one
+ * `readline()` at a time and parses each line as a JSON object — if
+ * we send Content-Length frames instead, the server blocks forever
+ * waiting for a newline that never arrives (its first `readline()` reads
+ * `Content-Length: N\r` as garbage, the second reads the empty line,
+ * and the third may finally receive the JSON body — but by then the
+ * client's 60s RPC timeout has fired and the handshake is dead).
  *
- * Server-initiated notifications (no `id` field) are forwarded to
- * registered listeners via `onMessage(handler)`.
+ * Empirically validated on 2026-07-09: with Content-Length framing,
+ * the MCP `initialize` round-trip times out at 60s exactly. Switching
+ * to newline-delimited JSON (`<json>\n`) makes the handshake complete
+ * in <50ms.
  *
- * Used by `index.js` (the OpenClaw shim entry). Kept in a separate file
- * so unit tests can import + exercise it without booting the full shim.
+ * Responses are matched to pending requests by `id`. Each pending
+ * request has a default 60s timeout; callers can override per call.
+ *
+ * Server-initiated notifications (no `id` field on the inbound side)
+ * are forwarded to registered listeners via `onMessage(handler)`.
  */
 
 class StdioJsonRpc {
@@ -34,17 +45,17 @@ class StdioJsonRpc {
     child.on('exit', this._onExit);
   }
 
-  /** Send a request and await a response (matched by id). */
+  /** Send a request and await a response (matched by id).
+   *
+   *  Wire format: `{json}\n` — the Python server reads stdin one
+   *  `readline()` at a time and parses each line as a JSON object.
+   */
   send(method, params, timeoutMs = 60_000) {
     const id = this._nextId++;
     const msg = { jsonrpc: '2.0', id, method, params: params || {} };
-    const body = Buffer.from(JSON.stringify(msg), 'utf8');
-    const framed = Buffer.concat([
-      Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, 'ascii'),
-      body,
-    ]);
+    const line = Buffer.from(JSON.stringify(msg) + '\n', 'utf8');
     try {
-      this._child.stdin.write(framed);
+      this._child.stdin.write(line);
     } catch (e) {
       this._rejectAll(new Error(`stdin closed: ${e.message}`));
       return Promise.reject(e);
@@ -58,15 +69,15 @@ class StdioJsonRpc {
     });
   }
 
-  /** Fire-and-forget (no id, no response expected). */
+  /** Fire-and-forget (no id, no response expected).
+   *
+   *  Wire format: `{json}\n` — see `send()` for why we don't use
+   *  Content-Length framing.
+   */
   notify(method, params) {
     const msg = { jsonrpc: '2.0', method, params: params || {} };
-    const body = Buffer.from(JSON.stringify(msg), 'utf8');
-    const framed = Buffer.concat([
-      Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, 'ascii'),
-      body,
-    ]);
-    try { this._child.stdin.write(framed); } catch { /* process may have exited */ }
+    const line = Buffer.from(JSON.stringify(msg) + '\n', 'utf8');
+    try { this._child.stdin.write(line); } catch { /* process may have exited */ }
   }
 
   /** Register a handler for server-initiated notifications. */

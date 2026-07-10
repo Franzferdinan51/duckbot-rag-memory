@@ -358,11 +358,17 @@ module.exports = definePluginEntry({
     logger.info('[duckbot-memory] registered %d tools (singleton refs=%d)', _registeredTools.length, _refCount);
 
     // ---- session hooks ----------------------------------------------------
-    api.registerHook('session_start', fireWakeUp);
-    api.registerHook('session_end',   fireSync);
+    // OpenClaw's plugin loader requires every `registerHook(events, handler, opts?)`
+    // call to pass `opts.name` (the loader uses `requireRegistrationValue(opts.name,
+    // 'hook registration missing name')`). Without it, the entire plugin registration
+    // throws and NO tools get registered — every brain tool call would fail with
+    // "tool not found". See registry-BXwW-HDh.js: registerHook() validates
+    // `entry?.hook.name ?? opts?.name` and throws if both are missing.
+    api.registerHook('session_start', fireWakeUp, { name: 'duckbot-memory.session_start' });
+    api.registerHook('session_end',   fireSync,   { name: 'duckbot-memory.session_end' });
 
     // ---- shutdown --------------------------------------------------------
-    api.registerHook('gateway_stop', async () => {
+    const gatewayStop = async () => {
       _refCount--;
       logger.info('[duckbot-memory] gateway_stop (refs=%d→%d)', _refCount + 1, _refCount);
       if (_refCount > 0) {
@@ -380,7 +386,8 @@ module.exports = definePluginEntry({
         try { _stderrLogStream.end(); } catch { /* already closed */ }
       }
       logger.info('[duckbot-memory] singleton shut down');
-    });
+    };
+    api.registerHook('gateway_stop', gatewayStop, { name: 'duckbot-memory.gateway_stop' });
 
     // ---- diagnostic handle on globalThis -----------------------------------
     globalThis[GLOBAL_KEY] = {
