@@ -2,8 +2,8 @@
   "$schema": "https://openclaw.dev/schemas/plugin-manifest.json",
   "id": "duckbot-memory",
   "name": "DuckBot Memory",
-  "version": "0.1.1",
-  "description": "DuckBot RAG + memory brain. 69 tools (brain_wake_up / brain_recall / brain_remember / brain_palace / brain_block_* / brain_graph_* / ...) plus auto-firing session_start and session_end hooks. Pure Node.js shim over the existing Python MCP server (src/mcp_server.py).",
+  "version": "0.1.2",
+  "description": "DuckBot RAG + memory brain. 69 tools (brain_wake_up / brain_recall / brain_remember / brain_palace / brain_block_* / brain_graph_* / ...) plus auto-firing session_start and session_end hooks. Pure Node.js shim over the existing Python MCP server (src/mcp_server.py), single-spawn singleton via JSON-RPC over stdio.",
   "activation": {
     "onStartup": true
   },

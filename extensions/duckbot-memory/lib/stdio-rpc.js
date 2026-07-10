@@ -162,7 +162,7 @@ class StdioJsonRpc {
 
   _onStderr(chunk) {
     const text = chunk.toString('utf8').trim();
-    if (text) this._logger.warn('[duckbot-memory] python stderr: %s', text);
+    if (text) this._logger.warn(`[duckbot-memory] python stderr: ${text}`);
   }
 
   _onExit(code, signal) {

@@ -8,11 +8,21 @@
   - **`openclaw.plugin.json` was missing `contracts.tools`** — the registry silently rejects every `registerTool()` call when the manifest doesn't declare the plugin's tool surface. Added the full 69-name declaration.
   - **`api.registerHook('session_start' | 'session_end' | 'gateway_stop', ...)` was missing `opts.name`** — the loader validates via `requireRegistrationValue(opts?.name, 'hook registration missing name')` and throws, killing plugin init entirely. Added `{ name: 'duckbot-memory.<event>' }` to all three hooks.
   - **Wire-protocol mismatch with the Python server** — the Python MCP server (`src/mcp_server.py:2503`) reads stdin one `readline()` at a time and parses each line as a JSON object. The shim was sending Content-Length framed JSON without a trailing newline, so the server's first `readline()` blocked waiting for `\n` and the MCP `initialize` round-trip timed out at exactly 60 s. Switched outbound framing to newline-delimited JSON (`{json}\n`) while keeping the read path flexible (handles both Content-Length and newline-delimited framing on the inbound side).
-- **Symptom seen by the user** (in the OpenClaw dashboard): "every tool returns image previews / brain says it's sandboxed and can't do anything." Both were downstream of the plugin being unable to register: the LLM had no tool surface to call, so calls returned empty errors, and the missing `session_start` hook meant `brain_wake_up` never fired to inject context. Fix validated end-to-end: gateway log now shows `[duckbot-memory] ready: 69 tools, 69 registered, pid=… (singleton, refs=1)` within ~1.3 s of spawn (was failing with `hook registration missing name` before).
+- **Log messages were printing literal `%s` / `%d`** — the OpenClaw 2026.6.11 logger only substitutes `%d` (not `%s`), so `logger.info('repo=%s, python=%s', repo, python)` printed `repo=%s, python=%s` instead of substituting. Converted all 12+ printf-style log calls to template literals for consistent rendering.
+- **Plugin description and version bumped** to v0.1.2 with a more accurate description (calls out `block_*` / `graph_*` family and the single-spawn singleton pattern).
+
+### Symptom seen by the user
+
+In the OpenClaw dashboard: "every tool returns image previews / brain says it's sandboxed and can't do anything." Both were downstream of the plugin being unable to register: the LLM had no tool surface to call, so calls returned empty errors, and the missing `session_start` hook meant `brain_wake_up` never fired to inject context. Fix validated end-to-end: gateway log now shows `[duckbot-memory] ready: 69 tools, 69 registered, pid=… (singleton, refs=1)` within ~1.3 s of spawn (was failing with `hook registration missing name` before).
 
 ### Operational notes
 
 - The bootstrap script `scripts/openclaw-bootstrap.sh` already does the right thing (`ln -sf` → falls back to `cp -R` if symlinks are rejected). If `~/.openclaw/extensions/duckbot-memory/` is a directory instead of a symlink, replace it with a symlink to your canonical repo so future edits flow through automatically: `rm -rf ~/.openclaw/extensions/duckbot-memory && ln -s "$(pwd)/extensions/duckbot-memory" ~/.openclaw/extensions/duckbot-memory`. Then `openclaw daemon restart`.
+- If `openclaw sandbox explain` shows `Elevated: failing gates: allowFrom (tools.elevated.allowFrom.webchat)`, set the allowlist once (this is a one-line config fix in `~/.openclaw/openclaw.json`, not a code change):
+  ```json
+  "tools": { "elevated": { "enabled": true, "allowFrom": { "webchat": ["*"] } } }
+  ```
+  Equivalent CLI: `openclaw config set tools.elevated.allowFrom --json '{"webchat": ["*"]}'`. Then `openclaw daemon restart`.
 
 ## v0.15.2 — Test suite repair + cross-platform hardening
 

@@ -3,7 +3,7 @@
  *
  * Pure Node.js, zero npm dependencies. Spawns the Python MCP server
  * (duckbot-rag-memory/src/mcp_server.py) as a subprocess and proxies
- * 68 brain tools + session_start / session_end hooks into OpenClaw.
+ * 69 brain tools + session_start / session_end hooks into OpenClaw.
  *
  * Singleton pattern: a single Python subprocess is shared across all
  * gateway workers. The first worker to load this plugin spawns the Python
@@ -13,8 +13,8 @@
  * Pattern sources:
  *   - openclaw/openclaw `extensions/voice-call/index.ts` (definePluginEntry)
  *   - openclaw/openclaw `docs/plugins/manifest.md` (openclaw.plugin.json)
- *   - MCP spec (Content-Length framed JSON-RPC over stdio)
- *     https://spec.modelcontextprotocol.io/specification/basic/transports/
+ *   - MCP newline-delimited JSON (matches the Python server's
+ *     readline()-per-message protocol; outbound is `{json}\n`).
  */
 
 'use strict';
@@ -59,7 +59,7 @@ const _deferredTools = [];
 // ---- spawn the shared Python subprocess ------------------------------------
 function spawnSharedChild(logger) {
   _spawnLogger = logger;
-  logger.info('[duckbot-memory] spawning shared Python MCP server (repo=%s, python=%s)', _repoPath, _pythonPath);
+  logger.info(`[duckbot-memory] spawning shared Python MCP server (repo=${_repoPath}, python=${_pythonPath})`);
 
   const child = spawn(
     _pythonPath,
@@ -78,7 +78,7 @@ function spawnSharedChild(logger) {
   _sharedChildPid = child.pid;
 
   child.on('error', (err) => {
-    logger.error('[duckbot-memory] python child error (pid=%d): %s', _sharedChildPid, err.message);
+    logger.error(`[duckbot-memory] python child error (pid=${_sharedChildPid}): ${err.message}`);
   });
 
   // Tee stderr to log file, suppress urllib3 NotOpenSSLWarning noise.
@@ -93,12 +93,12 @@ function spawnSharedChild(logger) {
   // Exit handler — auto-respawn unless we're shutting down globally.
   child.on('exit', (code, signal) => {
     const reason = code != null ? `exit ${code}` : `signal ${signal}`;
-    logger.info('[duckbot-memory] shared Python MCP server exited (%s, pid=%d, refs=%d)', reason, _sharedChildPid, _refCount);
+    logger.info(`[duckbot-memory] shared Python MCP server exited (${reason}, pid=${_sharedChildPid}, refs=${_refCount})`);
     if (_initiatingShutdown) {
       logger.info('[duckbot-memory] global shutdown in progress — not respawning');
       return;
     }
-    logger.info('[duckbot-memory] auto-respawning in 2s... (refs=%d)', _refCount);
+    logger.info(`[duckbot-memory] auto-respawning in 2s... (refs=${_refCount})`);
     setTimeout(() => {
       // Respawn and reinitialize — the new RPC will be assigned to _sharedRpc.
       _sharedRpc = null;
@@ -150,11 +150,10 @@ async function reinitializeShared() {
     }
 
     logger.info(
-      '[duckbot-memory] respawn complete: %d tools (pid=%d), deferred flushed',
-      _toolNames.length, _sharedChildPid,
+      `[duckbot-memory] respawn complete: ${_toolNames.length} tools (pid=${_sharedChildPid}), deferred flushed`,
     );
   } catch (e) {
-    logger.error('[duckbot-memory] reinitialize failed: %s', e.message);
+    logger.error(`[duckbot-memory] reinitialize failed: ${e.message}`);
   }
 }
 
@@ -202,7 +201,7 @@ function registerTool(name, apiInstance) {
     _registeredTools.push(name);
     _registeredToolSet.add(name);
   } catch (e) {
-    _spawnLogger?.debug('[duckbot-memory] registerTool(%s) skipped: %s', name, e.message);
+    _spawnLogger?.debug(`[duckbot-memory] registerTool(${name}) skipped: ${e.message}`);
   }
 }
 
@@ -220,9 +219,9 @@ async function fireWakeUp(event) {
         `\n[duckbot-memory: session_start brain_wake_up]\n${text}\n`,
       );
     }
-    _spawnLogger?.info('[duckbot-memory] session_start: brain_wake_up fired (session=%s)', event?.sessionId);
+    _spawnLogger?.info(`[duckbot-memory] session_start: brain_wake_up fired (session=${event?.sessionId})`);
   } catch (e) {
-    _spawnLogger?.warn('[duckbot-memory] session_start hook failed: %s', e.message);
+    _spawnLogger?.warn(`[duckbot-memory] session_start hook failed: ${e.message}`);
   }
 }
 
@@ -234,10 +233,9 @@ async function fireSync(event) {
       name: 'brain_sync',
       arguments: { target: 'openclaw', dry_run: false },
     });
-    _spawnLogger?.info('[duckbot-memory] session_end: brain_sync fired (session=%s, msgs=%d)',
-        event?.sessionId, event?.messageCount);
+    _spawnLogger?.info(`[duckbot-memory] session_end: brain_sync fired (session=${event?.sessionId}, msgs=${event?.messageCount})`);
   } catch (e) {
-    _spawnLogger?.warn('[duckbot-memory] session_end hook failed: %s', e.message);
+    _spawnLogger?.warn(`[duckbot-memory] session_end hook failed: ${e.message}`);
   }
 }
 
@@ -285,10 +283,10 @@ module.exports = definePluginEntry({
           fs.mkdirSync(path.dirname(_stderrLogPath), { recursive: true });
           _stderrLogStream = fs.createWriteStream(_stderrLogPath, { flags: 'a' });
           _stderrLogStream.on('error', (e) => {
-            logger.warn('[duckbot-memory] stderr log stream error: %s', e.message);
+            logger.warn(`[duckbot-memory] stderr log stream error: ${e.message}`);
           });
         } catch (e) {
-          logger.warn('[duckbot-memory] could not open %s: %s', _stderrLogPath, e.message);
+          logger.warn(`[duckbot-memory] could not open ${_stderrLogPath}: ${e.message}`);
           _stderrLogStream = null;
         }
       }
@@ -321,18 +319,16 @@ module.exports = definePluginEntry({
           }
 
           logger.info(
-            '[duckbot-memory] ready: %d tools, %d registered, pid=%d (singleton, refs=1)',
-            _toolNames.length, _registeredTools.length, _sharedChildPid,
+            `[duckbot-memory] ready: ${_toolNames.length} tools, ${_registeredTools.length} registered, pid=${_sharedChildPid} (singleton, refs=1)`,
           );
         } catch (e) {
-          logger.error('[duckbot-memory] MCP initialize failed: %s', e.message);
+          logger.error(`[duckbot-memory] MCP initialize failed: ${e.message}`);
         }
       })();
 
     } else {
       // Subsequent load — just register tools against the existing process.
-      logger.info('[duckbot-memory] joining singleton (existing pid=%d, refs=%d→%d)',
-          _sharedChildPid, _refCount, _refCount + 1);
+      logger.info(`[duckbot-memory] joining singleton (existing pid=${_sharedChildPid}, refs=${_refCount}→${_refCount + 1})`);
       _api = api;
     }
 
@@ -355,7 +351,7 @@ module.exports = definePluginEntry({
     for (const name of staticTools) {
       registerTool(name, api);
     }
-    logger.info('[duckbot-memory] registered %d tools (singleton refs=%d)', _registeredTools.length, _refCount);
+    logger.info(`[duckbot-memory] registered ${_registeredTools.length} tools (singleton refs=${_refCount})`);
 
     // ---- session hooks ----------------------------------------------------
     // OpenClaw's plugin loader requires every `registerHook(events, handler, opts?)`
@@ -370,14 +366,14 @@ module.exports = definePluginEntry({
     // ---- shutdown --------------------------------------------------------
     const gatewayStop = async () => {
       _refCount--;
-      logger.info('[duckbot-memory] gateway_stop (refs=%d→%d)', _refCount + 1, _refCount);
+      logger.info(`[duckbot-memory] gateway_stop (refs=${_refCount + 1}→${_refCount})`);
       if (_refCount > 0) {
         logger.info('[duckbot-memory] other workers still using singleton — not killing process');
         return;
       }
       // Last worker — shut down the shared process.
       _initiatingShutdown = true;
-      logger.info('[duckbot-memory] last worker — shutting down shared Python process (pid=%d)', _sharedChildPid);
+      logger.info(`[duckbot-memory] last worker — shutting down shared Python process (pid=${_sharedChildPid})`);
       try { _sharedRpc.notify('shutdown', null); } catch { /* gone */ }
       try { _sharedChild.stdin.end(); } catch { /* gone */ }
       try { _sharedChild.kill('SIGTERM'); } catch { /* already dead */ }
@@ -401,7 +397,7 @@ module.exports = definePluginEntry({
       // Graceful restart: kill child, let child.on('exit') respawn it.
       restart: () => {
         _initiatingShutdown = false;
-        logger.info('[duckbot-memory] manual restart — killing child (pid=%d)', _sharedChildPid);
+        logger.info(`[duckbot-memory] manual restart — killing child (pid=${_sharedChildPid})`);
         try { _sharedChild.kill('SIGTERM'); } catch { /* already dead */ }
         _sharedRpc.close();
         // child.on('exit') fires → respawns automatically.
