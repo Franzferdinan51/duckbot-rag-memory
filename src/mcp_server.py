@@ -2548,7 +2548,19 @@ def mcp_stdio():
                     args = params.get("arguments", {})
                     handler = HANDLERS.get(name)
                     if not handler:
-                        resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"unknown tool: {name}"}}
+                        # v0.16.0: delegate unknown tools to tools.dispatch()
+                        # so new tools added to extensions/tools.py (brain_stats,
+                        # brain_recall, etc.) work without adding explicit handlers.
+                        try:
+                            from src.extensions.tools import dispatch
+                            result = dispatch(name, args)
+                            resp = {
+                                "jsonrpc": "2.0",
+                                "id": mid,
+                                "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]},
+                            }
+                        except Exception as exc:
+                            resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(exc)}}
                     else:
                         # Rate-limit check (per-tool token bucket). DUCKBOT_RATELIMIT_DISABLE=1
                         # bypasses. Returns a 429-style error before invoking

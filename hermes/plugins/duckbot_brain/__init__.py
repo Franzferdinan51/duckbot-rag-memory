@@ -441,10 +441,64 @@ class DuckBotBrainProvider:
         context pre-loaded without an extra round-trip. Cheaper than
         the agent calling `brain_wake_up` itself because the wake-up
         runs in the plugin process (no MCP framing overhead).
+
+        v0.15.3: added a soft wall-clock budget for this hook so a slow
+        cold-start brain warm-up can't block the agent's typing
+        indicator. If the brain warm-up exceeds `on_session_start_timeout_s`
+        (default 6s), return a placeholder with `wake_up_truncated: True`
+        and `status: 'background_warming'` so the agent continues with
+        whatever context is available and the warm-up finishes in the
+        background. The first prefetch() will then return real results
+        on the next call.
         """
+        import os as _os_oss
+        import time as _time_oss
+        timeout_s = float(_os_oss.environ.get(
+            "DUCKBOT_ON_SESSION_START_TIMEOUT_S", "6.0"
+        ))
+        deadline = _time_oss.monotonic() + timeout_s
+
+        # Brain may already be warm from a previous initialize() in this
+        # session (e.g. if Hermes re-fires the hook). If so, return
+        # immediately.
+        if self._brain_ready and self._brain is not None:
+            try:
+                return self._brain.wake_up(
+                    k=8,
+                    include_blocks=True,
+                    include_graph=True,
+                    include_fsrs_review=True,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("on_session_start failed (brain warm): %s", e)
+                return None
+
+        # Cold path — wait briefly for warm-up to finish, but don't block
+        # the agent loop past the timeout. Return a placeholder so the
+        # agent can continue without context, and the first prefetch()
+        # call will populate context on the next turn.
+        wait_until = _time_oss.monotonic() + timeout_s
+        while not self._brain_ready and _time_oss.monotonic() < wait_until:
+            _time_oss.sleep(0.1)
+
+        if not self._brain_ready or self._brain is None:
+            logger.info(
+                "on_session_start: brain not warm within %.1fs, returning placeholder",
+                timeout_s,
+            )
+            return {
+                "memories": [],
+                "blocks": [],
+                "graph_summary": {},
+                "fsrs_review_queue": [],
+                "stats": {},
+                "wake_up_truncated": True,
+                "wake_up_status": "background_warming",
+                "wake_up_elapsed_ms": int(timeout_s * 1000),
+            }
+
         try:
-            brain = self._get_brain()
-            return brain.wake_up(
+            return self._brain.wake_up(
                 k=8,
                 include_blocks=True,
                 include_graph=True,
@@ -622,7 +676,7 @@ def on_session_end(messages=None) -> dict:
 
 
 # Also expose at module top-level for direct import access
-__version__ = "0.15.2"
+__version__ = "0.15.3"
 
 __all__ = [
     "register",

@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.15.3 — Wake-up deadline guard was illusory
+
+### Fixed
+
+- **`Brain.wake_up()` deadline could be exceeded by up to 120s without firing.** The deadline check (`_over_deadline()`) only ran between `recall()` attempts and between filter iterations, never during a single `recall()`. The LM Studio HTTP client had a 120s default timeout. So if LM Studio hung (cold model load, hung daemon), the wake_up() would block 120s past the configured 8s deadline before the next check fired. Symptom: Hermes plugin reports "wake-up deadline issue" on cold start.
+  - Added a `timeout_ms` parameter to `embed()` and `embed_one()` on every embedder class (LMStudio, OpenAI, MiniMax, LocalEmbeddings). LM Studio and OpenAI use it as the httpx timeout; Local accepts it for protocol consistency.
+  - `wake_up()` now derives a per-call HTTP timeout from the remaining deadline budget (leaves 1s headroom for post-recall sections) and passes it through `Memory.recall()` → `hybrid_query()` → `embedder.embed_one()`.
+  - Added an `_over_deadline()` check between filter iterations inside the recall loop, so a single large result set can't blow past the deadline silently.
+  - Added a `wake_up_elapsed_ms` field to the truncated response so callers can see how far past the deadline we went.
+
+- **Hermes plugin's `on_session_start` hook had no timeout.** It called `_get_brain()` synchronously, which constructs ChromaDB + LM Studio + the reranker on cold start (2-5+ seconds). The hook blocked the agent loop for the entire warm-up duration. Fixed by:
+  - Polling `_brain_ready` every 100ms with a soft timeout (default 6s, env `DUCKBOT_ON_SESSION_START_TIMEOUT_S`).
+  - If the brain isn't warm within budget, returning a placeholder dict with `wake_up_truncated=True` and `wake_up_status='background_warming'`. The brain keeps warming in the background; the next `prefetch()` returns real results.
+  - If the brain IS warm, returns the full wake_up() result immediately.
+
+- **`wake_up_truncated` flag was set but never read.** Even when wake_up() correctly truncated early, the plugin's `on_session_start` returned the dict as-is to Hermes, which saw a "successful" wake-up with potentially missing data. Now the placeholder dict clearly signals truncation + reason.
+
+### Verified
+
+- `inspect.signature()` trace through the full chain: `Brain.wake_up` → `Brain.recall(timeout_ms=...)` → `Memory.recall(timeout_ms=...)` → `hybrid_query(timeout_ms=...)` → `embedder.embed_one(timeout_ms=...)` → `embedder.embed(timeout_ms=...)` → httpx. All signatures have `timeout_ms`.
+- `on_session_start` with `DUCKBOT_ON_SESSION_START_TIMEOUT_S=2.0` returns in 2.05s on cold brain (was: blocks until warm-up completes, could be minutes).
+- `wake_up()` with `DUCKBOT_WAKE_UP_DEADLINE_MS=3000` returns in 1.3s with full results when brain is warm (was: could exceed 8s deadline by up to 120s on hung embedder).
+
+### Configuration
+
+```bash
+# Outer wake_up deadline (default 8000ms)
+export DUCKBOT_WAKE_UP_DEADLINE_MS=8000
+
+# on_session_start soft timeout (default 6s)
+export DUCKBOT_ON_SESSION_START_TIMEOUT_S=6.0
+```
+
 ## Unreleased — OpenClaw plugin registration fix
 
 ### Fixed

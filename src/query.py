@@ -144,6 +144,7 @@ async def hybrid_query(
     tier_priors: bool | None = None,
     tier_priors_overrides: dict[str, float] | None = None,
     fsrs: bool | None = None,
+    timeout_ms: int | None = None,
 ) -> tuple[list[QueryResult], QueryStats]:
     """Run hybrid vector + BM25 query, fuse with RRF.
 
@@ -155,6 +156,10 @@ async def hybrid_query(
         tier: Restrict to a specific tier (or None for all).
         over_fetch: Fetch this many × n_results from each retriever, then
             fuse + truncate. Improves recall at small cost.
+        timeout_ms: optional per-call HTTP timeout in milliseconds.
+            Propagates to embedder.embed_one() so a hung embedder can't
+            block past this. None = use the embedder's default (120s for
+            LM Studio / OpenAI, ignored for LocalEmbeddings). v0.15.3.
 
     Returns:
         (results, stats) — sorted by RRF score desc.
@@ -165,7 +170,7 @@ async def hybrid_query(
     n_fetch = n_results * over_fetch
 
     # Phase 1: embed the expanded query (semantic + keyword coverage)
-    query_embedding = await embedder.embed_one(expanded_query)
+    query_embedding = await embedder.embed_one(expanded_query, timeout_ms=timeout_ms)
 
     # Phase 2: vector search
     vector_hits = store.query(
