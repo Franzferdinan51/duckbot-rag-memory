@@ -16,6 +16,10 @@ Three providers, switchable via DUCKBOT_EMBEDDING env var:
              requires MINIMAX_API_KEY, defaults to https://api.minimax.io/v1
              uses text-embedding-01 model, 1536d
 
+  nvidia   — NVIDIA NIM OpenAI-compatible embeddings API
+             requires NVIDIA_API_KEY, defaults to NVIDIA's
+             nvidia/llama-3.2-nv-embedqa-1b-v2 model
+
 LM Studio is preferred for self-hosted / privacy-first operation.
 The fallback chain is: DUCKBOT_EMBEDDING env > auto-detect LM Studio > MiniMax > OpenAI.
 """
@@ -445,6 +449,32 @@ class OpenAIEmbeddings:
 
 
 @dataclass
+class NvidiaEmbeddings(OpenAIEmbeddings):
+    """NVIDIA NIM OpenAI-compatible embedding provider.
+
+    NVIDIA's embedding models are not interchangeable with an existing
+    Chroma collection. The memory layer probes the returned dimension before
+    opening the store; callers changing providers must re-index old memories.
+    """
+
+    model: str = "nvidia/llama-3.2-nv-embedqa-1b-v2"
+    name: str = "nvidia"
+    dim: int = 2048
+    api_key: str = ""
+    base_url: str = "https://integrate.api.nvidia.com/v1"
+
+    def __post_init__(self) -> None:
+        if not self.api_key:
+            self.api_key = os.environ.get("NVIDIA_API_KEY", "")
+        if not self.api_key:
+            raise EmbeddingError(
+                "NVIDIA API key not set. Configure NVIDIA_API_KEY in the desktop app."
+            )
+        self.model = os.environ.get("NVIDIA_EMBED_MODEL", self.model)
+        self.base_url = os.environ.get("NVIDIA_EMBEDDING_BASE_URL", self.base_url)
+
+
+@dataclass
 class LMStudioEmbeddings:
     """LM Studio OpenAI-compatible /v1/embeddings.
 
@@ -789,6 +819,8 @@ async def auto_detect_provider(prefer: str | None = None) -> EmbeddingProvider:
         return OpenAIEmbeddings()
     if explicit == "minimax":
         return MiniMaxEmbeddings()
+    if explicit == "nvidia":
+        return NvidiaEmbeddings()
     if explicit == "lmstudio":
         provider = LMStudioEmbeddings()
         if await provider._resolve_dim():
@@ -809,6 +841,9 @@ async def auto_detect_provider(prefer: str | None = None) -> EmbeddingProvider:
     def _make_minimax():
         return MiniMaxEmbeddings()
 
+    def _make_nvidia():
+        return NvidiaEmbeddings()
+
     def _make_openai():
         return OpenAIEmbeddings()
 
@@ -816,6 +851,8 @@ async def auto_detect_provider(prefer: str | None = None) -> EmbeddingProvider:
     chain = []
     if target == "lmstudio":
         chain = [_make_lmstudio, _make_minimax, _make_openai]
+    elif target == "nvidia":
+        chain = [_make_nvidia, _make_lmstudio, _make_minimax, _make_openai]
     elif target == "minimax":
         chain = [_make_minimax, _make_lmstudio, _make_openai]
     elif target == "openai":

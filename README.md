@@ -169,6 +169,13 @@ DUCKBOT_RERANK=1
 Other supported providers:
 
 ```bash
+# NVIDIA NIM (OpenAI-compatible cloud embeddings)
+DUCKBOT_EMBEDDING=nvidia
+NVIDIA_API_KEY=...
+NVIDIA_EMBED_MODEL=nvidia/llama-3.2-nv-embedqa-1b-v2
+```
+
+```bash
 # Cloud fallback
 DUCKBOT_EMBEDDING=minimax
 MINIMAX_API_KEY=...
