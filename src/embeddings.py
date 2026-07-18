@@ -18,7 +18,7 @@ Three providers, switchable via DUCKBOT_EMBEDDING env var:
 
   nvidia   — NVIDIA NIM OpenAI-compatible embeddings API
              requires NVIDIA_API_KEY, defaults to NVIDIA's
-             nvidia/llama-3.2-nv-embedqa-1b-v2 model
+             nvidia/nemotron-3-embed-1b model
 
 LM Studio is preferred for self-hosted / privacy-first operation.
 The fallback chain is: DUCKBOT_EMBEDDING env > auto-detect LM Studio > MiniMax > OpenAI.
@@ -457,7 +457,7 @@ class NvidiaEmbeddings(OpenAIEmbeddings):
     opening the store; callers changing providers must re-index old memories.
     """
 
-    model: str = "nvidia/llama-3.2-nv-embedqa-1b-v2"
+    model: str = "nvidia/nemotron-3-embed-1b"
     name: str = "nvidia"
     dim: int = 2048
     api_key: str = ""

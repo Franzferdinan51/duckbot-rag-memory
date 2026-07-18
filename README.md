@@ -172,7 +172,7 @@ Other supported providers:
 # NVIDIA NIM (OpenAI-compatible cloud embeddings)
 DUCKBOT_EMBEDDING=nvidia
 NVIDIA_API_KEY=...
-NVIDIA_EMBED_MODEL=nvidia/llama-3.2-nv-embedqa-1b-v2
+NVIDIA_EMBED_MODEL=nvidia/nemotron-3-embed-1b
 ```
 
 ```bash
