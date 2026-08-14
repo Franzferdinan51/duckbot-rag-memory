@@ -276,9 +276,18 @@ class Qwen3RerankerBackend:
     def available(self):
         # Actually check LM Studio — don't assume just because the model is loaded
         try:
-            import httpx
+            import httpx, os as _os
+            key = (
+                _os.environ.get("LMSTUDIO_KEY")
+                or _os.environ.get("LMSTUDIO_API_KEY")
+                or _os.environ.get("LMSTUDIO_RERANK_KEY")
+                or ""
+            )
+            hdrs = {}
+            if key:
+                hdrs["Authorization"] = "Bearer " + key
             with httpx.Client(timeout=5.0) as client:
-                resp = client.get("http://127.0.0.1:1234/v1/models")
+                resp = client.get("http://127.0.0.1:1234/v1/models", headers=hdrs)
             return resp.status_code == 200
         except Exception:
             return False
