@@ -251,6 +251,27 @@ def test_install_linux_script_exists():
     assert "systemd" in content.lower() or "user" in content
 
 
+def test_install_linux_timers_script_exists():
+    """Linux maintenance-timer install (decay + FSRS) exists and is additive."""
+    p = Path(ROOT) / "scripts" / "install-linux-timers.sh"
+    assert p.exists(), "install-linux-timers.sh missing from scripts/"
+    content = p.read_text()
+    # Must reference both timers it installs.
+    assert "duckbot-decay" in content
+    assert "duckbot-fsrs" in content
+    # Must use systemctl (systemd user units), not a hardcoded path.
+    assert "systemctl" in content
+    assert "/Users/" not in content, "must not hardcode macOS home paths"
+
+
+def test_install_linux_timers_is_executable():
+    """The installer must be chmod +x so it runs via ./scripts/...."""
+    p = Path(ROOT) / "scripts" / "install-linux-timers.sh"
+    assert p.exists()
+    mode = os.stat(p).st_mode
+    assert mode & 0o111, "installer should be executable (chmod +x)"
+
+
 def test_install_ps1_exists():
     """Windows-specific install (Task Scheduler) exists."""
     p = Path(ROOT) / "scripts" / "install.ps1"
@@ -284,6 +305,7 @@ def test_start_watcher_sh_exists():
 @pytest.mark.parametrize("script", [
     "scripts/install.sh",
     "scripts/install-linux.sh",
+    "scripts/install-linux-timers.sh",
     "scripts/install-macos.sh",
     "scripts/start-watcher.sh",
     "scripts/secret-scan.sh",

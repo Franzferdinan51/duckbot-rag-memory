@@ -1,10 +1,24 @@
 # Changelog
 
+## Unreleased — Linux maintenance-timer installer
+
+### Added
+
+- **`scripts/install-linux-timers.sh`** — additive companion to `scripts/install-linux.sh`. The watcher daemon already had a Linux installer (writes the systemd *service* unit); this one installs the two scheduled-maintenance jobs that `INSTALL.md` recommends but previously had no Linux setup script for:
+  - `duckbot-decay.timer` → daily at 03:00, runs `src.cli decay --apply --retention-floor 0.05`.
+  - `duckbot-fsrs.timer` → Sundays at 04:00, runs `src.cli optimize-fsrs --apply`.
+  - Writes both `{service,timer}` units under `~/.config/systemd/user/`, reloads systemd, enables + starts the timers, and prints the one-time `sudo loginctl enable-linger $USER` step so they survive logout.
+  - Purely additive: touches nothing in `src/`. Validates the venv exists, guards against non-Linux hosts, and uses no hardcoded paths (all paths derive from `$REPO_ROOT` / `$HOME`).
+
+### Tests
+
+- `tests/test_cross_platform.py`: added `test_install_linux_timers_script_exists`, `test_install_linux_timers_is_executable`, and included the new script in the `bash -n` syntax-check parametrization. Full suite passes (30 tests).
+
 ## v0.15.3 — Wake-up deadline guard was illusory
 
 ### Fixed
 
-- **`Brain.wake_up()` deadline could be exceeded by up to 120s without firing.** The deadline check (`_over_deadline()`) only ran between `recall()` attempts and between filter iterations, never during a single `recall()`. The LM Studio HTTP client had a 120s default timeout. So if LM Studio hung (cold model load, hung daemon), the wake_up() would block 120s past the configured 8s deadline before the next check fired. Symptom: Hermes plugin reports "wake-up deadline issue" on cold start.
+- **`Brain.wake_up()` deadline could be exceeded by up to 120s without firing.** The deadline check (`_over_deadline()`) only ran between `recall()` attempts and between filter iterations, never during a single `recall()`. So if LM Studio hung (cold model load, hung daemon), the wake_up() would block 120s past the configured 8s deadline before the next check fired. Symptom: Hermes plugin reports "wake-up deadline issue" on cold start.
   - Added a `timeout_ms` parameter to `embed()` and `embed_one()` on every embedder class (LMStudio, OpenAI, MiniMax, LocalEmbeddings). LM Studio and OpenAI use it as the httpx timeout; Local accepts it for protocol consistency.
   - `wake_up()` now derives a per-call HTTP timeout from the remaining deadline budget (leaves 1s headroom for post-recall sections) and passes it through `Memory.recall()` → `hybrid_query()` → `embedder.embed_one()`.
   - Added an `_over_deadline()` check between filter iterations inside the recall loop, so a single large result set can't blow past the deadline silently.
