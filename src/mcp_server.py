@@ -680,7 +680,7 @@ async def handle_remember(args: dict) -> dict:
 
 
 async def handle_recall(args: dict) -> dict:
-    query = (args.get("query") or "").lower()
+    query = (args.get("query") or "").strip().lower()
     # Identity fast-path: route self-reference queries directly to the seed file,
     # bypassing vector search entirely. embeddinggemma-300m doesn't reliably surface
     # short abstract identity queries against a noisy corpus.

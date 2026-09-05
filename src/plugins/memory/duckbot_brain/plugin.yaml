@@ -102,4 +102,4 @@ config:
   default_embedding:
     type: string
     required: false
-    description: Embedding provider passed to the Python brain (default: lmstudio).
+    description: "Embedding provider passed to the Python brain (default: lmstudio)."

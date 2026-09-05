@@ -169,8 +169,13 @@ async def hybrid_query(
     stats = QueryStats(query=query_text)
     n_fetch = n_results * over_fetch
 
-    # Phase 1: embed the expanded query (semantic + keyword coverage)
-    query_embedding = await embedder.embed_one(expanded_query, timeout_ms=timeout_ms)
+    # Phase 1: embed the expanded query (semantic + keyword coverage).
+    # Omit the optional keyword when unset so lightweight/legacy providers
+    # that do not accept timeout_ms remain compatible.
+    if timeout_ms is None:
+        query_embedding = await embedder.embed_one(expanded_query)
+    else:
+        query_embedding = await embedder.embed_one(expanded_query, timeout_ms=timeout_ms)
 
     # Phase 2: vector search
     vector_hits = store.query(

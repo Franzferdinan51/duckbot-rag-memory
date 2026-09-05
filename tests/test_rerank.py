@@ -302,8 +302,15 @@ def test_default_rerank_model_is_qwen3_hf_repo():
 
 
 def test_default_lmstudio_rerank_model_is_local_alias():
-    """Locked-in default for the LM Studio rerank path."""
-    assert DEFAULT_LMSTUDIO_RERANK_MODEL == "qwen3-reranker-0.6b"
+    """Locked-in default for the LM Studio rerank path.
+
+    Note (2026-09-05): the historical default `qwen3-reranker-0.6b` cannot
+    be loaded by LM Studio (safetensors format + cross-encoder architecture).
+    The default is now `ornith-1.5-9b` — a real chat/instruct model that
+    LM Studio can load, used as an LLM-as-judge relevance scorer.
+    Override at runtime via LMSTUDIO_RERANK_MODEL env var.
+    """
+    assert DEFAULT_LMSTUDIO_RERANK_MODEL == "ornith-1.5-9b"
 
 
 def test_resolve_backend_prefers_lmstudio_first(monkeypatch):
@@ -452,12 +459,17 @@ def test_sentence_transformers_backend_requires_package(monkeypatch):
 
 
 def test_lmstudio_backend_uses_default_url(monkeypatch):
-    """If LMSTUDIO_RERANK_URL is unset, falls back to the standard LM Studio port."""
+    """If LMSTUDIO_RERANK_URL is unset, falls back to the standard LM Studio port.
+
+    Note (2026-09-05): the default model is now `ornith-1.5-9b` (a chat
+    model used as LLM-as-judge), not the historical `qwen3-reranker-0.6b`
+    cross-encoder which LM Studio cannot load.
+    """
     monkeypatch.delenv("LMSTUDIO_RERANK_URL", raising=False)
     monkeypatch.delenv("LMSTUDIO_RERANK_MODEL", raising=False)
     be = LMStudioBackend()
     assert be.url == "http://127.0.0.1:1234/v1/rerank"
-    assert be.model == "qwen3-reranker-0.6b"
+    assert be.model == "ornith-1.5-9b"
 
 
 def test_lmstudio_backend_respects_env(monkeypatch):

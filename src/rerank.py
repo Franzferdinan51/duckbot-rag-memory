@@ -52,10 +52,24 @@ logger = logging.getLogger(__name__)
 # Keep this as the canonical repo id so the CrossEncoder path can load it.
 DEFAULT_RERANK_MODEL = "Qwen/Qwen3-Reranker-0.6B"
 
-# Default model for LM Studio's local rerank endpoint. LM Studio uses the
-# model id as exposed by the local server, which in this repo is the
-# lowercase alias the user specified.
-DEFAULT_LMSTUDIO_RERANK_MODEL = "qwen3-reranker-0.6b"
+# Default model for LM Studio's LLM-as-judge relevance scorer. We use a
+# chat/instruct model here, NOT a cross-encoder, because:
+#   1. LM Studio's llama.cpp backend only loads GGUF format — it cannot
+#      load the original Qwen3-Reranker (which ships as torch_safetensors).
+#   2. Even if it loaded, Qwen3-Reranker is a sequence-classification model
+#      with its own prompt template; it doesn't behave correctly behind
+#      /v1/chat/completions no matter what system prompt you give it.
+#
+# So we use a small fast instruct model as an LLM-as-judge relevance
+# scorer. The default is ornith-1.5-9b — verified live (2026-09-05) to
+# load cleanly on this LM Studio install AND to emit clean JSON scores
+# for the (query, docs) -> [0..1] prompt we use. Several other models
+# in the catalog either fail to load (gemma-4, nemotron-3-nano-4b,
+# lfm2.5-vl-3b) or are too big to time-out the request path
+# (qwen3.8-27b-obliterated, 35B-a3b). If your LM Studio can load
+# nemotron-3-nano-4b or another small fast model, set LMSTUDIO_RERANK_MODEL
+# to override.
+DEFAULT_LMSTUDIO_RERANK_MODEL = "ornith-1.5-9b"
 
 # Truncate documents to this many chars before scoring. Cross-encoders
 # are token-bounded. Roughly 1500 chars ≈ 400 tokens with our typical
@@ -218,19 +232,31 @@ class SentenceTransformersBackend:
 
 
 class Qwen3RerankerBackend:
-    """Rerank via /v1/chat/completions using qwen3-0.6b-reranker.
+    """LLM-as-judge relevance scorer via /v1/chat/completions.
 
-    LM Studio serves it as a chat model, NOT a /rerank endpoint.
-    We format docs as a prompt and parse float scores from the completion.
+    Despite the historical class name, this is NOT actually using the
+    Qwen3-Reranker cross-encoder — that model can't be loaded by LM Studio
+    (safetensors format + cross-encoder architecture). Instead we use any
+    small chat/instruct model to score (query, doc) pairs by asking it to
+    emit a JSON list of floats. The name is preserved for backward
+    compatibility with logs and tests.
+
+    Recommended model: anything that follows instructions and emits clean
+    JSON. Defaults to nemotron-3-nano-4b (small, fast, structured-output
+    friendly). Override via LMSTUDIO_RERANK_MODEL env var.
     """
 
     def __init__(self, url=None, model=None):
         import os as _o
         self.url = url or _o.environ.get("LMSTUDIO_RERANK_URL",
                   "http://127.0.0.1:1234/v1/chat/completions")
+        # Reuse the same default as LMStudioBackend so both paths pick the
+        # same chat model. The historical "qwen3-0.6b-reranker" id never
+        # actually loaded — that model is a cross-encoder in safetensors
+        # format and LM Studio cannot run it.
         self.model = model or _o.environ.get("LMSTUDIO_RERANK_MODEL",
-                     "qwen3-0.6b-reranker")
-        self.name = "qwen3-reranker:" + self.model
+                     DEFAULT_LMSTUDIO_RERANK_MODEL)
+        self.name = "llm-judge:" + self.model
 
     def score(self, query, docs):
         if not docs:
