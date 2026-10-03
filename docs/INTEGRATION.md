@@ -165,7 +165,7 @@ Three levels of confidence:
 hermes mcp test duckbot-memory
 
 # 2. Tools discovered
-hermes mcp list  # should show 68 tools, ✓ enabled
+hermes mcp list  # should show 69 tools, ✓ enabled
 
 # 3. End-to-end
 python -m src.cli query "What did we decide about cloud-only models?"

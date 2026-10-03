@@ -2,13 +2,13 @@
 
 A pure Node.js shim that wires [duckbot-rag-memory](../..) into OpenClaw as
 a **natively-installed plugin**. Spawns the existing Python MCP server
-(`src/mcp_server.py`, 68 tools) as a subprocess and proxies tool calls
+(`src/mcp_server.py`, 69 tools) as a subprocess and proxies tool calls
 over JSON-RPC over stdio. Zero npm dependencies; Node stdlib only.
 
 > **Why a shim?** OpenClaw plugins run in-process inside the Node gateway
 > (`openclaw/openclaw/src/plugins/loader.ts`). Python isn't supported
 > natively. So we spawn the existing Python MCP server as a subprocess
-> and bridge the 68 tools via JSON-RPC. No code duplication — the
+> and bridge the 69 tools via JSON-RPC. No code duplication — the
 > Python `src/mcp_server.py` IS the brain. The shim is pure glue.
 
 ## What you get
@@ -17,7 +17,7 @@ over JSON-RPC over stdio. Zero npm dependencies; Node stdlib only.
   `~/.openclaw/extensions/duckbot-memory/` (or run the bootstrap which
   symlinks it). OpenClaw's plugin loader reads `openclaw.plugin.json`
   and loads `index.js` via `package.json#main`.
-- **67 MCP tools** registered via `api.registerTool(factory, { name })`.
+- **69 MCP tools** registered via `api.registerTool(factory, { name })`.
   The shim eagerly registers a bootstrap surface during startup, then
   registers any additional tools reported by `src.mcp_server.py`'s
   `tools/list` handshake.
@@ -72,7 +72,7 @@ openclaw plugins list | grep duckbot-memory     # should show "✓ installed"
 OpenClaw gateway (Node.js)
   │
   │  registerHook('session_start', ...) → api calls our handler
-  │  registerTool(name, factory)       → 68 tools registered
+  │  registerTool(name, factory)       → 69 tools registered
   │
   ▼
 extensions/duckbot-memory/index.js   ← THIS SHIM (~250 lines, zero deps)
@@ -80,7 +80,7 @@ extensions/duckbot-memory/index.js   ← THIS SHIM (~250 lines, zero deps)
   │  spawn(pythonPath, ['-u', '-m', 'src.mcp_server'], { cwd: repoPath })
   │
   ▼
-src/mcp_server.py (Python, 68 tools)
+src/mcp_server.py (Python, 69 tools)
   │
   ▼
 ChromaDB + LM Studio + SQLite

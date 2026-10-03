@@ -4,7 +4,7 @@
 
 **Goal:** Ensure the OpenClaw Node shim exposes every tool reported by the live Python MCP server instead of only a stale hardcoded subset.
 
-**Architecture:** Keep the current eager static registration so OpenClaw has an immediate surface during startup, then after the MCP `initialize` + `tools/list` handshake, register any discovered tool names that were not already registered. Update OpenClaw extension docs/comments to the live 67-tool count.
+**Architecture:** Keep the current eager static registration so OpenClaw has an immediate surface during startup, then after the MCP `initialize` + `tools/list` handshake, register any discovered tool names that were not already registered. Update OpenClaw extension docs/comments to the live 69-tool count.
 
 **Tech Stack:** Node.js built-in test runner, mocked child process JSON-RPC framing, Python MCP `tools/list` E2E smoke.
 

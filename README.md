@@ -2,8 +2,8 @@
 
 Persistent, searchable memory that dramatically expands the limited default memory of OpenClaw and Hermes Agent. Drop-in replacement for the flat chat-history buffers both agents ship with — adds a 4-tier CoALA memory model, hybrid retrieval, entity graph, verbatim recall, FSRS-6 spaced repetition, dreaming consolidation, and a Wing/Room/Drawer 2D hierarchy on top.
 
-[![Status](https://img.shields.io/badge/latest_changelog-0.15.1-yellow)]()
-[![MCP](https://img.shields.io/badge/MCP_server-0.15.1-green)]()
+[![Status](https://img.shields.io/badge/latest_changelog-0.15.3-yellow)]()
+[![MCP](https://img.shields.io/badge/MCP_server-0.15.3-green)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 [![CI](https://github.com/Franzferdinan51/duckbot-rag-memory/actions/workflows/ci.yml/badge.svg)]()
 
@@ -58,7 +58,7 @@ The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs,
 - **Proactive memory nudges:** surface stale-but-important memories before they're forgotten, via `brain_nudge` MCP tool.
 - **Local-first embeddings:** LM Studio works well locally; MiniMax, OpenAI, and sentence-transformers are also supported.
 - **Watcher daemon:** polls markdown sources every five minutes by default and dedups unchanged content by hash.
-- **MCP stdio server:** 68 tools for recall, remember, reflect, graph, blocks, dreaming, learning, quarantine, sync, wake-up, palace, index, nudge, skillgen, user modeling, agent-driven skill pipeline, export/import, and demo seeding.
+- **MCP stdio server:** 69 tools for recall, remember, reflect, graph, blocks, dreaming, learning, quarantine, sync, wake-up, palace, index, nudge, skillgen, user modeling, agent-driven skill pipeline, export/import, and demo seeding.
 - **Shell wrappers:** `scripts/duckbot-ask`, `scripts/brain-recall.sh`, `scripts/hermes-preflight.sh`, `scripts/hermes-postflight.sh`, and the one-command bootstraps `scripts/openclaw-bootstrap.sh` / `scripts/hermes-bootstrap.sh` for first-time setup.
 
 > If you (or an agent) just want to install this without reading the README, see [INSTALL.md](INSTALL.md) for a single-page copy-paste recipe (prereqs → install → bootstrap → register MCP → cron).
@@ -252,7 +252,7 @@ hermes mcp add duckbot-memory `
 
 Prefer the launcher scripts over passing env vars directly to MCP config. They load `.env` at process start, set unbuffered output, and choose the correct venv path per OS.
 
-The current MCP server exposes 68 tools:
+The current MCP server exposes 69 tools:
 
 | Area | Tools |
 | --- | --- |
@@ -391,7 +391,7 @@ duckbot-rag-memory/
 |   |-- memory.py         # unified Memory facade
 |   |-- query.py          # hybrid retrieval + RRF + keyword/temporal boost
 |   |-- consolidate.py    # episodic -> semantic distillation
-|   |-- mcp_server.py     # MCP stdio server (68 tools)
+|   |-- mcp_server.py     # MCP stdio server (69 tools)
 |   |-- watcher.py        # polling watcher daemon
 |   |-- cli.py            # command-line interface
 |   |-- dialect.py        # AAAK compression dialect (brain_index)

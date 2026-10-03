@@ -3,7 +3,7 @@
  *
  * Pure Node.js, zero npm dependencies. Spawns the Python MCP server
  * (duckbot-rag-memory/src/mcp_server.py) as a subprocess and proxies
- * 69 brain tools + session_start / session_end hooks into OpenClaw.
+ * the full 69 tools + session_start / session_end hooks into OpenClaw.
  *
  * Singleton pattern: a single Python subprocess is shared across all
  * gateway workers. The first worker to load this plugin spawns the Python
