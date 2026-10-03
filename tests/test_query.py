@@ -20,9 +20,16 @@ import tempfile
 
 @pytest.fixture
 def store():
+    # Fresh ephemeral Chroma dir per test — starts clean by construction.
+    # NOTE: do NOT call s.reset() here. ChromaBackend.reset() closes this
+    # client and opens a SECOND PersistentClient on the same path within
+    # the same process; chromadb 0.5.x keeps the first client's native
+    # sqlite/hnswlib handles alive, so the second client hits
+    # "no such table: collections" / "readonly database" on the first
+    # upsert. A brand-new empty persist dir is already the clean state
+    # reset() would have produced.
     test_dir = Path(tempfile.mkdtemp(prefix="duckbot-rag-test-"))
     s = MemoryStore(persist_dir=test_dir / "chroma", embedding_dim=384, embedding_provider_name="local-test")
-    s.reset()
     yield s
     # Cleanup
     import shutil

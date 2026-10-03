@@ -25,8 +25,12 @@ class MockEmbeddings:
     def __init__(self, dim: int = 384):
         self.dim = dim
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed(
+        self, texts: list[str], timeout_ms: int | None = None
+    ) -> list[list[float]]:
+        # timeout_ms mirrors the production EmbeddingProvider signature
+        # (src/embeddings.py); the mock ignores it.
         return [_hash_to_vec(t, self.dim) for t in texts]
 
-    async def embed_one(self, text: str) -> list[float]:
+    async def embed_one(self, text: str, timeout_ms: int | None = None) -> list[float]:
         return _hash_to_vec(text, self.dim)

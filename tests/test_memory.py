@@ -25,11 +25,11 @@ class _MockProvider:
         self._impl = MockEmbeddings(dim=dim)
         self.dim = dim
 
-    async def embed(self, texts):
-        return await self._impl.embed(texts)
+    async def embed(self, texts, timeout_ms=None):
+        return await self._impl.embed(texts, timeout_ms=timeout_ms)
 
-    async def embed_one(self, text):
-        return await self._impl.embed_one(text)
+    async def embed_one(self, text, timeout_ms=None):
+        return await self._impl.embed_one(text, timeout_ms=timeout_ms)
 
 
 @pytest.fixture
