@@ -771,7 +771,9 @@ class MiniMaxEmbeddings:
                 await _asyncio.sleep(self.retry_base_delay * (2 ** attempt))
         raise EmbeddingError(f"MiniMax embed failed after {self.max_retries} attempts: {last_exc}")
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed(self, texts: list[str], timeout_ms: Optional[int] = None) -> list[list[float]]:
+        # MiniMax batch API has no per-call timeout; accepted for protocol
+        # consistency (timeout_ms is ignored).
         if not texts:
             return []
         results: list = [None] * len(texts)  # type: ignore[list-item]
