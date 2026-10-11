@@ -1159,7 +1159,7 @@ async def handle_brain_sync(args: dict) -> dict:
         # SOUL.md (procedural — identity + principles)
         oc_soul_lines = [f"# Agent Soul — {now}", "", "_Identity and principles from the procedural memory tier._", ""]
         for r in soul_results:
-            oc_soul_lines.append(f"- {r.text[:500]}")
+            oc_soul_lines.append(f"- {r.text[:4000]}")
         if len(oc_soul_lines) <= 3:
             oc_soul_lines.append("_No soul memories yet._")
         oc_soul_content = "\n".join(oc_soul_lines)
@@ -1241,7 +1241,10 @@ async def handle_brain_sync(args: dict) -> dict:
             "",
         ]
         for r in soul_results:
-            hm_soul_lines.append(f"§ {r.text[:500]}")
+            # 4000: the previous 500-char cap silently truncated multi-line
+            # soul entries (standing directives, workflows). SOUL.md has no
+            # char budget — only rank order carries weight.
+            hm_soul_lines.append(f"§ {r.text[:4000]}")
         if len(hm_soul_lines) <= 3:
             hm_soul_lines.append("_No soul memories yet._")
         hm_soul_content = "\n".join(hm_soul_lines)
