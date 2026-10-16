@@ -67,7 +67,12 @@ echo
 
 # Auto-install the Hermes plugin symlink so Hermes's plugin loader finds
 # us on next session start. Idempotent: re-running is a no-op.
-HERMES_PLUGINS_DIR="${HERMES_HOME%/memories}/plugins/memory/duckbot_brain"
+# Canonical location (2026-10-16): Hermes's memory-provider resolver
+# (plugins.memory.find_provider_dir) only looks for a TOP-LEVEL
+# ~/.hermes/plugins/<provider-name>/ dir with the DASH name. The old
+# nested plugins/memory/duckbot_brain/ path was found by the general
+# plugin scanner but NOT the resolver -> 'not installed' banner.
+HERMES_PLUGINS_DIR="${HERMES_HOME%/memories}/plugins/duckbot-brain"
 PLUGIN_SRC_INIT="$REPO_ROOT/src/plugins/memory/duckbot_brain/__init__.py"
 PLUGIN_SRC_YAML="$REPO_ROOT/src/plugins/memory/duckbot_brain/plugin.yaml"
 if [ -f "$PLUGIN_SRC_INIT" ]; then
