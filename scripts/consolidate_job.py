@@ -28,7 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 WRITER_ROLE = "memory_writer"           # SystemOne role name (pinned)
-WRITER_MODEL = "hy-memory-30b-a3b"      # pinned writer build
+WRITER_MODEL = "hy-memory-30b-a3b-mlx"  # pinned writer build (MLX 4-bit; GGUF retired 2026-10-16)
 
 
 def main() -> int:
