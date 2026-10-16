@@ -13,7 +13,7 @@ chunks D1 votes to skip are counted, not written anywhere either way.
 
 Usage:
   python scripts/shadow_writer_ab.py [--files N] [--max-chunks N]
-      [--gate] [--model hy-memory-30b-a3b] [--out PATH] [--no-load]
+      [--gate] [--model hy-memory-30b-a3b-mlx] [--out PATH] [--no-load]
 Loads the writer model with `lms load` and unloads it afterwards
 (load-on-dispatch) unless --no-load is given.
 """
@@ -67,7 +67,7 @@ def main() -> int:
     ap.add_argument("--files", type=int, default=6, help="most recent N memory files")
     ap.add_argument("--max-chunks", type=int, default=36)
     ap.add_argument("--gate", action="store_true", help="run the D1 gate first")
-    ap.add_argument("--model", default="hy-memory-30b-a3b")
+    ap.add_argument("--model", default="hy-memory-30b-a3b-mlx")
     ap.add_argument("--out", default="")
     ap.add_argument("--no-load", action="store_true")
     args = ap.parse_args()

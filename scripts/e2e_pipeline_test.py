@@ -23,7 +23,7 @@ os.environ["DUCKBOT_EMBEDDING"] = "local"  # same pin as run-watcher.sh
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-MODEL = "hy-memory-30b-a3b"
+MODEL = "hy-memory-30b-a3b-mlx"  # MLX 4-bit (GGUF retired 2026-10-16, Duckets)
 LMS = Path.home() / ".lmstudio" / "bin" / "lms"
 
 TEST_DOC = """# E2E test note (synthetic)
