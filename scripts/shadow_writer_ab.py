@@ -32,7 +32,14 @@ from src.chunk import chunk_markdown, iter_markdown_files  # noqa: E402
 from src.consolidate import extract_facts_from_chunk  # noqa: E402
 from src.hy_memory import extract_memories_hy  # noqa: E402
 
-DEFAULT_MEMORY_DIR = Path.home() / ".openclaw" / "workspace" / "memory"
+# Both agent homes: whichever agent Duckets is running (Hermes now,
+# OpenClaw before) keeps its memory files in its own dir. The shadow
+# reads the most recent files across ALL of them (Duckets' order,
+# 2026-10-16) so the comparison always runs on the live agent's data.
+DEFAULT_MEMORY_DIRS = [
+    Path.home() / ".hermes" / "memories",
+    Path.home() / ".openclaw" / "workspace" / "memory",
+]
 
 
 def _norm(s: str) -> str:
@@ -53,7 +60,8 @@ def _dup_rate(texts: list[str]) -> float:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--memory-dir", default=str(DEFAULT_MEMORY_DIR))
+    ap.add_argument("--memory-dir", action="append", default=None,
+                    help="memory dir to read (repeatable); default: all known agent memory dirs")
     ap.add_argument("--corpus", default="",
                     help="single markdown file to use as the corpus instead")
     ap.add_argument("--files", type=int, default=6, help="most recent N memory files")
@@ -66,11 +74,17 @@ def main() -> int:
 
     if args.corpus:
         files = [Path(args.corpus)]
+        mem_dirs = []
     else:
-        mem_dir = Path(args.memory_dir)
-        files = sorted(mem_dir.glob("*.md"), key=lambda p: p.stat().st_mtime)[-args.files:]
+        mem_dirs = [Path(d) for d in (args.memory_dir or DEFAULT_MEMORY_DIRS)]
+        by_path: dict[Path, Path] = {}
+        for d in mem_dirs:
+            if d.is_dir():
+                for f in d.glob("*.md"):
+                    by_path[f.resolve()] = f
+        files = sorted(by_path.values(), key=lambda q: q.stat().st_mtime)[-args.files:]
     if not files:
-        print(f"no memory files under {mem_dir}")
+        print(f"no memory files under {[str(d) for d in mem_dirs]}")
         return 1
 
     chunks: list[tuple[str, str, str]] = []  # (text, chunk_id, source_path)
@@ -81,6 +95,8 @@ def main() -> int:
                 chunks.append((text, f"{path.name}:{i}", str(path)))
     chunks = chunks[: args.max_chunks]
     print(f"corpus: {len(files)} files, {len(chunks)} chunks")
+    for f in files:
+        print(f"  src: {f}")
 
     gate = None
     if args.gate:
@@ -125,6 +141,7 @@ def main() -> int:
     hy_norm = {_norm(t) for t in hy_all}
     gated_rows = [r for r in rows if r["gate"] and r["gate"]["gated"]]
     report = {
+        "sources": [str(f) for f in files],
         "chunks": len(rows),
         "elapsed_s": round(elapsed, 1),
         "incumbent_facts": len(inc_all),
