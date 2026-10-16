@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased — Hy-Memory writer path (2026-10-16)
+
+### Added
+
+- **Hy-Memory writer** (`src/hy_memory.py`): adapter for Tencent's Hy-Memory-30B-A3B memory-extraction model, run locally as a 4-bit MLX build in LM Studio (`hy-memory-30b-a3b-mlx`; weights published as `Duckets/Hy-Memory-30B-A3B-MLX-4bit` on Hugging Face). Explicit `model=` only, silent empty fallback, load-on-dispatch — never left resident.
+- **D1 gate** (`src/gate.py`): per-chunk routing via SystemOne (`POST /v1/systemone`, model `d1-3b`) — one 4-way question (chat | working | code | none); a chunk is skipped only on a confident `none` (>= 0.60); fails open on any error.
+- **Update semantics**: `plan_memory_updates` / `parse_memory_ops` emit add / update / retire operations against existing memories. Retire is review-only and never auto-applied.
+- **Shadow A/B** (`scripts/shadow_writer_ab.py`): read-only incumbent-vs-Hy-Memory comparison (imports no store code, cannot write the bank). Corpus is the most recent memory files across BOTH agent homes (`~/.hermes/memories` and `~/.openclaw/workspace/memory`); reports land in `data/shadow/`.
+- **Batch consolidation job** (`scripts/consolidate_job.py`): `--writer regex|hy-memory` (default regex), gate on by default, dry-run by default. `--apply` is deliberately not wired to the store yet — a separate explicit step.
+- **End-to-end test** (`scripts/e2e_pipeline_test.py`): chunk -> gate -> extract -> update ops -> apply -> store + recall against a throwaway bank. All stages pass on the MLX writer.
+- Tests: `tests/test_hy_memory.py`, `tests/test_gate.py`, `tests/test_hy_memory_updates.py`.
+
+### Fixed
+
+- **`scripts/hermes-bootstrap.sh`** installed the Hermes brain plugin to `~/.hermes/plugins/memory/duckbot_brain/` (nested, underscore) — visible to the general plugin scanner but invisible to Hermes' memory-provider resolver, which caused a persistent "memory provider duckbot-brain not installed" banner. It now installs to the canonical top-level `~/.hermes/plugins/duckbot-brain/`.
+
+### Notes
+
+- First shadow head-to-head on real memory files (2026-10-16): regex incumbent 40 facts / 0.65 duplicate rate vs Hy-Memory 107 facts (81 unique) / 0.243. A nightly shadow run continues the evaluation; the live bank is untouched by everything above.
+- README overhauled to match: deployed embedding truth (`DUCKBOT_EMBEDDING=local`, 384-dim), the writer-path section, deployed jobs table, and the plugin install-path warning.
+
 ## Unreleased — Linux maintenance-timer installer
 
 ### Added

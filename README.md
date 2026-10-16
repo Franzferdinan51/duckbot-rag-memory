@@ -1,6 +1,8 @@
 # DuckBot RAG + Memory System
 
-Persistent, searchable memory that dramatically expands the limited default memory of OpenClaw and Hermes Agent. Drop-in replacement for the flat chat-history buffers both agents ship with — adds a 4-tier CoALA memory model, hybrid retrieval, entity graph, verbatim recall, FSRS-6 spaced repetition, dreaming consolidation, and a Wing/Room/Drawer 2D hierarchy on top.
+Persistent, searchable memory that dramatically expands the limited default memory of Hermes Agent (the primary runtime today) and OpenClaw (legacy, still synced). Drop-in replacement for the flat chat-history buffers both agents ship with — adds a 4-tier CoALA memory model, hybrid retrieval, entity graph, verbatim recall, FSRS-6 spaced repetition, dreaming consolidation, and a Wing/Room/Drawer 2D hierarchy on top.
+
+> **What's new — 2026-10-16: the Hy-Memory writer path.** Consolidation is no longer regex-only. An optional dedicated writer model — Tencent's Hy-Memory-30B-A3B, run locally as a 4-bit MLX build in LM Studio — now extracts memory statements behind a SystemOne/D1 quality gate, with mem0-style update semantics (add / update / retire-for-review). It is being A/B-validated against the regex incumbent in a nightly shadow run before it ever writes to the live bank. See [The Hy-Memory Writer Path](#the-hy-memory-writer-path).
 
 [![Status](https://img.shields.io/badge/latest_changelog-0.15.3-yellow)]()
 [![MCP](https://img.shields.io/badge/MCP_server-0.15.3-green)]()
@@ -21,7 +23,7 @@ DuckBot memory is a focused RAG and long-term memory layer for personal agent wo
 | Memory for the user | None (no user model) | Honcho-style `brain_user_model` block that accumulates over time |
 | Memory for the work | Markdown files agents re-read every session | Wing/Room/Drawer 2D hierarchy (MemPalace-style): project → day → chunk |
 | Forgetting | Linear (oldest message dropped) | FSRS-6 spaced repetition with self-tunable `w20` (per-deployment) |
-| Consolidation | Agent-driven | `reflect()` + `dreaming_cycle()` promote episodic → semantic with agent-supplied facts or regex fallback; the brain never loads a chat model itself |
+| Consolidation | Agent-driven | `reflect()` + `dreaming_cycle()` promote episodic → semantic with agent-supplied facts or regex fallback; an optional dedicated writer model (Hy-Memory, local MLX) behind a D1 gate when the batch job opts in |
 | Conflict detection | None (new fact overwrites old) | mem0-style: near-duplicates marked `superseded_by` |
 | Discovery | Grep through markdown | AAAK compression dialect scans the whole corpus in <500 tokens |
 | Self-improvement | None | **Agent-driven skill pipeline**: agents stamp candidates with `brain_remember(kind="skill_candidate")` (no LLM) and promote them to agentskills.io SKILL.md themselves; `brain_skills_suggest` finds candidates by semantic query; `brain_optimize_fsrs` self-tunes the forgetting curve |
@@ -62,6 +64,22 @@ The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs,
 - **Shell wrappers:** `scripts/duckbot-ask`, `scripts/brain-recall.sh`, `scripts/hermes-preflight.sh`, `scripts/hermes-postflight.sh`, and the one-command bootstraps `scripts/openclaw-bootstrap.sh` / `scripts/hermes-bootstrap.sh` for first-time setup.
 
 > If you (or an agent) just want to install this without reading the README, see [INSTALL.md](INSTALL.md) for a single-page copy-paste recipe (prereqs → install → bootstrap → register MCP → cron).
+
+## The Hy-Memory Writer Path
+
+Historically, consolidation extracted facts two ways: the agent supplied them, or `reflect()` fell back to lightweight regex heuristics (`src/consolidate.py`). Regex is free and predictable, but it misses most of what a conversation actually established. The Hy-Memory path adds a third writer — a model built for exactly this job — without changing any live behavior until it is explicitly opted into.
+
+**The writer.** Tencent's [Hy-Memory-30B-A3B](https://huggingface.co/tencent/Hy-Memory-30B-A3B) (Apache-2.0; 30B total / ~3B active MoE, `hy_v3`, 262K context) is a dedicated memory-extraction model. On Tencent's cross-harness evaluation (Mem0 / MemOS / Hy-Memory / EverMemOS) it outscored Claude Opus 5 and Qwen3.6-35B-A3B as a drop-in memory writer. We run it locally as a **4-bit MLX build in LM Studio** — [`Duckets/Hy-Memory-30B-A3B-MLX-4bit`](https://huggingface.co/Duckets/Hy-Memory-30B-A3B-MLX-4bit) (affine, group 64, ~17 GB, identifier `hy-memory-30b-a3b-mlx`). The adapter is `src/hy_memory.py`: explicit `model=` only, no environment defaults, silent empty-list fallback — it can never load a model by accident. The writer is **load-on-dispatch**: jobs load it, use it, and unload it; it is never left resident.
+
+**The gate.** Not every chunk deserves the writer's time or a slot in the bank. `src/gate.py` asks the SystemOne decision layer (D1, `d1-3b` in LM Studio, via `POST /v1/systemone`) one 4-way question per chunk — route to bank `chat`, `working`, or `code`, or `none`. A chunk is skipped only when `none` wins at ≥ 0.60 confidence. The gate **fails open**: any error stores the chunk ungated rather than dropping memory. Calibration on real chunks: bio → chat 0.92, junk → none 0.84, project → working 0.97, preferences → chat 0.76.
+
+**Update semantics.** Extraction alone creates duplicates and contradictions, so the writer also plans *operations* against existing memories (`plan_memory_updates` / `parse_memory_ops` in `src/hy_memory.py`): `add` for new facts, `update` superseding a stale statement, and `retire` — which is **review-only and never auto-applied**, because early runs showed the model occasionally retiring an unrelated memory.
+
+**The batch job.** `scripts/consolidate_job.py` is the cutover-ready entrypoint: `--writer regex|hy-memory` (default regex = today's incumbent behavior), gate on by default, the writer role pinned as SystemOne's `memory_writer`. It is **dry-run by default**, and `--apply` is deliberately not wired to the store yet — wiring it is a separate, explicit step. Nothing about the live Hermes jobs changes by this code existing.
+
+**The shadow A/B.** `scripts/shadow_writer_ab.py` runs both writers over the same chunks and writes a comparison report to `data/shadow/` — it imports no store code and *cannot* write to the bank. Its corpus is the most recent memory files across **both** agent homes (`~/.hermes/memories` and `~/.openclaw/workspace/memory`), so it always evaluates on whichever agent is actually in use. A nightly job runs it during the evaluation week. First head-to-head on real consolidated memory files (2026-10-16): incumbent 40 facts at a 0.65 duplicate rate; Hy-Memory 107 facts (81 unique) at 0.243.
+
+**End-to-end proof.** `scripts/e2e_pipeline_test.py` exercises the whole path against a throwaway bank — chunk → gate → extract → update ops → apply → store + recall probes — and currently passes every stage on the MLX writer. Unit coverage lives in `tests/test_hy_memory.py`, `tests/test_gate.py`, and `tests/test_hy_memory_updates.py`.
 
 ## Quick Start
 
@@ -145,11 +163,27 @@ The wrappers load `.env` themselves and detect the local venv, so API keys do no
 
 ## Local Model Requirements
 
-DuckBot does **not** ship model weights. If you want the default local LM Studio path to work, you must load these models in LM Studio yourself first. Without them, the default local setup will not run as documented:
+DuckBot does **not** ship model weights.
 
-- Required embedding model: Gemma `text-embedding-embeddinggemma-300m`
-- Required reranker model: Qwen3 `qwen3-reranker-0.6b` (the default local rerank model id)
-- **Fact extraction is the agent's job.** When your agent (OpenClaw/Hermes/your LLM) extracts facts from a memory, pass them via `brain_remember(facts=[...])` or `reflect(extract_callback=...)` and they're stored as semantic-tier chunks. DuckBot does not load a separate consolidation chat model. The brain only runs the embedding path and, when enabled, the reranker; `reflect()` uses lightweight regex heuristics when no agent facts are provided.
+### Deployed configuration (the reference Mac — read this first)
+
+The live system does **not** use LM Studio for embeddings. It forces the offline local embedder, and the bank is built at that dimension — **never change the dimension source on an existing bank, or every stored vector is invalidated**:
+
+```bash
+DUCKBOT_EMBEDDING=local        # sentence-transformers, 384-dim, fully offline
+```
+
+| Role | Model | Notes |
+|---|---|---|
+| Embeddings | local sentence-transformers (384-dim) | forced via `DUCKBOT_EMBEDDING=local` |
+| Reranker | Qwen3 `qwen3-reranker-0.6b` (LM Studio) | optional; no-op fallback if absent |
+| Decision gate | `d1-3b` via SystemOne (`POST /v1/systemone`) | kept warm by SystemOne; fails open |
+| Memory writer (optional) | `hy-memory-30b-a3b-mlx` — Hy-Memory 4-bit MLX in LM Studio | load-on-dispatch only; see [The Hy-Memory Writer Path](#the-hy-memory-writer-path) |
+| Batch jobs (Brain Reflect, FSRS optimize) | pinned to LFM2.5-24B-A2B | unchanged by the Hy-Memory path |
+
+### Alternative embedding providers
+
+If you build a *new* bank on a different provider, LM Studio embeddings work well (`text-embedding-embeddinggemma-300m`, `DUCKBOT_EMBEDDING=lmstudio`), as do the cloud providers below. Fact extraction remains available agent-side regardless of provider: pass facts via `brain_remember(facts=[...])` or `reflect(extract_callback=...)`; `reflect()` uses the regex heuristics when no facts are supplied.
 
 OpenClaw and Hermes are the agent runtimes that call into this repo. This repo is the memory layer they use; it does not provide its own chat model.
 
@@ -190,7 +224,7 @@ DUCKBOT_EMBEDDING=local
 
 If `DUCKBOT_EMBEDDING` is unset, the code auto-detects from available credentials and local services. Keep real keys only in `.env`; it is gitignored and protected by the secret-scan scripts.
 
-If you do not install the reranker model, rerank stays available as a no-op fallback. Fact extraction is **agent-driven** — OpenClaw or Hermes extracts the facts and passes them to `brain_remember(facts=[...])` or `reflect(extract_callback=...)`. `reflect()` uses lightweight regex heuristics when no agent facts are supplied and never auto-loads a chat model. There is no separate consolidation model to download for DuckBot itself.
+If you do not install the reranker model, rerank stays available as a no-op fallback. Fact extraction is agent-driven by default (pass facts to `brain_remember(facts=[...])` or `reflect(extract_callback=...)`); the optional Hy-Memory writer path above is the one exception, and only for batch jobs that explicitly opt in.
 
 ## Watcher
 
@@ -228,6 +262,20 @@ On macOS, polling is the default because `watchdog`/FSEvents has historically be
 DUCKBOT_WATCH_USE_FSEVENTS=1 python -m src.watcher run
 ```
 
+### Deployed jobs (reference Mac)
+
+| Job | Schedule | What it does |
+|---|---|---|
+| Watcher (`com.duckbot.memory-watcher`, launchd) | continuous | Ingests the OpenClaw workspace memory files (`~/.openclaw/workspace/memory` + workspace root files); `brain_sync` keeps the Hermes and OpenClaw context files in sync, so Hermes-written memory flows in too |
+| Brain decay | daily ~03:00 | FSRS retention-floor pruning |
+| FSRS optimize | daily ~04:00 | Self-tunes the forgetting curve (pinned to LFM2.5-24B-A2B) |
+| Brain Reflect | weekly, Sun ~04:00 | Episodic → semantic consolidation (pinned to LFM2.5-24B-A2B) |
+| Hy-Memory shadow A/B | nightly ~03:38 (evaluation week) | Read-only writer comparison over both agent homes; never writes the bank |
+
+### Hermes MemoryProvider plugin — install path matters
+
+The bootstrap (`scripts/hermes-bootstrap.sh`) installs the brain plugin to the **canonical top-level location** `~/.hermes/plugins/duckbot-brain/` (dash name) and sets `memory.provider: duckbot-brain` in `~/.hermes/config.yaml`. This exact path is load-bearing: Hermes' memory-provider resolver (`plugins.memory.find_provider_dir`) only looks for a top-level `plugins/<provider-name>/` directory. The older nested layout (`plugins/memory/duckbot_brain/`) is found by the general plugin scanner — `hermes plugins list` shows it enabled — but **not** by the resolver, which produces a misleading "memory provider 'duckbot-brain' is configured but not installed" banner. If you ever see that banner while the plugin lists as enabled, check the resolver path first, not the config and not the catalog.
+
 ## MCP Integration
 
 Run the memory server directly:
@@ -240,7 +288,7 @@ Or register it with Hermes Agent:
 
 ```bash
 hermes mcp add duckbot-memory \
-  --command "$HOME/Desktop/duckbot-rag-memory/scripts/duckbot-memory-mcp.sh"
+  --command "$HOME/duckbot-rag-memory/scripts/duckbot-memory-mcp.sh"
 ```
 
 Windows:
@@ -390,7 +438,9 @@ duckbot-rag-memory/
 |   |-- store.py          # ChromaDB wrapper
 |   |-- memory.py         # unified Memory facade
 |   |-- query.py          # hybrid retrieval + RRF + keyword/temporal boost
-|   |-- consolidate.py    # episodic -> semantic distillation
+|   |-- consolidate.py    # episodic -> semantic distillation (regex incumbent)
+|   |-- hy_memory.py      # Hy-Memory writer adapter + update-op planner (explicit model only)
+|   |-- gate.py           # SystemOne/D1 chunk gate: chat|working|code|none, fail-open
 |   |-- mcp_server.py     # MCP stdio server (69 tools)
 |   |-- watcher.py        # polling watcher daemon
 |   |-- cli.py            # command-line interface
@@ -410,7 +460,10 @@ duckbot-rag-memory/
 |-- benchmarks/           # golden retrieval evals
 |-- extensions/           # native OpenClaw plugin (Node.js shim → Python MCP server)
 |-- scripts/              # install, watcher, MCP launcher, query helpers,
-|                         #   hermes-preflight.sh, hermes-postflight.sh
+|                         #   hermes-preflight.sh, hermes-postflight.sh,
+|                         #   shadow_writer_ab.py (read-only writer A/B),
+|                         #   consolidate_job.py (cutover-ready batch job),
+|                         #   e2e_pipeline_test.py (full-path proof)
 |-- skills/               # OpenClaw skill manifests and plugins
 |-- docs/                 # architecture, integration, research
 |-- data/                 # gitignored runtime state
@@ -453,7 +506,12 @@ pytest --collect-only -q
 bash scripts/secret-scan.sh
 ```
 
-Current local check: **849 tests passing**. The suite is exercised in CI on every push.
+The suite stood at 849 tests at v0.15.3 and is exercised in CI on every push. The Hy-Memory path adds `tests/test_hy_memory.py`, `tests/test_gate.py`, and `tests/test_hy_memory_updates.py`, plus a full-pipeline end-to-end check that runs against a throwaway bank (never the live one):
+
+```bash
+DUCKBOT_EMBEDDING=local .venv/bin/python scripts/e2e_pipeline_test.py
+# chunk -> gate -> extract -> update ops -> apply -> store + recall probes
+```
 
 Eval trend detection (`compute_trend`) reads `data/eval_history.jsonl` and reports recent-vs-prior deltas on `mean_recall_at_5`, `mean_mrr`, and `p95_latency`. `python -m src.cli eval benchmarks/golden.jsonl` prints the trend alongside the summary.
 
