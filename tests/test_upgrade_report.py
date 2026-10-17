@@ -55,3 +55,19 @@ def test_graph_stats_after_feed(tmp_path, monkeypatch):
     assert stats["exists"] is True
     assert stats.get("entities", 0) >= 1
     graphwire._GRAPH = None; graphwire._GRAPH_PATH = None
+
+
+async def test_build_report_golden_uses_mem_store(mem, monkeypatch):
+    """Regression (merge gate): golden eval must query the census bank."""
+    seen = {}
+
+    async def fake_golden(path, *, store=None, embedder=None):
+        seen["store"] = store
+        return {"summary": {"mean_recall_at_5": 1.0}}
+
+    monkeypatch.setattr(ur, "golden_eval", fake_golden)
+    store, _ = await mem._ensure_initialized()
+    report = await ur.build_report(mem, benchmark="benchmarks/golden.jsonl",
+                                   graph_path="/nonexistent/graph.db")
+    assert seen["store"] is store
+    assert report["golden"]["summary"]["mean_recall_at_5"] == 1.0

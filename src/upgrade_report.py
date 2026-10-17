@@ -81,6 +81,12 @@ async def build_report(mem, *, benchmark: Optional[str | Path] = None,
                        graph_path: Optional[str | Path] = None) -> dict:
     report = {"census": await layer_census(mem), "graph": graph_stats(graph_path)}
     if benchmark is not None:
+        if store is None:
+            # Evaluate the SAME bank the census read: the Memory's own
+            # initialized store + embedder. (A fresh default MemoryStore
+            # resolves a different persist dir and silently scores 0.0
+            # against an empty store — caught at the merge gate.)
+            store, embedder = await mem._ensure_initialized()
         report["golden"] = await golden_eval(benchmark, store=store,
                                              embedder=embedder)
     return report
