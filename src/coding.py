@@ -72,8 +72,8 @@ def iter_commits(repo_path: str | Path, *, limit: int = 200) -> list[dict]:
     return commits
 
 
-def _stored_commit_hashes(mem, repo_name: str) -> set[str]:
-    coll = mem._store.collection_for(_tier())
+def _stored_commit_hashes(mem, repo_name: str, store=None) -> set[str]:
+    coll = (store or mem._store).collection_for(_tier())
     got = coll.get(include=["metadatas"])
     hashes: set[str] = set()
     for meta in got.get("metadatas") or []:
@@ -98,7 +98,8 @@ async def store_chain(mem, repo_path: str | Path, *,
     repo = Path(repo_path).expanduser()
     repo_name = repo.name
     commits = iter_commits(repo, limit=limit)
-    already = _stored_commit_hashes(mem, repo_name)
+    store, _embedder = await mem._ensure_initialized()
+    already = _stored_commit_hashes(mem, repo_name, store=store)
     file_last: dict[str, str] = {}
     # Seed the chain map from history order (all commits, stored or not)
     stored = skipped = fallback = 0

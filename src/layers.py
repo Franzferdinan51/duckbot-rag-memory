@@ -44,7 +44,8 @@ async def induce_schema_layer(mem, *, model: Optional[str] = None,
         return []
     from . import hy_memory
 
-    coll = mem._store.collection_for(Tier.SEMANTIC)
+    store, _embedder = await mem._ensure_initialized()
+    coll = store.collection_for(Tier.SEMANTIC)
     got = coll.get(include=["documents", "metadatas"])
     facts: list[str] = []
     fact_ids: list[str] = []
