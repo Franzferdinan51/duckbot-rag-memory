@@ -40,8 +40,11 @@ def mem():
 
 
 async def test_chain_links_and_idempotency(repo, mem, monkeypatch):
-    monkeypatch.setattr(llm_client, "chat_completion",
-                        lambda *a, **k: "Decision: the module was changed deliberately.")
+    def _stub(messages, **k):
+        user = messages[-1]["content"]
+        subject = user.splitlines()[0].replace("COMMIT: ", "")
+        return f"Decision record for: {subject}"
+    monkeypatch.setattr(llm_client, "chat_completion", _stub)
     res = await coding.store_chain(mem, repo, model="hy-memory-30b-a3b-mlx")
     assert res["stored"] == 3 and res["fallback"] == 0
     res2 = await coding.store_chain(mem, repo, model="hy-memory-30b-a3b-mlx")

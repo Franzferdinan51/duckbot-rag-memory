@@ -127,6 +127,7 @@ async def store_chain(mem, repo_path: str | Path, *,
             meta["chain_prev"] = prev
         await mem.remember(decision, source_path=f"git:{repo_name}",
                            force_tier="episodic", metadata=meta)
+        already.add(c["hash"])
         stored += 1
     return {"repo": repo_name, "commits": len(commits),
             "stored": stored, "skipped": skipped, "fallback": fallback}
