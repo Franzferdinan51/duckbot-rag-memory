@@ -241,6 +241,7 @@ class Memory:
         force_tier: Tier | None = None,
         facts: list[str] | None = None,
         reconcile_model: str | None = None,
+        graph_feed: bool | None = None,
     ) -> RememberResult:
         """Store a single memory. Auto-chunks long text, classifies tier,
         extracts entities + relationships, embeds, and stores.
@@ -449,6 +450,15 @@ class Memory:
                     [chunk], vecs, tier, metadata_override=[chunk_meta]
                 )
             stored = added > 0
+            # Phase C: feed the temporal knowledge graph (opt-in via
+            # graph_feed= or DUCKBOT_GRAPH_FEED=1; fail-open always).
+            _gf = graph_feed
+            if _gf is None:
+                import os as _os
+                _gf = _os.environ.get("DUCKBOT_GRAPH_FEED", "").lower() in ("1", "true", "yes")
+            if _gf and stored:
+                from . import graphwire as _gw
+                _gw.feed_text_safe(chunk.text, source=chunk.source_path)
 
             result = RememberResult(
                 text=chunk.text,
@@ -606,6 +616,7 @@ class Memory:
         tier_priors_overrides: dict[str, float] | None = None,
         fsrs: bool | None = None,
         skip_superseded: bool = True,
+        graph_augment: bool = False,
         timeout_ms: int | None = None,
     ) -> tuple[list[QueryResult], QueryStats]:
         """Hybrid retrieval with optional tier filter, importance threshold,
@@ -701,6 +712,18 @@ class Memory:
                 pass
 
         store.mark_queried()
+        # Phase C: graph augmentation — append active relationship lines
+        # for entities named in the query (tier="graph", via=graph).
+        if graph_augment:
+            try:
+                from . import graphwire as _gw
+                from .query import QueryResult as _QR
+                for _i, _line in enumerate(_gw.neighbors_for_query(query, limit=5)):
+                    results.append(_QR(chunk_id=f"graph:{_i}", text=_line,
+                                       metadata={"via": "graph"}, tier="graph",
+                                       rrf_score=0.0))
+            except Exception as _exc:
+                logger.warning("graph augment failed (%s)", _exc)
         return results, stats
 
     # -------------------------------------------------------------------------

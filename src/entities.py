@@ -81,6 +81,13 @@ RELATIONSHIP_PATTERNS = [
     (re.compile(r"(\w+)\s+(?:depends on|requires|needs)\s+" + _ARTICLE + _TGT + _BOUNDARY, re.IGNORECASE), "depends_on"),
     (re.compile(r"(\w+)\s+(?:replaced|superseded)\s+" + _ARTICLE + _TGT + _BOUNDARY, re.IGNORECASE), "replaced"),
     (re.compile(r"(\w+)\s+(?:rotated|rotating)\s+" + _ARTICLE + _TGT + _BOUNDARY, re.IGNORECASE), "rotated"),
+    # Phase C (Hy-Memory framework upgrade): the bank's most common fact
+    # shapes — where someone/something is, who they're with, what he
+    # grows — had no patterns, so the graph starved on real memories.
+    (re.compile(r"(\w+)\s+(?:lives in|live in|living in|resides in|is based in|based in)\s+" + _ARTICLE + _TGT + _BOUNDARY, re.IGNORECASE), "lives_in"),
+    (re.compile(r"(\w+)\s+(?:is located in|located in|is set up in)\s+" + _ARTICLE + _TGT + _BOUNDARY, re.IGNORECASE), "located_in"),
+    (re.compile(r"(\w+)\s+(?:is married to|married to)\s+" + _ARTICLE + _TGT + _BOUNDARY, re.IGNORECASE), "married_to"),
+    (re.compile(r"(\w+)\s+(?:grows|is growing|growing)\s+" + _ARTICLE + _TGT + _BOUNDARY, re.IGNORECASE), "grows"),
 ]
 
 

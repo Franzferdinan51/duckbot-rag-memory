@@ -74,6 +74,7 @@ TOOLS = [
                 "tier_priors": {"type": "boolean", "default": False, "description": "Layer 11: apply per-tier multiplicative weights"},
                 "tier_priors_overrides": {"type": "object", "description": "per-tier weight overrides, e.g. {\"procedural\": 2.0}"},
                 "fsrs": {"type": "boolean", "default": False, "description": "Layer 9: use FSRS-6 power-law forgetting instead of Ebbinghaus"},
+                "graph": {"type": "boolean", "default": False, "description": "Phase C: append active temporal-graph relationship lines for entities named in the query (tier=graph)."},
             },
             "required": ["query"],
         },
@@ -729,6 +730,7 @@ async def handle_recall(args: dict) -> dict:
         tier_priors=args.get("tier_priors"),
         tier_priors_overrides=tpo,
         fsrs=args.get("fsrs"),
+        graph_augment=bool(args.get("graph")),
         skip_superseded=args.get("skip_superseded", True),
     )
     return {
