@@ -191,3 +191,109 @@ def plan_memory_updates(
         timeout=timeout,
     )
     return parse_memory_ops(reply)
+
+
+# ---------------------------------------------------------------------------
+# Phase A (Hy-Memory framework upgrade): conflict reconciliation.
+#
+# The write path's near-dup supersede (memory.py) only catches restatements
+# (cosine distance < 0.08). A *changed* fact — different text, same topic —
+# slips past it, leaving the stale fact current forever. reconcile() asks
+# the writer model (RL-trained for exactly this: attributed conflict
+# reconciliation) to classify each same-topic stored memory against the
+# new one so the caller can supersede what the new fact updates or
+# contradicts. Same discipline as the rest of this module: explicit model,
+# silent failure (returns [] -> caller keeps everything, today's behavior).
+# ---------------------------------------------------------------------------
+
+HY_MEMORY_RECONCILE_PROMPT = """You are reconciling a NEW memory statement \
+against EXISTING stored memories on the same topic. For each existing \
+memory, classify its relation to the NEW memory:
+- "same": it states the same fact (wording may differ).
+- "updates": the NEW memory changes, corrects, or supersedes it; the \
+existing memory is now out of date.
+- "contradicts": the NEW memory conflicts with it; both cannot be true now.
+- "unrelated": a different fact; both should be kept.
+Return only a JSON object of the form {"verdicts": [{"index": 0, \
+"relation": "updates", "evidence": "short reason"}]} with exactly one \
+entry per existing memory, in the given order. No other text."""
+
+_RELATIONS = ("same", "updates", "contradicts", "unrelated")
+
+
+def parse_verdicts(text: Optional[str], n: int) -> list[dict]:
+    """Parse a reconcile reply into validated verdict dicts.
+
+    Strict: an entry survives only with an in-range integer index and a
+    known relation. Anything malformed yields fewer (or zero) verdicts;
+    the caller treats missing verdicts as "keep" (fail-open).
+    """
+    if not text or n <= 0:
+        return []
+    cleaned = _FENCE_RE.sub("", text).strip()
+    try:
+        data = json.loads(cleaned)
+    except (ValueError, TypeError):
+        return []
+    if isinstance(data, dict):
+        items = data.get("verdicts")
+    elif isinstance(data, list):
+        items = data
+    else:
+        return []
+    if not isinstance(items, list):
+        return []
+    out: list[dict] = []
+    seen: set[int] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        idx = item.get("index")
+        rel = item.get("relation")
+        if not isinstance(idx, int) or isinstance(idx, bool):
+            continue
+        if idx < 0 or idx >= n or idx in seen:
+            continue
+        if rel not in _RELATIONS:
+            continue
+        seen.add(idx)
+        ev = item.get("evidence")
+        out.append({
+            "index": idx,
+            "relation": rel,
+            "evidence": ev.strip()[:200] if isinstance(ev, str) else None,
+        })
+    return out
+
+
+def reconcile(
+    new_text: str,
+    existing: list[str],
+    *,
+    model: Optional[str] = None,
+    max_tokens: int = 512,
+    timeout: float = 120.0,
+) -> list[dict]:
+    """Classify stored memories against a new fact via the writer model.
+
+    Returns validated verdicts (see parse_verdicts). Explicit-only and
+    silent-failure: no model, empty inputs, or any error returns [].
+    """
+    model_name = (model or "").strip()
+    if not model_name or not new_text.strip() or not existing:
+        return []
+    from . import llm_client
+
+    bank_block = "\n".join(f"[{i}] {e}" for i, e in enumerate(existing))
+    user = f"EXISTING memories:\n{bank_block}\n\nNEW memory:\n{new_text}"
+    reply = llm_client.chat_completion(
+        [
+            {"role": "system", "content": HY_MEMORY_RECONCILE_PROMPT},
+            {"role": "user", "content": user},
+        ],
+        model=model_name,
+        temperature=0.0,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
+    return parse_verdicts(reply, len(existing))

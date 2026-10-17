@@ -1,0 +1,7 @@
+FAILED tests/test_bugfixes_v0_11_3.py::test_bootstrap_scripts_exist_and_exec
+FAILED tests/test_duckbot_ask.py::TestBrainIntegration::test_compact_formatter_works_on_real_query
+FAILED tests/test_duckbot_ask.py::TestBrainIntegration::test_query_returns_structured_output
+FAILED tests/test_rerank.py::test_resolve_backend_does_not_cache_noop
+FAILED tests/test_rerank.py::test_resolve_backend_prefers_lmstudio_first
+FAILED tests/test_rerank.py::test_sentence_transformers_backend_requires_package
+FAILED tests/test_rerank_e2e.py::test_rerank_default_in_schema_is_off

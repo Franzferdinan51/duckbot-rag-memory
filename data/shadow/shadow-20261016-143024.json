@@ -1,0 +1,80 @@
+{
+ "chunks": 4,
+ "elapsed_s": 0.4,
+ "incumbent_facts": 4,
+ "hy_facts": 0,
+ "overlap_exact": 0,
+ "hy_novel": 0,
+ "incumbent_only": 1,
+ "hy_dup_rate": 0.0,
+ "incumbent_dup_rate": 0.75,
+ "hy_empty_chunks": 0,
+ "gate": {
+  "enabled": true,
+  "gated_chunks": 4,
+  "skipped": 4,
+  "banks": {
+   "chat": 0,
+   "working": 4,
+   "code": 0
+  }
+ },
+ "rows": [
+  {
+   "chunk_id": "MEMORY.md:1",
+   "incumbent": [
+    "edit manually"
+   ],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "working",
+    "confidence": 0.6655239177041632,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "MEMORY.md:2",
+   "incumbent": [
+    "edit manually"
+   ],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "working",
+    "confidence": 0.6314314120597684,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "MEMORY.md:3",
+   "incumbent": [
+    "edit manually"
+   ],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "working",
+    "confidence": 0.634264039335969,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "MEMORY.md:4",
+   "incumbent": [
+    "edit manually"
+   ],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "working",
+    "confidence": 0.6477262479556831,
+    "gated": true
+   },
+   "gate_skipped": true
+  }
+ ]
+}

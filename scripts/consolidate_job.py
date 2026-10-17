@@ -38,13 +38,12 @@ def main() -> int:
     ap.add_argument("--model", default=WRITER_MODEL)
     ap.add_argument("--gate", action=argparse.BooleanOptionalAction, default=True)
     ap.add_argument("--apply", action="store_true",
-                    help="write to the bank (NOT wired yet; aborts)")
+                    help="write planned facts to the bank (dev-branch wiring; "
+                         "hy-memory writer runs with Phase A reconciliation)")
+    ap.add_argument("--data-dir", default=None,
+                    help="bank persist dir (default: the live bank)")
     args = ap.parse_args()
 
-    if args.apply:
-        print("--apply is not wired on the dev branch: refusing to write. "
-              "Run without --apply for a dry-run plan.")
-        return 2
 
     from src.chunk import chunk_markdown
     from src.consolidate import extract_facts_from_chunk
@@ -87,6 +86,26 @@ def main() -> int:
             if k not in seen:
                 seen.add(k)
                 unique.append(t)
+        if args.apply:
+            import asyncio
+            from src.memory import Memory
+            mem = Memory(persist_dir=args.data_dir) if args.data_dir else Memory()
+            rec_model = args.model if args.writer == "hy-memory" else None
+
+            async def _apply():
+                n_reconciled = 0
+                for t in unique:
+                    r = await mem.remember(
+                        t, source_path="consolidate_job",
+                        force_tier="semantic", reconcile_model=rec_model)
+                    n_reconciled += int((r.metadata or {}).get("reconciled_count", 0))
+                return n_reconciled
+
+            n_rec = asyncio.run(_apply())
+            print(f"APPLIED - writer={args.writer} gate={args.gate} "
+                  f"gate_skipped={skipped} facts={len(unique)} "
+                  f"reconciled_supersessions={n_rec}")
+            return 0
         print(f"DRY RUN - writer={args.writer} gate={args.gate} "
               f"gate_skipped={skipped} facts_planned={len(unique)}")
         for t in unique:

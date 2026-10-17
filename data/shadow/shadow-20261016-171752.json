@@ -1,0 +1,443 @@
+{
+ "sources": [
+  "/Users/duckets/.hermes/memories/SOUL.md",
+  "/Users/duckets/.openclaw/workspace/memory/MEMORY.md",
+  "/Users/duckets/.openclaw/workspace/memory/USER.md",
+  "/Users/duckets/.openclaw/workspace/memory/SOUL.md",
+  "/Users/duckets/.hermes/memories/MEMORY.md",
+  "/Users/duckets/.hermes/memories/USER.md"
+ ],
+ "chunks": 19,
+ "elapsed_s": 124.6,
+ "incumbent_facts": 40,
+ "hy_facts": 107,
+ "overlap_exact": 0,
+ "hy_novel": 81,
+ "incumbent_only": 14,
+ "hy_dup_rate": 0.243,
+ "incumbent_dup_rate": 0.65,
+ "hy_empty_chunks": 0,
+ "gate": {
+  "enabled": true,
+  "gated_chunks": 19,
+  "skipped": 0,
+  "banks": {
+   "chat": 2,
+   "working": 14,
+   "code": 3
+  }
+ },
+ "rows": [
+  {
+   "chunk_id": "SOUL.md:0",
+   "incumbent": [
+    "edit manually \u2014 this file is auto-generated and will be overwritten on next sync",
+    "possible"
+   ],
+   "hy_memory": [
+    "DuckBot is Duckets' autonomous AI agent running on his Mac mini, built for Ryan (Duckets), acting as digital homie, collaborator, and autonomous assistant, not a corporate chatbot.",
+    "DuckBot speaks like a person, not a search engine; uses 'nice', 'solid', 'got it', '\ud83e\udd86' naturally; swears casually ('honestly', 'this is bullshit', 'this is fire'); witty but not cringe.",
+    "Standing directive (Duckets, 2026-10-11): use sub-agents (delegate_task) for parallel work whenever possible.",
+    "Multitasking is a first-class priority (Duckets, 2026-10-11).",
+    "Do not edit manually \u2014 file is auto-generated and will be overwritten on next sync."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "chat",
+    "confidence": 0.536591400740536,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "SOUL.md:1",
+   "incumbent": [
+    "possible",
+    "be self-contained: full goal, file paths, constraints, required output format, and any facts the worker cannot discover itself",
+    "parallelize what can't be parallelized",
+    "poll or pad the turn with no-op calls"
+   ],
+   "hy_memory": [
+    "Standing directive (Duckets, 2026-10-11): use sub-agents (delegate_task) for parallel work whenever possible.",
+    "Multitasking is a first-class priority.",
+    "Fan out independent work in the same response: send parallel sub-agents (delegate_task with multiple tasks in one call) for independent workstreams (research + code inspection, implementation + tests, multiple files, multiple URLs, multiple verification angles) instead of serially.",
+    "One integrator, many workers: keep a single primary integrator owning reconciliation, evidence verification, and final answer; workers produce bounded self-contained deliverables (paths, URLs, IDs, captured output) verified by integrator before completion.",
+    "Workers are context-isolated: each delegate_task context block must be self-contained with full goal, file paths, constraints, required output format, and facts worker cannot discover; guessing = failure.",
+    "Never parallelize what can't be parallelized: shared mutable state (same file, same DB row, same service config) stays serial; overlapping edits are defect not speedup.",
+    "Verify, don't trust: worker summaries self-reports; confirm real artifact exists (read file, re-run test, re-fetch URL) before stating success.",
+    "Batch mechanical multi-step work with no reasoning (N URLs, N products, N lines of table) via execute_code loop; reserve sub-agents for reasoning-needed or context-flooding work.",
+    "Background handoff: when delegation returns background work re-entering later, finish non-dependent tasks, give one-line status, end turn; never poll or pad with no-op calls.",
+    "Local MoA (Mixture of Advisors) Workflow defined."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.6362889654813821,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "SOUL.md:2",
+   "incumbent": [
+    "poll or pad the turn with no-op calls"
+   ],
+   "hy_memory": [
+    "When delegation returns background work whose result re-enters later, finish everything that does not depend on it, give a one-line status, and end the turn \u2014 never poll or pad the turn with no-op calls.",
+    "Local MoA (Mixture of Advisors) Workflow: multi-agent orchestration using LM Studio + local AI models via MCP tool for advisor-style responses from multiple model perspectives.",
+    "LM Studio setup required for Local MoA: running locally with a loaded model; mcp.json must include LM_STUDIO_MODEL and LM_STUDIO_API_KEY; environment variable LM_STUDIO_MODEL set in system.",
+    "Grok Build Research MCP tools tested 2026-03-17: all 11 tools available in mcp/grok-build-research (grok_x_search, grok_web_research, grok_read_url, grok_fact_check, grok_x_thread_reader, grok_compare_sources, grok_news_brief, grok_extract_data, grok_find_sources, grok_deep_research, grok_model_query). Under parallel load, 6 timed out (-32001), 1 hit max turns, 4 passed (grok_x_search, grok_extract_data, grok_read_url). Likely rate-limited under burst; individual calls probably all work fine.",
+    "Meme created using MiniMax MCP tools: image_generate with prompt 'A funny meme photo of a confused cat sitting in front of a computer monitor looking bewildered, with multiple code windows open on the screen showing complex programming language, realistic photography style, humorous expression, office setting' and aspect_ratio 16:9; text overlays added via Python/Pillow (PIL) to avoid ImageMagick dependency; center coordinates with margin for text positioning.",
+    "Weather Alert Email Recipients List for Huber Heights, OH - July 27, 2026: hausmann31@gmail.com, Franzferdinan51@gmail.com, optica5150@gmail.com."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.5001998744969882,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "SOUL.md:3",
+   "incumbent": [],
+   "hy_memory": [
+    "Used Python/Pillow (PIL) library to avoid ImageMagick dependency.",
+    "Text positioning used center coordinates with margin.",
+    "Weather Alert Email Recipients List for Huber Heights, OH - July 27, 2026: hausmann31@gmail.com, Franzferdinan51@gmail.com, optica5150@gmail.com.",
+    "Email sent via AgentMail MCP from duckets@agentmail.to with subject '\u26a0\ufe0f SEVERE WEATHER ALERT - Huber Heights, OH - Tonight July 27' containing HTML-formatted severe weather alert with NWS forecast data, hazard information, and safety recommendations."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "code",
+    "confidence": 0.4262930006902041,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "MEMORY.md:1",
+   "incumbent": [
+    "use it as a target for our brain via the MCP stdio interface",
+    "edit manually"
+   ],
+   "hy_memory": [
+    "DuckBot is the personal AI assistant being built, using Python 3.12, ChromaDB, FastMCP stack, currently focused on RAG + long-term memory.",
+    "Hermes Agent is a self-improving agent from Nous Research, used as a target for our brain via the MCP stdio interface."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.8189551942977347,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "MEMORY.md:2",
+   "incumbent": [
+    "use it as a target for our brain via the MCP stdio interface"
+   ],
+   "hy_memory": [
+    "Python 3.12, ChromaDB, FastMCP are used; currently focused on RAG + long-term memory.",
+    "Hermes Agent is the self-improving agent from Nous Research; used as a target for brain via MCP stdio interface.",
+    "DuckBot US News Monitor monitors 4 categories with 3 articles per category."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.7535305595721766,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "MEMORY.md:3",
+   "incumbent": [
+    "avoid all external API providers",
+    "grep/sed which truncates it and breaks every post-login call with 'invalid_arguments'",
+    "fresh 2026-10-11 (removed entirely via brew cask + npm global, then reinst)",
+    "in 2026-05"
+   ],
+   "hy_memory": [
+    "DuckBot news monitor: 4 categories monitored, 3 articles per category, source DuckBot US News Monitor.",
+    "Using LM Studio (text-embedding-embeddinggemma-300m) for embeddings; rationale privacy + zero API cost; re-evaluate if recall quality drops below 0.9.",
+    "User explicitly stated dark mode preference in 2026-05; do not ask again; apply to all UIs and themes going forward.",
+    "DuckBot runs ENTIRELY LOCAL; live host is Mac Studio (upgraded from Mac mini, 2026-10-11); LM Studio (llama.cpp backend) is ONLY model server; avoid all external API providers; only local models valid (no nvidia/openrouter/etc).",
+    "OpenClaw reinstalled fresh 2026-10-11 (removed via brew cask + npm global, then reinstall); CLI openclaw@latest (2026.10.1) in ~/.npm-global.",
+    "WoWBench (cowcraft.world/wowbench) target leaderboard goal rank #1; today 2026-10-11 #1: Anarki, Human Mage lvl 11, 65 quests, 5.05 quests/hr, 12h52m playtime, 0.32 gold, ilvl 7.4; primary discriminator = quests completed (gold near-zero board-wide max 0.52); Duckbot (guid 5020) not in top 50.",
+    "CowCraft MCP (cowcraft.world/mcp): agent account 'DuckBot' logged in; connect token exactly 101 chars '<36>-<36>.<64>' extract via Python json, NEVER grep/sed (truncates, breaks post-login calls with 'invalid_arguments'); POST /mcp tools/call {name,arguments} + both Accept headers (application/json, text/event-stream) + User-Agent or urllib gets 403."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.6290143558351352,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "MEMORY.md:4",
+   "incumbent": [
+    "run scripts/secret-scan",
+    "possible"
+   ],
+   "hy_memory": [
+    "Always run scripts/secret-scan.sh before committing. If it fails, fix the leak. The .env file is gitignored for a reason.",
+    "Restart batman: 1. docker ps | grep batman 2. docker restart <id> 3. tail -f /var/log/batman.log. If still down, check data/chroma/ for lock files.",
+    "Standing directive (Duckets, 2026-10-11): use sub-agents (delegate_task) for parallel work whenever possible. Multitasking is a first-class priority.",
+    "Grok Build Research MCP tools tested 2026-03-17: all 11 tools available in mcp/grok-build-research: grok_x_search, grok_web_research, grok_read_url, grok_fact_check, grok_x_thread_reader, grok_compare_sources, grok_news_brief, grok_extract_data, grok_find_sources, grok_deep_research, grok_model_query. Under parallel load, 6 timed out (-32001) and 1 hit max turns; 4 passed (grok_x_search, grok_ex...).",
+    "Weather Alert Email Recipients List for Huber Heights, OH - July 27, 2026: hausmann31@gmail.com, Franzferdinan51@gmail.com, optica5150@gmail.com.",
+    "Severe weather alert email sent via AgentMail MCP from duckets@agentmail.to with subject '\u26a0\ufe0f SEVERE WEATHER ALERT - Huber Heights, OH - Tonight July 27' containing HTML-formatted severe weather alert with NWS forecast data, hazard information, and safety recommendations."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "code",
+    "confidence": 0.4736658032408758,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "USER.md:0",
+   "incumbent": [
+    "in 2026-05"
+   ],
+   "hy_memory": [
+    "DuckBot is Duckets' autonomous AI agent running on his Mac mini, acting as his digital homie, collaborator, and autonomous assistant; not a corporate chatbot; built for one person: Ryan (Duckets).",
+    "DuckBot speaks like a person, not a search engine.",
+    "CowCraft MCP agent account 'DuckBot' logged in; connect token is exactly 101 chars '<36>-<36>.<64>', extract via Python json, NEVER grep/sed which truncates it.",
+    "User explicitly stated dark mode preference in 2026-05; do not ask again; apply to all UIs and themes going forward."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "chat",
+    "confidence": 0.8740228840377469,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "USER.md:1",
+   "incumbent": [
+    "grep/sed which truncates it and breaks every post-login call with 'invalid_arguments'",
+    "possible"
+   ],
+   "hy_memory": [
+    "DuckBot is Duckets' autonomous AI agent running on his Mac mini, built as his digital homie, collaborator, and autonomous assistant for Ryan (Duckets), not a corporate chatbot.",
+    "DuckBot speaks like a person, uses 'nice', 'solid', 'got it', '\ud83e\udd86' naturally, swears casually ('honestly', 'this is bullshit', 'this is fire'), witty but not cringe, uses 'b' (incomplete).",
+    "CowCraft MCP (cowcraft.world/mcp): agent account 'DuckBot' logged in; connect token exactly 101 chars '<36>-<36>.<64>' extracted via Python json, never grep/sed (truncates, breaks post-login calls with 'invalid_arguments'); POST /mcp tools/call {name,arguments} + both Accept headers (application/json, text/event-stream) + User-Agent or urllib gets 403; account lease ~600s idle; 'account_busy' after one login means another session holds it, wait.",
+    "DuckBot is personal AI assistant for Duckets; stack: Python 3.12, ChromaDB, FastMCP; focused on RAG + long-term memory.",
+    "Standing directive (Duckets, 2026-10-11): use sub-agents (delegate_task) for parallel work whenever possible.",
+    "Multitasking is a first-class priority."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.5411250022684392,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "USER.md:2",
+   "incumbent": [
+    "use it as a target for our brain via the MCP stdio interface",
+    "avoid all external API providers",
+    "possible",
+    "fresh 2026-10-11 (removed entirely via brew cask + npm global, then reinst)"
+   ],
+   "hy_memory": [
+    "Standing directive (Duckets, 2026-10-11): use sub-agents (delegate_task) for parallel work whenever possible.",
+    "Fan out independent work in the same response via parallel sub-agents (delegate_task) for non-dependent workstreams (research + code inspection, implementation + tests, multiple files, URLs, verification angles).",
+    "Hermes Agent is the self-improving agent from Nous Research; used as a target for brain via MCP stdio interface.",
+    "Grok Build Research MCP tools tested 2026-03-17: all 11 available in mcp/grok-build-research (grok_x_search, grok_web_research, grok_read_url, grok_fact_check, grok_x_thread_reader, grok_compare_sources, grok_news_brief, grok_extract_data, grok_find_sources, grok_deep_research, grok_model_query). Under parallel load: 6 timed out (-32001), 1 hit max turns, 4 passed (grok_x_search, grok_extract_data, grok_read_url); likely rate-limited under burst.",
+    "DuckBot runs ENTIRELY LOCAL; live host is Mac Studio (upgraded from Mac mini, 2026-10-11). LM Studio (llama.cpp backend) is the ONLY model server; avoid all external API providers. Only local models valid (no nvidia/openrouter/etc).",
+    "OpenClaw reinstalled fresh 2026-10-11 (removed via brew cask + npm global, then reinstalled). CLI: openclaw@latest (2026.10.1) in ~/.npm-global; canonical binary is Node-26 wrapper at ~/.local/bin/openclaw \u2192 /opt/homebrew/bin/node."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.48425682965616357,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "USER.md:3",
+   "incumbent": [
+    "run scripts/secret-scan"
+   ],
+   "hy_memory": [
+    "WoWBench (cowcraft.world/wowbench) is the target leaderboard with goal rank #1; current #1 on 2026-10-11 was Anarki, Human Mage lvl 11, 65 quests, 5.05 quests/hr, 12h52m playtime, 0.32 gold, ilvl 7.4.",
+    "Primary discriminator for WoWBench leaderboard is QUESTS completed (gold near-zero board-wide, max 0.52); quest-completion rate beats gold farming.",
+    "Duckbot (guid 5020) not yet in top 50 on WoWBench.",
+    "Always run scripts/secret-scan.sh before committing; if it fails, fix the leak. The .env file is gitignored for a reason.",
+    "CLI: openclaw@latest (2026.10.1) in ~/.npm-global; canonical binary is Node-26 wrapper at ~/.local/bin/openclaw \u2192 /opt/homebrew/bin/node.",
+    "openclaw _src: /Users/duckets/.hermes/memories/MEMORY.md (semantic)."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.6057468272153443,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "SOUL.md:0",
+   "incumbent": [
+    "run scripts/secret-scan",
+    "possible"
+   ],
+   "hy_memory": [
+    "DuckBot is Duckets' autonomous AI agent running on his Mac mini, acting as digital homie, collaborator, and autonomous assistant for Ryan (Duckets).",
+    "DuckBot speaks like a person not a search engine; uses 'nice', 'solid', 'got it', '\ud83e\udd86' naturally; swears casually ('honestly', 'this is bullshit', 'this is fire'); witty but not cringe; uses 'b'.",
+    "DuckBot procedure: 1. docker ps | grep batman 2. docker restart <id> 3. tail -f /var/log/batman.log. If still down, check data/chroma/ for lock files.",
+    "Always run scripts/secret-scan.sh before committing; if it fails, fix the leak; .env file is gitignored for a reason.",
+    "Standing directive (Duckets, 2026-10-11): use sub-agents (delegate_task) for parallel work whenever possible.",
+    "Multitasking is a first-class priority."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.2880157144015115,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "SOUL.md:1",
+   "incumbent": [
+    "possible",
+    "be self-contained: full goal, file paths, constraints, required output format, and any facts the worker cannot discover itself",
+    "parallelize what can't be parallelized",
+    "poll or pad the turn with no-op calls"
+   ],
+   "hy_memory": [
+    "Standing directive (Duckets, 2026-10-11): use sub-agents (delegate_task) for parallel work whenever possible.",
+    "Multitasking is a first-class priority.",
+    "Fan out independent work in the same response: send parallel sub-agents (delegate_task with multiple tasks in one call) for independent workstreams (research + code inspection, implementation + tests, multiple files, multiple URLs, multiple verification angles) instead of serially.",
+    "One integrator, many workers: keep a single primary integrator owning reconciliation, evidence verification, and final answer; workers produce bounded self-contained deliverables (paths, URLs, IDs, captured output) verified by integrator before completion.",
+    "Workers are context-isolated: each delegate_task context block must be self-contained with full goal, file paths, constraints, required output format, and facts worker cannot discover; guessing = failure.",
+    "Never parallelize what can't be parallelized: shared mutable state (same file, same DB row, same service config) stays serial; overlapping edits are defect not speedup.",
+    "Verify, don't trust: confirm real artifact exists (read file, re-run test, re-fetch URL) before reporting success.",
+    "Batch mechanical multi-step work with no reasoning (N URLs, N products, N lines of table) via execute_code loop; reserve sub-agents for reasoning-needed or context-flooding work.",
+    "Background handoff: finish non-dependent work, give one-line status, end turn; never poll or pad with no-op calls.",
+    "Local MoA (Mixture of Advisors) Workflow defined."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.5309080894121877,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "SOUL.md:2",
+   "incumbent": [
+    "poll or pad the turn with no-op calls"
+   ],
+   "hy_memory": [
+    "When delegation returns background work whose result re-enters later, finish everything that does not depend on it, give a one-line status, and end the turn \u2014 never poll or pad the turn with no-op calls.",
+    "Local MoA (Mixture of Advisors) Workflow: multi-agent orchestration using LM Studio + local AI models via MCP tool, provides advisor-style responses from multiple model perspectives.",
+    "LM Studio setup for Local MoA requires: LM Studio running locally with a loaded model; mcp.json includes LM_STUDIO_MODEL and LM_STUDIO_API_KEY; environment variable LM_STUDIO_MODEL set in system.",
+    "Grok Build Research MCP tools tested 2026-03-17: all 11 tools available in mcp/grok-build-research (grok_x_search, grok_web_research, grok_read_url, grok_fact_check, grok_x_thread_reader, grok_compare_sources, grok_news_brief, grok_extract_data, grok_find_sources, grok_deep_research, grok_model_query). Under parallel load, 6 timed out (-32001) and 1 hit max turns; 4 passed (grok_x_search, grok_extract_data, grok_read_url). Likely rate-limited under burst \u2014 individual calls probably all work fine.",
+    "Meme created using MiniMax MCP tools: image_generate with prompt 'A funny meme photo of a confused cat sitting in front of a computer monitor looking bewildered, with multiple code windows open on the screen showing complex programming language, realistic photography style, humorous expression, office setting' and aspect_ratio 16:9; text overlays added via Python/Pillow (PIL) library to avoid ImageMagick dependency; text positioning used center coordinates with margin.",
+    "Weather Alert Email Recipients List for Huber Heights, OH - July 27, 2026: hausmann31@gmail.com, Franzferdinan51@gmail.com, optica5150@gmail.com."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.49195981548450085,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "SOUL.md:3",
+   "incumbent": [],
+   "hy_memory": [
+    "Used Python/Pillow (PIL) library to avoid ImageMagick dependency.",
+    "Text positioning used center coordinates with margin.",
+    "Weather Alert Email Recipients List for Huber Heights, OH - July 27, 2026: hausmann31@gmail.com, Franzferdinan51@gmail.com, optica5150@gmail.com.",
+    "Email sent via AgentMail MCP from duckets@agentmail.to with subject '\u26a0\ufe0f SEVERE WEATHER ALERT - Huber Heights, OH - Tonight July 27' containing HTML-formatted severe weather alert with NWS forecast data, hazard information, and safety recommendations."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "code",
+    "confidence": 0.3717345257568257,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "MEMORY.md:0",
+   "incumbent": [
+    "use it as a target for our brain via the MCP stdio interface"
+   ],
+   "hy_memory": [
+    "DuckBot is the personal AI assistant being built by the user. Stack: Python 3.12, ChromaDB, FastMCP. Currently focused on RAG + long-term memory.",
+    "Hermes Agent is a self-improving agent from Nous Research. It is used as a target for our brain via the MCP stdio interface.",
+    "DuckBot US News Monitor monitors 4 categories with 3 articles per category."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.678345947343201,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "MEMORY.md:1",
+   "incumbent": [
+    "use it as a target for our brain via the MCP stdio interface",
+    "avoid all external API providers",
+    "grep/sed which truncates it and breaks every post-login call with 'invalid_arguments'",
+    "run scripts/secret-scan",
+    "fresh 2026-10-11 (remov [/Users/duckets/",
+    "in 2026-05"
+   ],
+   "hy_memory": [
+    "Hermes Agent is the self-improving agent from Nous Research, used as a target for brain via MCP stdio interface.",
+    "News monitor: Categories Monitored = 4, Articles per Category = 3, Source = DuckBot US News Monitor.",
+    "Using LM Studio (text-embedding-embeddinggemma-300m) for embeddings; rationale: privacy + zero API cost; re-evaluate if recall quality drops below 0.9.",
+    "User explicitly stated dark mode preference in 2026-05; do not ask again; apply to all UIs and themes going forward.",
+    "DuckBot runs ENTIRELY LOCAL; live host is Mac Studio (upgraded from Mac mini, 2026-10-11); LM Studio (llama.cpp backend) is the ONLY model server; avoid all external API providers; only local models valid (no nvidia/openrouter/etc).",
+    "OpenClaw reinstalled fresh 2026-10-11.",
+    "WoWBench (cowcraft.world/wowbench) = target leaderboard, goal rank #1; today (2026-10-11) #1: Anarki, Human Mage lvl 11, 65 quests, 5.05 quests/hr, 12h52m playtime, 0.32 gold, ilvl 7.4; primary discriminator = quests completed (gold near-zero board-wide, max 0.52).",
+    "CowCraft MCP (cowcraft.world/mcp): agent account 'DuckBot' logged in; connect token exactly 101 chars '<36>-<36>.<64>' \u2014 extract via Python json, never grep/sed (truncates, breaks post-login calls with 'invalid_arguments'); POST /mcp tools/call {name,arguments} + BOTH Acc.",
+    "Always run scripts/secret-scan.sh before committing; if fails, fix the leak; .env file is gitignored for a reason."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.6835590077029389,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "USER.md:0",
+   "incumbent": [
+    "grep/sed which truncates it and breaks every post-login call with 'invalid_arguments' [~/",
+    "in 2026-05"
+   ],
+   "hy_memory": [
+    "DuckBot is Duckets' autonomous AI agent running on his Mac mini, acting as his digital homie, collaborator, and autonomous assistant, not a corporate chatbot.",
+    "Dark mode preference was explicitly stated by user in 2026-05; do not ask again and apply to all UIs and themes going forward.",
+    "CowCraft MCP (cowcraft.world/mcp): agent account 'DuckBot' logged in; connect token is exactly 101 chars '<36>-<36>.<64>', extract via Python json, never grep/sed which truncates it and breaks post-login calls with 'invalid_arguments'.",
+    "DuckBot is the personal AI assistant being built by user; stack: Python 3.12, ChromaDB, FastMCP; currently focused on RAG + long-term memory."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.33067644023050585,
+    "gated": true
+   },
+   "gate_skipped": false
+  }
+ ]
+}

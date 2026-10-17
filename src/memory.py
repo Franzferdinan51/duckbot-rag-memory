@@ -240,6 +240,7 @@ class Memory:
         metadata: dict | None = None,
         force_tier: Tier | None = None,
         facts: list[str] | None = None,
+        reconcile_model: str | None = None,
     ) -> RememberResult:
         """Store a single memory. Auto-chunks long text, classifies tier,
         extracts entities + relationships, embeds, and stores.
@@ -375,8 +376,8 @@ class Memory:
                     tier_coll_pre = store.collection_for(tier)
                     existing = tier_coll_pre.query(
                         query_embeddings=[vecs[0]],
-                        n_results=1,
-                        include=["metadatas", "distances"],
+                        n_results=6 if reconcile_model else 1,
+                        include=["metadatas", "distances", "documents"],
                     )
                     if existing and existing.get("ids") and existing["ids"][0]:
                         eid = existing["ids"][0][0]
@@ -391,6 +392,49 @@ class Memory:
                             emeta["superseded_at"] = time.time()
                             tier_coll_pre.update(ids=[eid], metadatas=[emeta])
                             chunk_meta["supersedes"] = eid
+                    # Phase A: Hy-Memory conflict reconciliation. With a
+                    # reconcile model, the writer classifies same-topic
+                    # neighbors (wider band than the near-dup check) against
+                    # this new fact; what it updates / contradicts / judges
+                    # the same gets superseded. Fail-open: any error keeps
+                    # today's behavior (keep everything).
+                    if reconcile_model:
+                        try:
+                            from . import hy_memory as _hy
+                            _ids = (existing or {}).get("ids") or [[]]
+                            _dists = (existing or {}).get("distances") or [[]]
+                            _metas = (existing or {}).get("metadatas") or [[]]
+                            _docs = (existing or {}).get("documents") or [[]]
+                            _cands = []
+                            for _i, _eid in enumerate(_ids[0]):
+                                _em = (_metas[0][_i] or {}) if _i < len(_metas[0]) else {}
+                                _ed = _dists[0][_i] if _i < len(_dists[0]) else 9.9
+                                _doc = _docs[0][_i] if _i < len(_docs[0]) else None
+                                if _eid == chunk.id or _em.get("superseded_by"):
+                                    continue
+                                if _ed < 0.08 or _ed >= 0.35 or not _doc:
+                                    continue
+                                _cands.append((_eid, _em, _doc))
+                            if _cands:
+                                _verdicts = _hy.reconcile(
+                                    chunk.text,
+                                    [c[2] for c in _cands],
+                                    model=reconcile_model,
+                                )
+                                for _v in _verdicts:
+                                    if _v["relation"] not in ("updates", "contradicts", "same"):
+                                        continue
+                                    _eid2, _em2, _ = _cands[_v["index"]]
+                                    _em2["superseded_by"] = chunk.id
+                                    _em2["superseded_at"] = time.time()
+                                    _em2["superseded_via"] = "hy-reconcile"
+                                    if _v.get("evidence"):
+                                        _em2["supersede_reason"] = _v["evidence"]
+                                    tier_coll_pre.update(ids=[_eid2], metadatas=[_em2])
+                                    chunk_meta.setdefault("supersedes", _eid2)
+                                    chunk_meta["reconciled_count"] = int(chunk_meta.get("reconciled_count", 0)) + 1
+                        except Exception as _exc:
+                            logger.warning("hy reconcile failed (%s); keeping all", _exc)
                     added = await store.add_chunks(
                         [chunk], vecs, tier, metadata_override=[chunk_meta]
                     )

@@ -1,0 +1,578 @@
+{
+ "chunks": 36,
+ "elapsed_s": 59.5,
+ "incumbent_facts": 0,
+ "hy_facts": 102,
+ "overlap_exact": 0,
+ "hy_novel": 93,
+ "incumbent_only": 0,
+ "hy_dup_rate": 0.088,
+ "incumbent_dup_rate": 0.0,
+ "hy_empty_chunks": 0,
+ "gate": {
+  "enabled": true,
+  "gated_chunks": 36,
+  "skipped": 16,
+  "banks": {
+   "chat": 24,
+   "working": 9,
+   "code": 3
+  }
+ },
+ "rows": [
+  {
+   "chunk_id": "brain_export.md:1",
+   "incumbent": [],
+   "hy_memory": [
+    "Ranked 0 candidate(s) for durable promotion.",
+    "Promoted 0 candidate(s) into MEMORY.md."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.6782506777804234,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:2",
+   "incumbent": [],
+   "hy_memory": [
+    "Ranked 0 candidate(s) for durable promotion.",
+    "Promoted 0 candidate(s) into MEMORY.md.",
+    "Theme 'toku.agency' kept surfacing across 4 memories (confidence 1.00; evidence: memory/2026-08-19.md:13-16, memory/2026-08-19.md:9-10, memory/2026-08-19.md:5-8; note: reflection).",
+    "Theme 'auth' kept surfacing across 3 memories (confidence 1.00; evidence: memory/2026-08-19.md:9-10, memory/2026-08-19.md:5-8, memory/2026-08-19.md:19-20; note: reflection).",
+    "Theme 'browser' kept surfacing across 3 memories (confidence 1.00; evidence: memory/2026-08-19.md:9-10, memory/2026-08-19.md:5-8, memory/2026-08-19.md:19-20; note: reflection).",
+    "Theme 'duckets' kept surfacing across 2 memories (confidence 1.00; evidence: memory/2026-08-19.md:9-10, memory/2026-08-19.md:19-20; note: reflection).",
+    "Theme 'lost' kept surfacing across 2 memories (confidence 1.00; evidence: memory/2026-08-19.md:9-10, memory/2026-08-19.md:5-8; note: reflection)."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.6117011727451985,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:3",
+   "incumbent": [],
+   "hy_memory": [
+    "Theme 'lost' kept surfacing across 2 memories (evidence: memory/2026-08-19.md:9-10, memory/2026-08-19.md:5-8).",
+    "Reflection on confidence 1.00 for evidence memory/2026-08-19.md:9-10, memory/2026-08-19.md:19-20.",
+    "No strong candidate truths surfaced."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.3598671739912793,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:4",
+   "incumbent": [],
+   "hy_memory": [
+    "Theme 'lost' kept surfacing across 2 memories (memory/2026-08-19.md:9-10, memory/2026-08-19.md:5-8) with confidence 1.00 and note reflection.",
+    "No strong candidate truths surfaced from the text.",
+    "Reference to 9.md:9-10 and memory/2026-08-19.md:19-20 with note reflection.",
+    "Source file: /Users/duckets/.openclaw/workspace/memory/dreaming/light/2026-08-31.md",
+    "No notable updates in the source file."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "chat",
+    "confidence": 0.39177610343489305,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:5",
+   "incumbent": [],
+   "hy_memory": [
+    "No strong candidate truths surfaced for reflection (confidence: 1.00, evidence: memory/2026-08-19.md:9-10, memory/2026-08-19.md:5-8).",
+    "No notable updates from /Users/duckets/.openclaw/workspace/memory/dreaming/light/2026-08-31.md.",
+    "DuckBot US News Monitor monitored 4 categories with 3 articles per category (source: /Users/duckets/.openclaw/workspace/memory/2026-02-05-news-monitor.md)."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.5799936176806404,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:6",
+   "incumbent": [],
+   "hy_memory": [
+    "DuckBot US News Monitor monitors 4 categories with 3 articles per category.",
+    "National news item 1 (sample) from Sample Source: 'This is a sample description for national news item 1. The actual implementation would fetch real news.'"
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "chat",
+    "confidence": 0.5943036247795663,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:7",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.9315341973010253,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:8",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.7425643711219968,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:9",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.8702121950194093,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:10",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.8771430935792812,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:11",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.8593620892407003,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:12",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.8888183246752288,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:13",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.8688063018216902,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:14",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.8477345661982488,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:15",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.8751043692741021,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:16",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.8981984615721627,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:17",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.9236816382829637,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:18",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.8346527363162047,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:19",
+   "incumbent": [],
+   "hy_memory": [
+    "DuckBot documented Instagram, Facebook, and Threads operations on 2026-02-11 00:43 EST for future reuse.",
+    "Meta Platforms Protocol covers all Meta platform operations including posting, reading, searching, monitoring, and account management.",
+    "Instagram is photo/video sharing, stories, reels.",
+    "Facebook is social networking, posts, groups, pages.",
+    "Threads is text-first social media (X competitor).",
+    "Primary method for Meta platforms is agent-browser CLI with CDP connection.",
+    "Profile for Meta platforms is openclaw (Chrome, port 18800).",
+    "Signature protocol not required for Meta platforms (X.com only requires signature)."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "code",
+    "confidence": 0.5095773640637682,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:20",
+   "incumbent": [],
+   "hy_memory": [
+    "Threads is a text-first social media platform that competes with X.",
+    "Primary method for Threads: agent-browser CLI with CDP connection.",
+    "Profile used: openclaw (Chrome, port 18800).",
+    "Signature Protocol: Not required for Meta platforms; X.com only requires signature."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "code",
+    "confidence": 0.40772459670432354,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:21",
+   "incumbent": [],
+   "hy_memory": [
+    "Threads is a text-first social media platform and X competitor.",
+    "Primary method for Threads: agent-browser CLI with CDP connection.",
+    "Profile for agent-browser: openclaw (Chrome, port 18800).",
+    "Signature protocol not required for Meta platforms; X.com only requires signature.",
+    "Command to open Instagram via agent-browser: ~/.npm-global/bin/agent-browser --cdp http://127.0.0.1:18800 open https://www.instagram.com",
+    "Command to open Facebook via agent-browser: ~/.npm-global/bin/agent-browser --cdp http://127.0.0.1:18800 open https://www.facebook.com",
+    "Command to open Threads via agent-browser: ~/.npm-global/bin/agent-browser --cdp http://127.0.0.1:18800 open https://www.threads.net"
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "code",
+    "confidence": 0.42620364330790517,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:22",
+   "incumbent": [],
+   "hy_memory": [
+    "agent-browser with CDP http://127.0.0.1:18800 opened https://www.instagram.com",
+    "agent-browser with CDP http://127.0.0.1:18800 opened https://www.facebook.com",
+    "agent-browser with CDP http://127.0.0.1:18800 opened https://www.threads.net",
+    "Instagram Home: https://www.instagram.com",
+    "Instagram Explore: https://www.instagram.com/explore/",
+    "Instagram Messages: https://www.instagram.com/direct/inbox/",
+    "Instagram Profile: https://www.instagram.com/duckets2/",
+    "Instagram Settings: https://www.instagram.com/accounts/activity/"
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.5686486645417486,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:23",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.7092886143439195,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:24",
+   "incumbent": [],
+   "hy_memory": [
+    "Facebook home: https://www.facebook.com",
+    "Facebook profile: https://www.facebook.com/[username]",
+    "Facebook notifications: https://www.facebook.com/notifications",
+    "Facebook messages: https://www.facebook.com/messages",
+    "Facebook groups: https://www.facebook.com/groups/",
+    "Threads home: https://www.threads.net",
+    "Threads profile: https://www.threads.net/@[username]",
+    "Threads notifications: https://www.threads.net/notifications"
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "chat",
+    "confidence": 0.5969365645556514,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:25",
+   "incumbent": [],
+   "hy_memory": [
+    "Threads home: https://www.threads.net",
+    "Threads profile: https://www.threads.net/@[username]",
+    "Threads notifications: https://www.threads.net/notifications",
+    "Facebook Messages: https://www.facebook.com/messages",
+    "Facebook Groups: https://www.facebook.com/groups/",
+    "Instagram post steps: 1. Navigate to Instagram home; 2. Click 'New post' button; 3. Select media (photo/video); 4. Write caption; 5. Add hashtags; 6. Click 'Share'; 7. Verify post published",
+    "Instagram purpose: Share photos/videos with captions and hashtags",
+    "Instagram challenges: Requires media upload (photo/video mandatory), complex multi-step interface, automation layer is complex, media selection needed"
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "chat",
+    "confidence": 0.5293889335042516,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:26",
+   "incumbent": [],
+   "hy_memory": [
+    "Media selection needed for Instagram new post (photo/video).",
+    "Automation layer is complex for Instagram posting.",
+    "Instagram post steps: Navigate to Instagram home, click 'New post' button, select media (photo/video), write caption, add hashtags, click 'Share', verify post published.",
+    "Agent-browser command for Instagram: ~/.npm-global/bin/agent-browser --cdp http://127.0.0.1:18800 open https://www.instagram.com"
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.37786112186569615,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:27",
+   "incumbent": [],
+   "hy_memory": [
+    "To create an Instagram post: click 'New post' button, select media (photo/video), write caption, add hashtags, click 'Share', verify post published.",
+    "Agent-browser command to open Instagram: ~/.npm-global/bin/agent-browser --cdp http://127.0.0.1:18800 open https://www.instagram.com",
+    "After opening Instagram via agent-browser, sleep 5 seconds."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "chat",
+    "confidence": 0.48430619089374466,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:28",
+   "incumbent": [],
+   "hy_memory": [
+    "Instagram post creation steps: click 'New post' button, select media (photo/video), write caption, add hashtags, click 'Share', verify post published.",
+    "Agent-browser command to open Instagram: ~/.npm-global/bin/agent-browser --cdp http://127.0.0.1:18800 open https://www.instagram.com with sleep 5.",
+    "Agent-browser snapshot command: ~/.npm-global/bin/agent-browser snapshot -i."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "chat",
+    "confidence": 0.39316558008918023,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:29",
+   "incumbent": [],
+   "hy_memory": [
+    "Add hashtags to a post on Instagram.",
+    "Click 'Share' button to publish a post on Instagram.",
+    "Verify post published on Instagram.",
+    "Open https://www.instagram.com using agent-browser with CDP http://127.0.0.1:18800 and sleep 5 seconds.",
+    "Take snapshot of Instagram page using agent-browser snapshot -i.",
+    "Click @new-post-ref on Instagram using agent-browser."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "chat",
+    "confidence": 0.4707374500684903,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:30",
+   "incumbent": [],
+   "hy_memory": [
+    "Agent-browser command: open https://www.instagram.com via CDP http://127.0.0.1:18800, sleep 5, snapshot -i, click @new-post-ref.",
+    "Agent-browser command: open https://www.instagram.com via CDP http://127.0.0.1:18800, sleep 5, snapshot -i, click @new-post-ref, sleep 3.",
+    "Verify post published on Instagram after clicking new post reference."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.7274660391506451,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:31",
+   "incumbent": [],
+   "hy_memory": [
+    "Agent-browser command: open https://www.instagram.com via CDP http://127.0.0.1:18800, sleep 5, snapshot -i, click @new-post-ref, sleep 3.",
+    "Agent-browser command: open https://www.instagram.com via CDP http://127.0.0.1:18800, sleep 5, snapshot -i, click @new-post-ref, sleep 3, type 'Caption with hashtags'.",
+    "Verify post published on Instagram (type caption with hashtags)."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.6072360781283294,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:32",
+   "incumbent": [],
+   "hy_memory": [
+    "Opened https://www.instagram.com using agent-browser with CDP http://127.0.0.1:18800 and slept for 5 seconds.",
+    "Took snapshot of Instagram page using agent-browser snapshot -i.",
+    "Clicked @new-post-ref on Instagram to open new post.",
+    "Typed 'Caption with hashtags' into Instagram new post caption field.",
+    "Clicked @share-button-ref to share Instagram post after typing caption.",
+    "Instagram post format: Engaging caption (1-2 sentences), optional call to action or question, 5-10 relevant hashtags, optional location tag.",
+    "Example Instagram caption: 'Just got Tashkurgan strain started! \ud83c\udf3f This landrace variety has incredible genetics - thick stems, dense buds, and that signature spicy aroma. Can't wait to see how she develops!' with hashtags #cannabis #genetics #landrace #Tashkurgan #growlife #cannabiscommunity #strainhunting #growing #homegrown.",
+    "Hashtag strategy: Cannabis Focus: #cannabis #genetics #strains #growlife #homegrown; General: #nature #plants #growing #lifestyle; Niche: #landrace #strainhunting #terpene.",
+    "Instagram limitations: media upload requires manual interaction, complex automation, rate limiting on posting, no signature requirement (X.com only)."
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "working",
+    "confidence": 0.6643616695574899,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:33",
+   "incumbent": [],
+   "hy_memory": [
+    "OmegaGrown general topics: #nature #plants #growing #lifestyle",
+    "OmegaGrown niche topics: #landrace #strainhunting #terpene",
+    "OmegaGrown limitations: Media upload requires manual interaction, Complex automation, Rate limiting on posting, No signature requirement (X.com only)",
+    "OmegaGrown purpose: Share posts, photos, links with captions",
+    "OmegaGrown steps: 1. Navigate to Facebook home; 2. Click 'What's on your mind?'; 3. Type post content; 4. Add photos/videos (optional); 5. Add hashtags; 6. Click 'Post'; 7. Verify published",
+    "Commands for OmegaGrown: agent-browser"
+   ],
+   "gate": {
+    "verdict": "store",
+    "bank": "chat",
+    "confidence": 0.5361569078585355,
+    "gated": true
+   },
+   "gate_skipped": false
+  },
+  {
+   "chunk_id": "brain_export.md:34",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.6470377824174045,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:35",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.7625143263456869,
+    "gated": true
+   },
+   "gate_skipped": true
+  },
+  {
+   "chunk_id": "brain_export.md:36",
+   "incumbent": [],
+   "hy_memory": [],
+   "gate": {
+    "verdict": "skip",
+    "bank": "chat",
+    "confidence": 0.6876895695410227,
+    "gated": true
+   },
+   "gate_skipped": true
+  }
+ ]
+}
