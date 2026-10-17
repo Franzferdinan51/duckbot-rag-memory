@@ -297,3 +297,140 @@ def reconcile(
         timeout=timeout,
     )
     return parse_verdicts(reply, len(existing))
+
+
+# ---------------------------------------------------------------------------
+# Phase B (Hy-Memory framework upgrade): schema induction + intentions.
+#
+# Hy's hierarchy tops the fact layer with SCHEMAS (patterns induced across
+# many facts) and prospective INTENTIONS (plans/commitments as first-class
+# memory). Both are writer-model passes, same discipline as the rest of
+# this module: explicit model, strict parsing, silent failure -> [].
+# ---------------------------------------------------------------------------
+
+HY_MEMORY_SCHEMA_PROMPT = """Given the stored facts below about a person, \
+induce up to 3 general SCHEMA statements: stable patterns, preferences, \
+habits, or standing rules that MULTIPLE facts support. Each schema must \
+be a concise, self-contained statement that generalizes the facts without \
+inventing anything they do not support. If the facts support no pattern, \
+return an empty list. Return only a JSON object with a "schemas" list of \
+strings, with no other text."""
+
+HY_MEMORY_INTENTION_PROMPT = """Extract prospective intentions from the \
+text below: plans, commitments, scheduled actions, or things the person \
+intends to do later. For each, write a concise self-contained statement, \
+plus "due" (an ISO date YYYY-MM-DD if a time is stated, else null) and \
+"trigger" (a short condition like "when the part arrives", else null). \
+Do not extract facts about the past. If there are no intentions, return \
+an empty list. Return only a JSON object of the form {"intentions": \
+[{"text": "...", "due": null, "trigger": null}]}, with no other text."""
+
+
+def _parse_string_list(text: Optional[str], key: str) -> list[str]:
+    if not text:
+        return []
+    cleaned = _FENCE_RE.sub("", text).strip()
+    try:
+        data = json.loads(cleaned)
+    except (ValueError, TypeError):
+        return []
+    if isinstance(data, dict):
+        items = data.get(key)
+    elif isinstance(data, list):
+        items = data
+    else:
+        return []
+    if not isinstance(items, list):
+        return []
+    out: list[str] = []
+    for item in items:
+        if isinstance(item, str) and item.strip() and item.strip() not in out:
+            out.append(item.strip())
+    return out
+
+
+def induce_schemas(
+    facts: list[str],
+    *,
+    model: Optional[str] = None,
+    max_tokens: int = 512,
+    timeout: float = 120.0,
+) -> list[str]:
+    """Induce schema statements from a set of related facts."""
+    model_name = (model or "").strip()
+    if not model_name or len(facts) < 2:
+        return []
+    from . import llm_client
+
+    fact_block = "\n".join(f"- {f}" for f in facts)
+    reply = llm_client.chat_completion(
+        [
+            {"role": "system", "content": HY_MEMORY_SCHEMA_PROMPT},
+            {"role": "user", "content": f"FACTS:\n{fact_block}"},
+        ],
+        model=model_name,
+        temperature=0.0,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
+    return _parse_string_list(reply, "schemas")
+
+
+def parse_intentions(text: Optional[str]) -> list[dict]:
+    """Parse an intentions reply: [{text, due, trigger}] strictly."""
+    if not text:
+        return []
+    cleaned = _FENCE_RE.sub("", text).strip()
+    try:
+        data = json.loads(cleaned)
+    except (ValueError, TypeError):
+        return []
+    if isinstance(data, dict):
+        items = data.get("intentions")
+    elif isinstance(data, list):
+        items = data
+    else:
+        return []
+    if not isinstance(items, list):
+        return []
+    out: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        t = item.get("text")
+        if not isinstance(t, str) or not t.strip():
+            continue
+        due = item.get("due")
+        trigger = item.get("trigger")
+        out.append({
+            "text": t.strip(),
+            "due": due.strip() if isinstance(due, str) and due.strip() else None,
+            "trigger": trigger.strip() if isinstance(trigger, str) and trigger.strip() else None,
+        })
+    return out
+
+
+def extract_intentions(
+    text: str,
+    *,
+    model: Optional[str] = None,
+    max_tokens: int = 512,
+    timeout: float = 120.0,
+) -> list[dict]:
+    """Extract prospective intentions (plans/commitments) from text."""
+    model_name = (model or "").strip()
+    if not model_name or not text.strip():
+        return []
+    from . import llm_client
+
+    reply = llm_client.chat_completion(
+        [
+            {"role": "system", "content": HY_MEMORY_INTENTION_PROMPT},
+            {"role": "user", "content": text},
+        ],
+        model=model_name,
+        temperature=0.0,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
+    return parse_intentions(reply)

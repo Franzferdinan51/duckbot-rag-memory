@@ -79,6 +79,18 @@ TOOLS = [
         },
     },
     {
+        "name": "recall_context",
+        "description": "Layer-aware recall (Hy-Memory hierarchy, Phase B): returns current facts plus induced schemas and open intentions relevant to the query, as {facts, schemas, intentions}. Use at the start of a task to get patterns and pending commitments, not just facts.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "the search query"},
+                "k": {"type": "integer", "default": 5, "description": "max items per layer"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "brain_recall",
         "description": "Hybrid retrieval over all chunks. Returns top-k with tier, source, importance, score. Alias: recall.",
         "inputSchema": {
@@ -723,6 +735,15 @@ async def handle_recall(args: dict) -> dict:
         "results": [r.to_dict() for r in results],
         "stats": stats.to_dict(),
     }
+
+
+async def handle_recall_context(args: dict) -> dict:
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"error": "query is required"}
+    from .layers import recall_context
+    mem = Memory()
+    return await recall_context(mem, query, k=int(args.get("k") or 5))
 
 
 async def handle_reflect(args: dict) -> dict:
@@ -2371,6 +2392,7 @@ HANDLERS = {
     "recall": handle_recall,
     "brain_remember": handle_remember,
     "brain_recall": handle_recall,
+    "recall_context": handle_recall_context,
     "reflect": handle_reflect,
     "forget": handle_forget,
     "stats": handle_stats,
