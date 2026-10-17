@@ -434,3 +434,89 @@ def extract_intentions(
         timeout=timeout,
     )
     return parse_intentions(reply)
+
+
+# ---------------------------------------------------------------------------
+# Phase D (Hy-Memory framework upgrade): experience episodes.
+#
+# Hy's Working scene stores reusable EXPERIENCE alongside facts: how a
+# task was actually accomplished, so an agent can recall the procedure
+# next time instead of re-deriving it. extract_episodes mines episode
+# records {task, context, steps, outcome} from session summaries / logs.
+# ---------------------------------------------------------------------------
+
+HY_MEMORY_EPISODE_PROMPT = """Extract reusable EXPERIENCE episodes from \
+the text below: tasks that were actually carried out. For each, give \
+"task" (what was being done), "context" (the situation/constraints), \
+"steps" (the approach that was taken, as one concise string), and \
+"outcome" (one of "success", "failure", "partial"). Only include tasks \
+with a concrete approach worth reusing — not plans, not chit-chat. If \
+there are none, return an empty list. Return only a JSON object of the \
+form {"episodes": [{"task": "...", "context": "...", "steps": "...", \
+"outcome": "success"}]}, with no other text."""
+
+_OUTCOMES = ("success", "failure", "partial")
+
+
+def parse_episodes(text: Optional[str]) -> list[dict]:
+    """Parse an episodes reply into validated episode dicts."""
+    if not text:
+        return []
+    cleaned = _FENCE_RE.sub("", text).strip()
+    try:
+        data = json.loads(cleaned)
+    except (ValueError, TypeError):
+        return []
+    if isinstance(data, dict):
+        items = data.get("episodes")
+    elif isinstance(data, list):
+        items = data
+    else:
+        return []
+    if not isinstance(items, list):
+        return []
+    out: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        task = item.get("task")
+        steps = item.get("steps")
+        if not isinstance(task, str) or not task.strip():
+            continue
+        if not isinstance(steps, str) or not steps.strip():
+            continue
+        ctx = item.get("context")
+        outcome = item.get("outcome")
+        out.append({
+            "task": task.strip(),
+            "context": ctx.strip() if isinstance(ctx, str) and ctx.strip() else "",
+            "steps": steps.strip(),
+            "outcome": outcome if outcome in _OUTCOMES else "partial",
+        })
+    return out
+
+
+def extract_episodes(
+    text: str,
+    *,
+    model: Optional[str] = None,
+    max_tokens: int = 1024,
+    timeout: float = 120.0,
+) -> list[dict]:
+    """Mine reusable experience episodes from a session summary / log."""
+    model_name = (model or "").strip()
+    if not model_name or not text.strip():
+        return []
+    from . import llm_client
+
+    reply = llm_client.chat_completion(
+        [
+            {"role": "system", "content": HY_MEMORY_EPISODE_PROMPT},
+            {"role": "user", "content": text},
+        ],
+        model=model_name,
+        temperature=0.0,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
+    return parse_episodes(reply)

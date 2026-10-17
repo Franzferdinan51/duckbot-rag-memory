@@ -80,6 +80,33 @@ TOOLS = [
         },
     },
     {
+        "name": "record_experience",
+        "description": "Record a reusable experience episode (Phase D): how a task was actually done, so a future agent can recall the procedure. Stored in the procedural tier as layer=experience.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {"type": "string", "description": "what was being done"},
+                "steps": {"type": "string", "description": "the approach that was taken"},
+                "context": {"type": "string", "description": "situation / constraints", "default": ""},
+                "outcome": {"type": "string", "enum": ["success", "failure", "partial", "unknown"], "default": "unknown"},
+                "source_path": {"type": "string", "default": "<episode>"},
+            },
+            "required": ["task", "steps"],
+        },
+    },
+    {
+        "name": "recall_experience",
+        "description": "Recall experience episodes relevant to a task (Phase D): prior approaches and their outcomes.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "the task you are about to do"},
+                "k": {"type": "integer", "default": 5},
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "recall_context",
         "description": "Layer-aware recall (Hy-Memory hierarchy, Phase B): returns current facts plus induced schemas and open intentions relevant to the query, as {facts, schemas, intentions}. Use at the start of a task to get patterns and pending commitments, not just facts.",
         "inputSchema": {
@@ -737,6 +764,30 @@ async def handle_recall(args: dict) -> dict:
         "results": [r.to_dict() for r in results],
         "stats": stats.to_dict(),
     }
+
+
+async def handle_record_experience(args: dict) -> dict:
+    task = (args.get("task") or "").strip()
+    steps = (args.get("steps") or "").strip()
+    if not task or not steps:
+        return {"error": "task and steps are required"}
+    from .experience import record_episode
+    mem = Memory()
+    r = await record_episode(
+        mem, task=task, steps=steps, context=args.get("context") or "",
+        outcome=args.get("outcome") or "unknown",
+        source_path=args.get("source_path") or "<episode>")
+    return {"chunk_id": r.chunk_id, "stored": True}
+
+
+async def handle_recall_experience(args: dict) -> dict:
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"error": "query is required"}
+    from .experience import recall_experience
+    mem = Memory()
+    eps = await recall_experience(mem, query, k=int(args.get("k") or 5))
+    return {"episodes": eps}
 
 
 async def handle_recall_context(args: dict) -> dict:
@@ -2395,6 +2446,8 @@ HANDLERS = {
     "brain_remember": handle_remember,
     "brain_recall": handle_recall,
     "recall_context": handle_recall_context,
+    "record_experience": handle_record_experience,
+    "recall_experience": handle_recall_experience,
     "reflect": handle_reflect,
     "forget": handle_forget,
     "stats": handle_stats,
