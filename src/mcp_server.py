@@ -107,6 +107,19 @@ TOOLS = [
         },
     },
     {
+        "name": "recall_coding",
+        "description": "Recall coding decision records (Phase E diff-chains): why code changed in Duckets repos, chain-linked by shared files. Optional repo filter (repo directory name).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "what you want to know about the code history"},
+                "repo": {"type": "string", "description": "optional repo name filter"},
+                "k": {"type": "integer", "default": 5},
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "recall_context",
         "description": "Layer-aware recall (Hy-Memory hierarchy, Phase B): returns current facts plus induced schemas and open intentions relevant to the query, as {facts, schemas, intentions}. Use at the start of a task to get patterns and pending commitments, not just facts.",
         "inputSchema": {
@@ -788,6 +801,17 @@ async def handle_recall_experience(args: dict) -> dict:
     mem = Memory()
     eps = await recall_experience(mem, query, k=int(args.get("k") or 5))
     return {"episodes": eps}
+
+
+async def handle_recall_coding(args: dict) -> dict:
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"error": "query is required"}
+    from .coding import recall_coding
+    mem = Memory()
+    recs = await recall_coding(mem, query, repo=args.get("repo"),
+                               k=int(args.get("k") or 5))
+    return {"records": recs}
 
 
 async def handle_recall_context(args: dict) -> dict:
@@ -2448,6 +2472,7 @@ HANDLERS = {
     "recall_context": handle_recall_context,
     "record_experience": handle_record_experience,
     "recall_experience": handle_recall_experience,
+    "recall_coding": handle_recall_coding,
     "reflect": handle_reflect,
     "forget": handle_forget,
     "stats": handle_stats,

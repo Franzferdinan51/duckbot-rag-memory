@@ -520,3 +520,54 @@ def extract_episodes(
         timeout=timeout,
     )
     return parse_episodes(reply)
+
+
+# ---------------------------------------------------------------------------
+# Phase E (Hy-Memory framework upgrade): coding decision records.
+#
+# Hy's Coding scene keeps version-evolution memory: not just code, but
+# WHY it changed, chained across revisions. extract_commit_decision
+# distills one commit (subject + body + touched files) into a single
+# self-contained decision statement the chain store can keep.
+# ---------------------------------------------------------------------------
+
+HY_MEMORY_COMMIT_PROMPT = """Distill the git commit below into ONE \
+concise, self-contained decision record: what changed and why it \
+matters, in a single sentence or two. Mention the key files or modules \
+if they carry the meaning. Return only the statement, no other text."""
+
+
+def extract_commit_decision(
+    subject: str,
+    body: str,
+    files: list[str],
+    *,
+    model: Optional[str] = None,
+    max_tokens: int = 256,
+    timeout: float = 120.0,
+) -> Optional[str]:
+    """Distill one commit into a decision statement (None on failure)."""
+    model_name = (model or "").strip()
+    if not model_name or not subject.strip():
+        return None
+    from . import llm_client
+
+    file_block = ", ".join(files[:12]) if files else "(no file list)"
+    user = (f"COMMIT: {subject}\n\n{body.strip()}\n\n"
+            f"FILES: {file_block}")
+    reply = llm_client.chat_completion(
+        [
+            {"role": "system", "content": HY_MEMORY_COMMIT_PROMPT},
+            {"role": "user", "content": user},
+        ],
+        model=model_name,
+        temperature=0.0,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
+    if not reply:
+        return None
+    text = _FENCE_RE.sub("", reply).strip().strip('"')
+    if len(text) < 10:
+        return None
+    return text[:600]
