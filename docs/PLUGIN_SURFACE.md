@@ -41,7 +41,7 @@ session-start call.
 
 All three thin entry points (OpenClaw Node.js shim, Hermes plugin, the
 JSON-RPC adapter) call the same dispatch in `src/extensions/tools.py`.
-The OpenClaw shim additionally proxies to the full 69-tool MCP server
+The OpenClaw shim additionally proxies to the full 73-tool MCP server
 via JSON-RPC over stdio. If you add a tool to `src/mcp_server.py`'s
 TOOLS list or to the thin surface, both surfaces pick it up.
 
@@ -59,7 +59,7 @@ TOOLS list or to the thin surface, both surfaces pick it up.
 ### OpenClaw (native plugin)
 
 The native plugin is `extensions/duckbot-memory/` — a Node.js shim that
-spawns the Python MCP server as a subprocess and registers all 69 tools
+spawns the Python MCP server as a subprocess and registers all 73 tools
 plus `session_start` / `session_end` hooks via OpenClaw's plugin SDK.
 See `extensions/duckbot-memory/README.md` for install + config.
 
@@ -73,7 +73,7 @@ openclaw plugins list | grep duckbot-memory    # should show "✓ installed"
 
 If you're hand-rolling a custom OpenClaw gateway without the plugin
 SDK, the Python adapter at `src/extensions/duckbot_brain/adapter.py`
-speaks MCP stdio JSON-RPC (12-tool subset):
+speaks MCP stdio JSON-RPC (73-tool subset):
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
@@ -106,7 +106,7 @@ context = provider.on_session_start()   # brain_wake_up shape
 provider.on_session_end(messages)        # persists durable rules as procedural
 ```
 
-### MCP server (canonical, 69 tools)
+### MCP server (canonical, 73 tools)
 
 ```bash
 ./scripts/duckbot-memory-mcp.sh &
@@ -117,7 +117,7 @@ provider.on_session_end(messages)        # persists durable rules as procedural
 ### CLI / shell wrapper (no discovery needed)
 
 ```bash
-# OpenClaw-style shell shim (12-tool core surface)
+# OpenClaw-style shell shim (73-tool core surface)
 python -m src.cli openclaw wake-up
 python -m src.cli openclaw recall "What did we decide about cloud-only models?"
 python -m src.cli openclaw tools
@@ -129,12 +129,12 @@ scripts/duckbot-ask -f compact -n 3 "Duckets correction style"
 scripts/brain-recall "BATMAN worker offline"
 ```
 
-## The 57 tools the MCP server has but the thin entry points don't
+## The 73 tools the MCP server has but the thin entry points don't
 
-The thin 12-tool surface is intentional — it's the portable stdio subset
+The thin 73-tool surface is intentional — it's the portable stdio subset
 that works across all three thin entry points without bringing in heavy
 deps (graph, blocks, quarantine, dreaming, active-memory, etc.). The
-remaining 57 tools are admin / CLI tools that an agent shouldn't be
+remaining 73 tools are admin / CLI tools that an agent shouldn't be
 calling at runtime:
 
 - `brain_graph_*` (7) — knowledge-graph CRUD, cognify, reconcile
@@ -171,7 +171,7 @@ point's surface.
 
 1. Add the schema + dispatch case to `src/extensions/tools.py` (one
    TOOLS dict entry + one `if name == "..."` block in `dispatch()`)
-   AND/OR to `src/mcp_server.py`'s TOOLS list (the canonical 69-tool
+   AND/OR to `src/mcp_server.py`'s TOOLS list (the canonical 73-tool
    surface). Pick whichever surface the tool belongs to.
 2. If it's a core-agent tool (used at runtime), no further work — the
    thin surface picks it up automatically. The OpenClaw shim

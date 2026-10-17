@@ -13,9 +13,9 @@ inside the Node gateway and can't load Python. OpenClaw users should
 install the Node.js shim at `extensions/duckbot-memory/` instead, which
 spawns the Python MCP server (`src/mcp_server.py`) as a subprocess.
 
-The 12 tools exposed here delegate to the shared surface at
+The 73 tools exposed here delegate to the shared surface at
 `src.extensions.tools`, so an agent author can rely on the same tool
-names regardless of which platform they're on. The full 69 tools are
+names regardless of which platform they're on. The full 73 tools are
 available via `python -m src.mcp_server` for admin / CLI use.
 
 Pattern sources:
