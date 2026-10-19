@@ -2,9 +2,9 @@
 # status.sh — One-line health check for the DuckBot brain.
 #
 # Usage:
-#   ~/Desktop/duckbot-rag-memory/scripts/status.sh
-#   ~/Desktop/duckbot-rag-memory/scripts/status.sh --json
-#   ~/Desktop/duckbot-rag-memory/scripts/status.sh --verbose
+#   ~/duckbot-rag-memory/scripts/status.sh
+#   ~/duckbot-rag-memory/scripts/status.sh --json
+#   ~/duckbot-rag-memory/scripts/status.sh --verbose
 #
 # Wraps `python -m src.cli doctor` + `python -m src.cli dashboard` +
 # watcher/cron checks. Returns non-zero on any failure.

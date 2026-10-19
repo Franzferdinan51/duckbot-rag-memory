@@ -9,11 +9,17 @@ cd "$REPO_ROOT"
 
 # Load .env if present (LMSTUDIO_KEY, OPENAI_API_KEY, MINIMAX_API_KEY, etc.)
 if [ -f "$REPO_ROOT/.env" ]; then
-    # shellcheck disable=SC1091
+    # shellcheck disable=SC1019
     set -a
     . "$REPO_ROOT/.env"
     set +a
 fi
+
+# Defang inherited PYTHONPATH (e.g. a host agent injecting its own
+# site-packages for a *different* python version). The venv is fully
+# self-contained; a foreign PYTHONPATH shadows venv packages and breaks
+# compiled imports (numpy/pydantic_core ABI mismatch).
+unset PYTHONPATH
 
 # Ensure PYTHONUNBUFFERED so stdio flushes promptly (Hermes reads line-by-line).
 export PYTHONUNBUFFERED=1

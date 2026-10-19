@@ -24,6 +24,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Defang inherited PYTHONPATH (a host agent may inject a foreign
+# site-packages for a different python version; the venv is self-contained).
+unset PYTHONPATH
+
 # Activate the venv (cross-platform; same pattern as duckbot-ask).
 if [ -f "$REPO_ROOT/.venv/bin/python" ]; then
     PY="$REPO_ROOT/.venv/bin/python"

@@ -158,24 +158,42 @@ class DuckBotBrainProvider:
     # -- Lifecycle -----------------------------------------------------------
 
     def is_available(self) -> bool:
-        """Cheap check: is the Brain importable + reachable?
+        """Cheap check: is the Brain importable + runnable in this interpreter?
 
         Per the Hermes ABC, this should NOT make network calls (it gates
         activation in MemoryManager before the agent loop starts). We
-        only verify the Brain class imports and the repo root is on
-        the Python path — real readiness (LM Studio reachable, chroma
-        initialized) is deferred to `initialize()` / first tool call,
-        where failures surface as graceful `{"error": ...}` returns.
+        verify the Brain class imports, the repo root is on the Python
+        path, and the vector backend's hard dependency (chromadb) is
+        importable in THIS interpreter.
+
+        Host gate (2026-10-19): the Hermes gateway runs an isolated
+        bundled Python (-I: no user site-packages, PYTHONPATH stripped),
+        which cannot import chromadb. An in-process Brain there would
+        expose tools that all fail with "requires chromadb" and silently
+        drop every sync_turn write. When chromadb is absent we
+        self-disable: the canonical brain surface in that configuration
+        is the 'duckbot-memory' MCP server (repo venv Python, stdio).
+        Built-in file memory (MEMORY.md/USER.md/SOUL.md) is unaffected.
         """
         try:
             from src.connectors.base import Brain as _  # noqa: F401
             # Touch src/ to confirm the repo path is set up correctly.
             import src
             assert hasattr(src, "__file__") and src.__file__
+            import chromadb  # noqa: F401 — ChromaBackend hard dependency
             return True
         except Exception as e:
             logger.debug("DuckBot brain not available: %s", e)
+            self._unavailable_reason = f"{type(e).__name__}: {e}"
             return False
+
+    def unavailable_reason(self) -> str:
+        """Why is_available() is False — surfaced in Hermes' startup warning."""
+        return (
+            getattr(self, "_unavailable_reason", "")
+            or "brain imports but is not usable in this interpreter; "
+               "use the 'duckbot-memory' MCP server (repo venv Python)"
+        )
 
     def initialize(self, session_id: str, **kwargs: Any) -> None:
         """Connect + warm up.

@@ -56,9 +56,9 @@ data/logs/
 data/chroma*.sqlite3
 
 # Probe/diagnostic sprawl at repo root (one-off diagnosis, keep local)
-probe-*.py
-probe_*.py
-probe_*.jsonl
+/probe-*.py
+/probe_*.py
+/probe_*.jsonl
 
 # Stray artifacts
 =
