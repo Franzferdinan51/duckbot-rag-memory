@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased — brain_sync importance ordering + deployed-jobs refresh (2026-10-19)
+
+### Fixed
+
+- **`handle_brain_sync` (MCP server)**: the per-tier recall pool was capped at
+  `k=memory_k//4+1`, so once a tier grew past a consolidation pass the top-6
+  against the generic sync query were mostly low-importance derived facts and
+  the 2200-char budget filled before the high-importance standing entries got
+  a slot. Now `k=memory_k` plus an importance-descending sort per tier (both
+  the MEMORY.md and USER.md fills) — the budget fill ranks the whole pool, so
+  session-start files carry the highest-importance facts again.
+
+### Changed
+
+- **README "Deployed jobs" table** now matches the live host: Hy-Memory
+  consolidation nightly (no-agent, load-on-dispatch writer), brain decay daily
+  03:00 (no-agent, `qwen3-reranker-0.6b`), FSRS optimize weekly Sun 04:00
+  (no-agent, no LLM), hourly brain-sync, service guardian. The stale
+  LFM2.5-24B-A2B model pins are gone (that model is not served on the
+  reference Mac); the Brain Reflect agent job is recorded as paused/superseded
+  by the Hy-Memory nightly pass, and the shadow A/B row is marked evaluation
+  complete (2026-10-16 week).
+
 ## Unreleased — Hy-Memory writer path (2026-10-16)
 
 ### Added

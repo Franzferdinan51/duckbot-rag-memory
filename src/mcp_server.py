@@ -1174,9 +1174,16 @@ async def handle_brain_sync(args: dict) -> dict:
     # The previous version called recall("", ...) — an empty query produced
     # essentially-random results. The semantic fallback "important memory"
     # gives the embedder + BM25 actual signal to rank by.
+    #
+    # k=memory_k (was memory_k // 4 + 1): the fixed k=6 per tier silently
+    # excluded high-importance entries from the candidate pool once a tier
+    # grew past a consolidation pass (57-chunk semantic tier, top-6 by
+    # relevance to a generic query = mostly low-importance derived facts).
+    # The 2200-char budget + importance sort in the fill loop below is the
+    # real selection — give it the whole pool to rank.
     for tier in all_tiers:
         results, _ = await mem.recall(
-            "important memory", k=memory_k // 4 + 1, tier=tier.value, min_importance=0.2,
+            "important memory", k=memory_k, tier=tier.value, min_importance=0.2,
         )
         tier_summaries[tier.value] = results
 
@@ -1287,6 +1294,13 @@ async def handle_brain_sync(args: dict) -> dict:
 
         hm_mem_entries: list[str] = []
         for tier_name, items in tier_summaries.items():
+            # Session-start file must carry the HIGHEST-importance facts, not
+            # recall-rank noise: after a consolidation pass, low-importance
+            # derived facts rank highly against the generic sync query and
+            # consumed the 2200-char budget before the key standing entries
+            # (dark mode, INFRA, etc.) ever got a slot. Sort per tier by
+            # importance descending before the budget fill.
+            items = sorted(items, key=lambda r: _imp(r), reverse=True)
             for r in items:
                 entry = _make_hermes_entry(r)
                 if sum(len(e) for e in hm_mem_entries) + len(entry) + 60 > 2200:
@@ -1310,6 +1324,7 @@ async def handle_brain_sync(args: dict) -> dict:
         # Hermes USER.md: 1,375 char limit, §-delimited entries
         seen: set[str] = set()
         hm_user_entries: list[str] = []
+        user_results = sorted(user_results, key=lambda r: _imp(r), reverse=True)
         for r in user_results:
             if r.text in seen:
                 continue
