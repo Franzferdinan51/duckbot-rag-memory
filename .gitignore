@@ -60,6 +60,12 @@ data/chroma*.sqlite3
 /probe_*.py
 /probe_*.jsonl
 
+# Probe/diagnostic sprawl + one-off backups under data/ (keep local)
+data/probe_*.py
+data/*-backup-*
+data/pre-*-bootstrap.bak/
+data/shadow/
+
 # Stray artifacts
 =
 data/brain.db

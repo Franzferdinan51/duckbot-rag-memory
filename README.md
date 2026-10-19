@@ -267,10 +267,13 @@ DUCKBOT_WATCH_USE_FSEVENTS=1 python -m src.watcher run
 | Job | Schedule | What it does |
 |---|---|---|
 | Watcher (`com.duckbot.memory-watcher`, launchd) | continuous | Ingests the OpenClaw workspace memory files (`~/.openclaw/workspace/memory` + workspace root files); `brain_sync` keeps the Hermes and OpenClaw context files in sync, so Hermes-written memory flows in too |
-| Brain decay | daily ~03:00 | FSRS retention-floor pruning |
-| FSRS optimize | daily ~04:00 | Self-tunes the forgetting curve (pinned to LFM2.5-24B-A2B) |
-| Brain Reflect | weekly, Sun ~04:00 | Episodic → semantic consolidation (pinned to LFM2.5-24B-A2B) |
-| Hy-Memory shadow A/B | nightly ~03:38 (evaluation week) | Read-only writer comparison over both agent homes; never writes the bank |
+| Hy-Memory consolidation (Hermes cron, no-agent) | nightly 03:00 | Episodic → semantic consolidation with the Hy-Memory writer — load-on-dispatch (`hy-memory-30b-a3b-mlx`, unloaded after), fail-open to regex per chunk; chat model + embedder stay loaded |
+| Brain decay (no-agent) | daily 03:00 | FSRS retention-floor pruning, scored by `qwen3-reranker-0.6b` |
+| FSRS optimize (no-agent, no LLM) | weekly, Sun 04:00 | Self-tunes the forgetting curve |
+| Brain-sync → Hermes files (no-agent) | hourly | `brain_sync` writes SOUL.md / MEMORY.md / USER.md |
+| Service guardian RAG-watch (no-agent) | 08:00 / 14:00 / 20:00 | Keeps the MCP server + watcher alive |
+| ~~Brain Reflect (agent job)~~ | paused — superseded | Was weekly episodic → semantic, pinned to LFM2.5-24B-A2B (not served on the reference Mac); superseded by the Hy-Memory nightly consolidation |
+| ~~Hy-Memory shadow A/B~~ | evaluation complete (2026-10-16 week) | Read-only writer comparison over both agent homes; Hy-Memory promoted to the live writer — evaluation closed |
 
 ### Hermes MemoryProvider plugin — install path matters
 
