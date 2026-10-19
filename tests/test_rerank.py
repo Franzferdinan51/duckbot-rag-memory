@@ -322,6 +322,10 @@ def test_resolve_backend_prefers_lmstudio_first(monkeypatch):
     def fail_sentence_backend():
         raise AssertionError("sentence-transformers should not be selected first")
 
+    def fail_qwen():
+        raise RuntimeError("Qwen3 reranker backend is not under test here")
+
+    monkeypatch.setattr(rerank_module, "Qwen3RerankerBackend", fail_qwen)
     monkeypatch.setattr(rerank_module, "LMStudioBackend", lambda: FakeLMBackend())
     monkeypatch.setattr(rerank_module, "SentenceTransformersBackend", fail_sentence_backend)
     rerank_module.reset_backend()
@@ -355,6 +359,10 @@ def test_resolve_backend_does_not_cache_noop(monkeypatch):
         calls["lm"] += 1
         raise RuntimeError("LM Studio not ready")
 
+    def fail_qwen():
+        raise RuntimeError("Qwen3 reranker backend is not under test here")
+
+    monkeypatch.setattr(rerank_module, "Qwen3RerankerBackend", fail_qwen)
     monkeypatch.setattr(rerank_module, "LMStudioBackend", fail_lm)
     monkeypatch.setattr(rerank_module, "SentenceTransformersBackend", lambda: FakeNoop())
     rerank_module.reset_backend()
@@ -436,8 +444,11 @@ def test_sentence_transformers_backend_requires_package(monkeypatch):
     # Hide the import by patching sys.modules.
     import sys
     monkeypatch.setitem(sys.modules, "sentence_transformers", None)
+    backend = SentenceTransformersBackend()
     try:
-        SentenceTransformersBackend()
+        # Lazy load — the import happens on first score(), not in __init__
+        # (2026-07-09 hang fix). Trigger it to exercise the error path.
+        backend.score("query", ["a doc"])
     except (RuntimeError, ImportError, TypeError) as e:
         # Either RuntimeError (our message) or the import error itself.
         msg = str(e).lower()

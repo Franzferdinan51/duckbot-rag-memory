@@ -1080,6 +1080,10 @@ def test_cli_doctor_flags_missing_lmstudio_reranker_model(monkeypatch):
 
     monkeypatch.setenv("DUCKBOT_EMBEDDING", "lmstudio")
     monkeypatch.setenv("DUCKBOT_RERANK", "1")
+    # Pin the embed model to the one FakeResp advertises, so the test is
+    # hermetic regardless of the host .env (the live deploy pins nomic).
+    monkeypatch.setenv("LMSTUDIO_MODEL", "text-embedding-embeddinggemma-300m")
+    monkeypatch.delenv("LMSTUDIO_RERANK_MODEL", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
 
