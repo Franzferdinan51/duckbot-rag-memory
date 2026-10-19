@@ -8,7 +8,7 @@ A persistent RAG (Retrieval-Augmented Generation) + memory system built for Duck
 
 ```bash
 # Install deps
-cd ~/Desktop/duckbot-rag-memory
+cd ~/duckbot-rag-memory
 python -m venv .venv
 source .venv/bin/activate   # or .venv\Scripts\activate on Windows
 pip install -r requirements.txt
@@ -85,6 +85,8 @@ duckbot-rag-memory/
 |   |-- ingest.py         # chunk -> tier -> embed -> upsert
 |   |-- query.py          # hybrid vector + BM25 + RRF
 |   |-- consolidate.py    # episodic -> semantic distillation
+|   |-- hy_memory.py      # Hy-Memory writer adapter (extraction + update ops + reconcile)
+|   |-- gate.py           # SystemOne D1 per-chunk routing gate (fail-open)
 |   |-- eval.py           # benchmark runner
 |   |-- memory.py         # the unified Memory facade (remember/recall/reflect/forget/stats)
 |   |-- mcp_server.py     # MCP stdio JSON-RPC server (73 tools)
@@ -101,6 +103,10 @@ duckbot-rag-memory/
 |-- benchmarks/         # golden.jsonl for eval
 |-- scripts/            # install / start / cron / launchers / helpers
 |   |-- install.{ps1,sh,linux.sh,macos.sh}        # bootstrap (venv, deps, .env)
+|   |-- install-linux-timers.sh                   # systemd timers: decay + fsrs (Linux)
+|   |-- nightly_hy_pass.py                        # Hy-Memory nightly consolidation (load-on-dispatch)
+|   |-- consolidate_job.py                        # batch consolidation (--writer regex|hy-memory)
+|   |-- shadow_writer_ab.py                       # read-only writer A/B (eval era)
 |   |-- start-watcher.{ps1,sh,windows.bat}        # file-watcher daemon
 |   |-- duckbot-memory-mcp.{sh,bat}               # MCP stdio launcher (loads .env)
 |   |-- duckbot-ask, brain-recall.sh               # shell brain-query helpers
@@ -130,6 +136,13 @@ The watcher has been the recommended path since v0.10:
 - Dedups by content hash (no re-ingesting identical files)
 - Daemonized with `start_new_session` (no orphan processes)
 - Logs to `data/watcher.log`
+
+On the reference Mac, scheduled maintenance lives in **Hermes cron**
+(host-side, not repo code — full lineup in the README deployed-jobs
+table): nightly Hy-Memory consolidation + sync (03:00, no-agent),
+decay pruning (03:00, `qwen3-reranker-0.6b`), FSRS self-tune
+(Sun 04:00, no-agent), hourly brain-sync, and a service guardian
+(08:00/14:00/20:00).
 
 If you still want the original cron-style nightly batch (consolidate +
 eval + sync), run these manually:

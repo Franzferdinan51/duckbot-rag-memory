@@ -2,6 +2,26 @@
 
 ## Unreleased — brain_sync importance ordering + deployed-jobs refresh (2026-10-19)
 
+### Added
+
+- **`scripts/nightly_hy_pass.py`** — the Hy-Memory writer is now **live**:
+  a nightly consolidation pass for the real bank. Loads the pinned MLX
+  build (8k ctx), runs `reflect()` with the Hy extraction callback
+  (fail-open to regex per chunk), promotes the extracted statements
+  through the normal `remember()` pipeline, and unloads the writer — the
+  chat model and embedder are left untouched. Host-side cron wrapper:
+  `~/.hermes/scripts/duckbot-nightly-brain.sh` (Hermes cron
+  `duckbot-nightly-brain`, 03:00 daily, no-agent). First verified run
+  (2026-10-19): 2 episodic chunks scanned, 13 statements extracted and
+  promoted, 5.9s, writer load/unload clean.
+- **Docs refresh (2026-10-19)**: README / AGENTS / INSTALL / INTEGRATION /
+  ARCHITECTURE now document the live Hy-Memory nightly pass, the
+  in-process plugin host-gate (Hermes `-I` backend without chromadb →
+  self-disables; MCP is the canonical surface; `hermes memory off` keeps
+  sessions quiet), the deployed LM Studio nomic-embed 768-dim
+  configuration, the live Hermes cron lineup, and the canonical
+  `~/duckbot-rag-memory` path.
+
 ### Fixed
 
 - **`handle_brain_sync` (MCP server)**: the per-tier recall pool was capped at

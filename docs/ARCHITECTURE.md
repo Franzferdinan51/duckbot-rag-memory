@@ -39,16 +39,17 @@ Overlap: **15%** (~77 tokens). Enough to preserve cross-chunk continuity without
 
 ## Embedding model
 
-**Primary:** `text-embedding-3-small` (OpenAI, 1536d, $0.02 per 1M tokens).
-- Cheap (~$0.20 to embed 50k chunks of avg 500 tokens)
-- High quality (beats most open-source models on MTEB)
-- API latency is fast enough for cron (~200ms per batch of 100)
-- Switching costs: zero. Swap to `text-embedding-3-large` if we need more quality later.
+**Deployed (reference Mac):** `text-embedding-nomic-embed-text-v1.5`
+via LM Studio, 768-dim (`DUCKBOT_EMBEDDING=lmstudio`,
+`LMSTUDIO_EMBED_DIM=768`). The bank was built at 768 — **never change
+the dimension source on an existing bank, or every stored vector is
+invalidated.** The nightly jobs self-load the model (load-on-dispatch);
+it is never left resident.
 
-**Local fallback:** `BAAI/bge-small-en-v1.5` (384d, free).
-- Used only when `DUCKBOT_EMBEDDING=local`
-- Slower (~5s per batch on M2), no API costs
-- Lower quality on long-context tasks but fine for short chunks
+**Alternatives** (for new banks, via `DUCKBOT_EMBEDDING=`):
+- OpenAI `text-embedding-3-small` (1536d, $0.02 per 1M tokens) — cheap cloud, good MTEB
+- Minimax / NVIDIA NIM cloud providers — see `src/embeddings.py`
+- Local `BAAI/bge-small-en-v1.5` (384d, sentence-transformers) — offline, free
 
 ## Storage layout
 
@@ -87,7 +88,7 @@ Why RRF: it doesn't require score normalization (vector cosine distance and BM25
 Periodically (cron-driven), we run a "dream" pass:
 1. Pull recent episodic chunks (last 7 days)
 2. Group by topic (cosine similarity clustering — simple threshold for v0.1)
-3. Ask the agent to supply durable facts when it already has them; otherwise use regex heuristics as the fallback
+3. Extract durable facts: agent-supplied facts, or the Hy-Memory writer (`src/hy_memory.py`, load-on-dispatch — the live nightly pass), with regex heuristics as the fail-open fallback
 4. Add extracted facts to the SEMANTIC tier
 5. Optionally mark old episodic chunks as superseded (skip for v0.1)
 
@@ -99,7 +100,7 @@ The fact extraction patterns in `consolidate.py` look for:
 - `lives at X` / `address is X` (location)
 - `prefers X` / `likes X` (preference)
 
-These are filtered through a Jaccard dedup pass before insertion. DuckBot itself does not load a separate chat model for this pass; OpenClaw or Hermes own the LLM work and pass the distilled facts back in.
+These are filtered through a dedup pass (content-hash / Jaccard) before insertion. The regex path does not load a chat model — the agent supplies the facts or the heuristics run. The Hy-Memory nightly pass is the deliberate exception: it loads its dedicated writer on dispatch, unloads it after, and leaves the chat model and embedder untouched.
 
 ## Eval methodology
 
@@ -114,15 +115,17 @@ The history file (`data/eval_history.jsonl`) lets us track recall over time. Fut
 
 ## Cron schedule
 
-```
-0 22-23,0-9 * * *  bash /Users/duckets/Desktop/duckbot-rag-memory/scripts/cron.sh
-```
+The legacy `scripts/cron.sh` (12 invocations across a 12-hour inactivity
+window) is **deprecated as of v0.15.0** — moved to `scripts/archive/`.
+The watcher daemon (`scripts/start-watcher.sh`) replaced its ingest role:
+5-minute polling, content-hash dedup, logs to `data/watcher.log`.
 
-This runs the script at:
-- 22:00, 23:00
-- 00:00, 01:00, 02:00, 03:00, 04:00, 05:00, 06:00, 07:00, 08:00, 09:00
-
-That's 12 invocations across the 12-hour window, roughly every 60-90 minutes as Duckets requested.
+Scheduled maintenance on the reference Mac lives in Hermes cron
+(host-side, not repo code — full lineup in the README deployed-jobs
+table): nightly Hy-Memory consolidation + sync (03:00, no-agent),
+decay pruning (03:00, `qwen3-reranker-0.6b`), FSRS self-tune
+(Sun 04:00, no-agent), hourly brain-sync, and a service guardian
+(08:00/14:00/20:00).
 
 Inactivity hours intentionally avoid the active work day (10am-10pm). This means:
 - Ingests run while Duckets sleeps / works without RAG churn
@@ -131,6 +134,6 @@ Inactivity hours intentionally avoid the active work day (10am-10pm). This means
 
 ## Why not run continuously?
 
-Embedding costs money. Ingesting the full ~126 daily logs is ~50k chunks * ~500 tokens = ~25M tokens = ~$0.50 per run. Weekly = $2/month, monthly continuous = $15/month. The cron-driven batch approach is 7-8x cheaper.
+Embeddings cost money (or local RAM/CPU). Ingesting the full ~126 daily logs is ~50k chunks * ~500 tokens = ~25M tokens = ~$0.50 per run on OpenAI. The reference Mac runs local LM Studio, so the cost there is zero — cadence is bounded by RAM and model load, not dollars. The batched-cron approach is 7-8x cheaper on cloud and keeps local load predictable.
 
 Also: cron lets us batch commits and surface alerts. Continuous ingestion would be silent.

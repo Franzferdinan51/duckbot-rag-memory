@@ -14,10 +14,15 @@ openclaw plugins list | grep duckbot-memory    # should show "✓ installed"
 # Hermes: use the MemoryProvider plugin (auto-wakes on session start)
 ./scripts/hermes-bootstrap.sh
 grep duckbot-brain ~/.hermes/config.yaml       # memory.provider: duckbot-brain
+# Host-gate caveat (reference Mac): Hermes' backends run an isolated (-I)
+# Python without chromadb, so the plugin self-disables there and the
+# provider is unselected (hermes memory off) to keep sessions quiet.
+# The canonical Hermes surface there is the MCP server below + the cron
+# jobs in the README deployed-jobs table.
 
 # Anything else (Claude Code / Cursor / Codex / mcporter): MCP server via launcher
 hermes mcp add duckbot-memory \
-  --command "$HOME/Desktop/duckbot-rag-memory/scripts/duckbot-memory-mcp.sh"
+  --command "$HOME/duckbot-rag-memory/scripts/duckbot-memory-mcp.sh"
 # Windows: --command "C:\Users\franz\Desktop\duckbot-rag-memory\scripts\duckbot-memory-mcp.bat"
 ```
 
@@ -38,8 +43,8 @@ duckbot-rag-memory query "who am I"            # CLI keyword routing
 Keywords that trigger this: `who am i`, `what is my name`, `my name`,
 `tell me about yourself`, `about yourself`, etc.
 
-This is a deliberate design decision — lightweight embedders like
-`embeddinggemma-300m` (768d) cannot reliably rank short abstract
+This is a deliberate design decision — lightweight 768-dim embedders like
+`text-embedding-nomic-embed-text-v1.5` cannot reliably rank short abstract
 self-reference queries above high-term-frequency news chunks using
 cosine similarity alone. The fast-path guarantees correct identity recall
 regardless of corpus size or noise.
@@ -69,7 +74,7 @@ on Windows too if you symlink it under your PATH:
 ```bash
 # Single-line add
 hermes mcp add duckbot-memory \
-  --command "$HOME/Desktop/duckbot-rag-memory/scripts/duckbot-memory-mcp.sh"
+  --command "$HOME/duckbot-rag-memory/scripts/duckbot-memory-mcp.sh"
 
 # Verify
 hermes mcp list          # should show ✓ enabled
@@ -106,9 +111,9 @@ Python interpreter:
 ```bash
 # macOS / Linux
 hermes mcp add duckbot-memory \
-  --command "$HOME/Desktop/duckbot-rag-memory/.venv/bin/python" \
+  --command "$HOME/duckbot-rag-memory/.venv/bin/python" \
   --args "-m src.mcp_server" \
-  --env "PYTHONPATH=$HOME/Desktop/duckbot-rag-memory"
+  --env "PYTHONPATH=$HOME/duckbot-rag-memory"
 
 # Windows (PowerShell)
 hermes mcp add duckbot-memory `
@@ -250,7 +255,7 @@ brain. Install it:
 
 ```bash
 mkdir -p ~/.openclaw/workspace/skills/duckbot-brain/
-ln -sf ~/Desktop/duckbot-rag-memory/skills/duckbot-brain/SKILL.md \
+ln -sf ~/duckbot-rag-memory/skills/duckbot-brain/SKILL.md \
   ~/.openclaw/workspace/skills/duckbot-brain/SKILL.md
 ```
 

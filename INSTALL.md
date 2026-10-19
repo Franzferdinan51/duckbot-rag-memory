@@ -116,16 +116,27 @@ Restart OpenClaw / `mcporter list` should now show 73 tools.
 
 ### Hermes Agent — MemoryProvider plugin (recommended)
 
-The Hermes bootstrap script copies `src/plugins/memory/duckbot_brain/`
-into `~/.hermes/plugins/memory/duckbot_brain/` and auto-writes
-`memory.provider: duckbot-brain` into `~/.hermes/config.yaml`. The
-plugin's `on_session_start` hook fires `brain_wake_up` automatically;
+The Hermes bootstrap script installs the plugin to the canonical
+**top-level** path `~/.hermes/plugins/duckbot-brain/` and auto-writes
+`memory.provider: duckbot-brain` into `~/.hermes/config.yaml`.
+(That exact path is load-bearing — Hermes' memory-provider resolver
+only looks at top-level `plugins/<provider-name>/`.) The plugin's
+`on_session_start` hook fires `brain_wake_up` automatically;
 `on_session_end` persists durable user rules into the procedural tier.
 
 ```bash
 ./scripts/hermes-bootstrap.sh
 grep duckbot-brain ~/.hermes/config.yaml    # memory.provider: duckbot-brain
 ```
+
+**Host-gate caveat (the reference Mac):** Hermes' gateway/backend
+processes run an isolated (`-I`) bundled Python — no user
+site-packages, `PYTHONPATH` stripped — so the plugin cannot import
+`chromadb` and **self-disables** there. That is by design, not a bug:
+the canonical Hermes surface on such hosts is the MCP server below, and
+`hermes memory off` (unselects the provider) keeps the session startup
+quiet. Where the Hermes Python *can* import chromadb, the in-process
+provider works exactly as described above.
 
 ### Hermes Agent — MCP server (fallback)
 
@@ -150,6 +161,10 @@ bootstrap script writes for you).
 |---|---|
 | `on_session_start` | Calls `brain.wake_up(k=8, ...)` and returns the wake-up shape to Hermes so the agent starts with full context — no manual call needed. |
 | `on_session_end` | Regex-scans the session messages for durable user rules (always / never / must / should / prefer / want / don't, 12–800 chars) and persists them as a single `procedural`-tier chunk via `brain_remember`. |
+
+Where the plugin self-disables (see the host-gate caveat above), these
+hooks do not fire — the MCP `brain_wake_up` / `brain_remember` tools and
+the nightly jobs in the README deployed-jobs table cover the same ground.
 
 The `hermes-preflight.sh` + `hermes-postflight.sh` scripts still exist
 for cron / manual use cases (e.g. nightly consolidation) — they're
