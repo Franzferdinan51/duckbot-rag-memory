@@ -29,7 +29,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import subprocess
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -67,6 +69,152 @@ from src.connectors.base import Brain
 from src.extensions import tools as _tools
 
 logger = logging.getLogger(__name__)
+
+
+# -----------------------------------------------------------------------------
+# Bridge mode (v0.16.0)
+#
+# The Hermes gateway runs an isolated bundled Python (-I: no user
+# site-packages, PYTHONPATH stripped) that cannot import chromadb, so
+# the in-process Brain can never run there — the 2026-10-19 host gate
+# made the provider self-disable in exactly the process that serves
+# agents. Bridge mode removes that dead end: when the in-process import
+# fails, the provider spawns src.brain_worker under the repo venv
+# Python (the same interpreter the duckbot-memory MCP server uses) and
+# forwards Brain calls over stdio line-JSON. Same store, same code —
+# the Brain simply lives in an interpreter that can host it.
+# -----------------------------------------------------------------------------
+
+
+def _venv_python(root: str) -> Optional[str]:
+    """The repo venv interpreter (POSIX or Windows layout), or None."""
+    base = Path(root) / ".venv"
+    for cand in (base / "bin" / "python", base / "Scripts" / "python.exe",
+                 base / "Scripts" / "python"):
+        if cand.exists():
+            return str(cand)
+    return None
+
+
+class _WorkerClient:
+    """One persistent brain-worker subprocess, strict request/response."""
+
+    def __init__(self, root: str, python_bin: str) -> None:
+        self._root = root
+        self._python = python_bin
+        self._proc: Optional[subprocess.Popen] = None
+        self._lock = threading.Lock()
+        self._seq = 0
+
+    def start(self) -> None:
+        if self._proc is not None and self._proc.poll() is None:
+            return
+        import os as _os
+        env = dict(_os.environ)
+        env.pop("PYTHONPATH", None)  # venv is self-contained (see MCP launcher)
+        env.setdefault("DUCKBOT_EMBEDDING", "lmstudio")
+        env["PYTHONUNBUFFERED"] = "1"
+        log_path = Path(self._root) / "data" / "brain-worker.log"
+        try:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            err = open(log_path, "ab")
+        except Exception:  # noqa: BLE001
+            err = subprocess.DEVNULL
+        self._proc = subprocess.Popen(
+            [self._python, "-m", "src.brain_worker"],
+            cwd=self._root, env=env,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=err, text=True, bufsize=1,
+        )
+
+    def call(self, op: str, args: Optional[dict] = None,
+             timeout: Optional[float] = None) -> Any:
+        """One round-trip. With a timeout, the call runs on a scratch
+        thread so a wedged worker can't hang the agent loop."""
+        if timeout is not None:
+            box: dict = {}
+
+            def _run() -> None:
+                try:
+                    box["result"] = self._call_blocking(op, args)
+                except Exception as e:  # noqa: BLE001
+                    box["error"] = e
+
+            t = threading.Thread(target=_run, daemon=True)
+            t.start()
+            t.join(timeout)
+            if t.is_alive():
+                raise TimeoutError(f"brain worker {op} exceeded {timeout}s")
+            if "error" in box:
+                raise box["error"]
+            return box.get("result")
+        return self._call_blocking(op, args)
+
+    def _call_blocking(self, op: str, args: Optional[dict] = None) -> Any:
+        with self._lock:
+            self.start()
+            assert self._proc is not None
+            assert self._proc.stdin is not None and self._proc.stdout is not None
+            self._seq += 1
+            req_id = self._seq
+            self._proc.stdin.write(json.dumps(
+                {"id": req_id, "op": op, "args": args or {}}) + "\n")
+            self._proc.stdin.flush()
+            line = self._proc.stdout.readline()
+            if not line:
+                raise RuntimeError("brain worker exited unexpectedly")
+            resp = json.loads(line)
+            if resp.get("id") != req_id:
+                raise RuntimeError("brain worker protocol desync")
+            if not resp.get("ok"):
+                raise RuntimeError(resp.get("error", "brain worker error"))
+            return resp.get("result")
+
+    def close(self) -> None:
+        proc, self._proc = self._proc, None
+        if proc is None:
+            return
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:  # noqa: BLE001
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+class _BridgeBrain:
+    """Brain-shaped facade over _WorkerClient.
+
+    Only the surface the provider itself consumes (recall / remember /
+    wake_up / stats); the brain tools go through the worker's dispatch
+    op instead. Recall results come back as plain namespaces carrying
+    the attributes prefetch reads (.text / .tier / .metadata / ...).
+    """
+
+    def __init__(self, client: _WorkerClient) -> None:
+        self._client = client
+
+    def recall(self, query: str, k: int = 5, **kwargs: Any) -> list:
+        from types import SimpleNamespace
+        rows = self._client.call("recall", {"query": query, "k": k, **kwargs})
+        return [SimpleNamespace(**row) for row in rows or []]
+
+    def remember(self, text: str, source_path: str = "<connector>",
+                 force_tier: Any = None, **_: Any) -> Any:
+        from types import SimpleNamespace
+        tier = getattr(force_tier, "value", force_tier)
+        out = self._client.call("remember", {
+            "text": text, "source_path": source_path, "force_tier": tier})
+        return SimpleNamespace(**(out or {}))
+
+    def wake_up(self, **kwargs: Any) -> dict:
+        return self._client.call("wake_up", kwargs) or {}
+
+    def stats(self) -> Any:
+        from types import SimpleNamespace
+        return SimpleNamespace(**(self._client.call("stats") or {}))
 
 
 # -----------------------------------------------------------------------------
@@ -117,6 +265,12 @@ class DuckBotBrainProvider:
 
     def __init__(self) -> None:
         self._brain: Optional[Brain] = None
+        # Bridge mode (v0.16.0): set by is_available() when this
+        # interpreter can't host the Brain but the worker can.
+        self._bridge_mode: bool = False
+        self._worker: Optional[_WorkerClient] = None
+        self._avail_probed: bool = False
+        self._avail_result: bool = False
         self._executor = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="duckbot-brain-sync"
         )
@@ -158,33 +312,57 @@ class DuckBotBrainProvider:
     # -- Lifecycle -----------------------------------------------------------
 
     def is_available(self) -> bool:
-        """Cheap check: is the Brain importable + runnable in this interpreter?
+        """Is the Brain reachable from this process — directly or bridged?
 
-        Per the Hermes ABC, this should NOT make network calls (it gates
-        activation in MemoryManager before the agent loop starts). We
-        verify the Brain class imports, the repo root is on the Python
-        path, and the vector backend's hard dependency (chromadb) is
-        importable in THIS interpreter.
+        Direct mode: the Brain class imports, the repo root is on the
+        Python path, and the vector backend's hard dependency
+        (chromadb) is importable in THIS interpreter.
 
-        Host gate (2026-10-19): the Hermes gateway runs an isolated
-        bundled Python (-I: no user site-packages, PYTHONPATH stripped),
-        which cannot import chromadb. An in-process Brain there would
-        expose tools that all fail with "requires chromadb" and silently
-        drop every sync_turn write. When chromadb is absent we
-        self-disable: the canonical brain surface in that configuration
-        is the 'duckbot-memory' MCP server (repo venv Python, stdio).
-        Built-in file memory (MEMORY.md/USER.md/SOUL.md) is unaffected.
+        Bridge mode (v0.16.0): the Hermes gateway runs an isolated
+        bundled Python (-I: no user site-packages, PYTHONPATH
+        stripped), which cannot import chromadb. The 2026-10-19 host
+        gate made the provider self-disable there; bridge mode instead
+        probes the brain worker under the repo venv Python — the same
+        interpreter the 'duckbot-memory' MCP server uses — and forwards
+        calls to it, so the provider stays live in the gateway too.
+        The probe runs once per provider instance; the worker stays
+        warm for the session.
         """
+        if self._avail_probed:
+            return self._avail_result
+        self._avail_probed = True
+        direct_err = ""
         try:
             from src.connectors.base import Brain as _  # noqa: F401
             # Touch src/ to confirm the repo path is set up correctly.
             import src
             assert hasattr(src, "__file__") and src.__file__
             import chromadb  # noqa: F401 — ChromaBackend hard dependency
+            self._avail_result = True
             return True
-        except Exception as e:
-            logger.debug("DuckBot brain not available: %s", e)
-            self._unavailable_reason = f"{type(e).__name__}: {e}"
+        except Exception as e:  # noqa: BLE001
+            direct_err = f"{type(e).__name__}: {e}"
+        # Direct mode impossible in this interpreter — try the bridge
+        # (the Hermes gateway's isolated Python is the canonical case).
+        try:
+            python_bin = _venv_python(_DUCKBOT_ROOT)
+            if python_bin is None:
+                raise RuntimeError(
+                    f"no repo venv python under {_DUCKBOT_ROOT}")
+            self._worker = _WorkerClient(_DUCKBOT_ROOT, python_bin)
+            self._worker.call("ping", timeout=60)
+            self._bridge_mode = True
+            self._avail_result = True
+            logger.info(
+                "[duckbot-brain] bridge mode: brain worker live via %s",
+                python_bin)
+            return True
+        except Exception as e:  # noqa: BLE001
+            self._unavailable_reason = (
+                f"direct import failed ({direct_err}); "
+                f"bridge probe failed ({type(e).__name__}: {e})")
+            logger.debug("DuckBot brain not available: %s",
+                         self._unavailable_reason)
             return False
 
     def unavailable_reason(self) -> str:
@@ -192,7 +370,8 @@ class DuckBotBrainProvider:
         return (
             getattr(self, "_unavailable_reason", "")
             or "brain imports but is not usable in this interpreter; "
-               "use the 'duckbot-memory' MCP server (repo venv Python)"
+               "use the 'duckbot-memory' MCP server (repo venv Python), "
+               "or check data/brain-worker.log for the bridge failure"
         )
 
     def initialize(self, session_id: str, **kwargs: Any) -> None:
@@ -226,6 +405,11 @@ class DuckBotBrainProvider:
 
     def shutdown(self) -> None:
         """Best-effort cleanup on agent exit."""
+        if self._worker is not None:
+            try:
+                self._worker.close()
+            except Exception:  # noqa: BLE001
+                pass
         try:
             self._executor.shutdown(wait=True, cancel_futures=False)
         except Exception:
@@ -355,6 +539,24 @@ class DuckBotBrainProvider:
         rl_err = _tools.check_rate_limit(tool_name)
         if rl_err is not None:
             return json.dumps(rl_err)
+        # Bridge mode: the worker runs the shared dispatch against its
+        # own Brain (this process can't). A test-provided real Brain in
+        # _brain still wins, matching the override contract below.
+        if self._bridge_mode and (
+                self._brain is None or isinstance(self._brain, _BridgeBrain)):
+            try:
+                result = self._worker.call("dispatch", {
+                    "name": tool_name, "args": args})
+            except Exception as exc:  # noqa: BLE001
+                self._record_event(
+                    "tool_error", tool_name=tool_name, error=str(exc))
+                raise
+            try:
+                self._record_event(
+                    "post_tool_use", tool_name=tool_name, result=result)
+            except Exception:  # noqa: BLE001
+                pass
+            return json.dumps(result, default=str)
         # Honor a per-provider brain override (test fixture path —
         # keeps `provider._brain = fake_brain` working in tests).
         try:
@@ -505,9 +707,13 @@ class DuckBotBrainProvider:
     # -- Internals -----------------------------------------------------------
 
     def _get_brain(self) -> Brain:
-        """Lazy-construct the Brain singleton."""
+        """Lazy-construct the Brain singleton (or the bridge facade)."""
         if self._brain is None:
-            self._brain = Brain()
+            if self._bridge_mode:
+                assert self._worker is not None
+                self._brain = _BridgeBrain(self._worker)  # type: ignore[assignment]
+            else:
+                self._brain = Brain()
         return self._brain
 
 # -----------------------------------------------------------------------------
@@ -571,7 +777,7 @@ def on_session_end(messages=None) -> dict:
 
 
 # Also expose at module top-level for direct import access
-__version__ = "0.15.1"
+__version__ = "0.16.0"
 
 __all__ = [
     "register",

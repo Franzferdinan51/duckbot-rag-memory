@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased — bridge mode: the memory provider works in the Hermes gateway (2026-10-28)
+
+### Added
+
+- **`src/brain_worker.py`** — the Brain served over stdio line-JSON
+  (ops: ping / dispatch / recall / remember / wake_up / stats /
+  shutdown), running under the repo venv Python. Honors
+  `DUCKBOT_BRAIN_DATA_DIR` to point at an alternate data directory
+  (tests); unset, the Brain defaults apply.
+
+### Fixed
+
+- **The duckbot-brain MemoryProvider no longer self-disables in the
+  Hermes gateway.** The gateway's isolated bundled Python (`-I`, no
+  user site-packages) cannot import chromadb, so the 2026-10-19 host
+  gate made the provider report unavailable in exactly the process
+  that serves agents — profiles selecting `duckbot-brain` (e.g. ops)
+  got a permanent "provider unavailable" warning and silently dropped
+  in-process memory. The provider (both plugin copies, now v0.16.0)
+  falls back to **bridge mode**: when the direct import fails, it
+  spawns `src.brain_worker` under the repo venv Python — the same
+  interpreter the `duckbot-memory` MCP server uses — probes it with a
+  ping, and forwards tool dispatch / recall / remember / wake_up /
+  stats over the worker protocol. Direct mode is unchanged where
+  chromadb imports in-process. Tests: `tests/test_brain_bridge.py`.
+
 ## Unreleased — brain_sync importance ordering + deployed-jobs refresh (2026-10-19)
 
 ### Added
