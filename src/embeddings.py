@@ -801,6 +801,30 @@ class MiniMaxEmbeddings:
         return (await self.embed([text], timeout_ms=timeout_ms))[0]
 
 
+async def _lmstudio_selfheal(provider: "LMStudioEmbeddings") -> bool:
+    """Load the configured embed model in LM Studio if it isn't loaded.
+
+    A long-lived process (MCP server, daemon) that resolves its embedder
+    before the embed model is loaded walks the fallback chain and lands on
+    the 384-dim local provider — silently wrong for a 768-dim collection.
+    Loading the 84 MB model is cheap; retry the resolve afterwards.
+    """
+    import asyncio as _asyncio
+    import shutil
+    if shutil.which("lms") is None:
+        return False
+    try:
+        proc = await _asyncio.create_subprocess_exec(
+            "lms", "load", provider.model,
+            stdout=_asyncio.subprocess.DEVNULL,
+            stderr=_asyncio.subprocess.DEVNULL,
+        )
+        await proc.wait()
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
 async def auto_detect_provider(prefer: str | None = None) -> EmbeddingProvider:
     """Pick the best available provider based on env vars + reachability.
 
@@ -868,6 +892,9 @@ async def auto_detect_provider(prefer: str | None = None) -> EmbeddingProvider:
             provider = factory()
             if isinstance(provider, LMStudioEmbeddings):
                 if await provider._resolve_dim():
+                    return provider
+                # Server up but model not loaded — self-heal once, re-test.
+                if await _lmstudio_selfheal(provider) and await provider._resolve_dim():
                     return provider
                 continue
             return provider

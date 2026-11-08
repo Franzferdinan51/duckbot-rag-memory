@@ -70,3 +70,12 @@ data/shadow/
 =
 data/brain.db
 logs/
+
+# live-host diagnostics + macOS sidecars (2026-11-08 cleanup)
+._*
+/bootstrap.log
+/mcp_server.log
+data/*.py
+data/*.err
+data/*.out
+data/*.result

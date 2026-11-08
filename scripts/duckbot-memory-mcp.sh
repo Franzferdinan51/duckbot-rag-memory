@@ -15,6 +15,11 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +a
 fi
 
+# Pin the embedding provider explicitly: the store is 768-dim (nomic via
+# LM Studio). .env values and auto-detect have bitten us (384-dim local
+# provider breaks the collection); the sync wrapper does the same.
+export DUCKBOT_EMBEDDING=lmstudio
+
 # Defang inherited PYTHONPATH (e.g. a host agent injecting its own
 # site-packages for a *different* python version). The venv is fully
 # self-contained; a foreign PYTHONPATH shadows venv packages and breaks
