@@ -7,8 +7,13 @@ reconciliation, intentions, episodes). State-tracked: reruns only
 process new/changed sessions.
 
 Usage:
-  python scripts/ingest_sessions.py [--sources grok,zcode] [--days 7]
+  python scripts/ingest_sessions.py --sources grok,zcode [--days 7]
       [--data-dir DIR] [--state FILE] [--dry-run]
+  python scripts/ingest_sessions.py --files EXPORT.jsonl [MORE...]
+      [--dry-run]
+
+Importing is a MANUAL feature: the brain never ingests on its own.
+Nothing runs unless the owner names a source or hands over files.
 """
 from __future__ import annotations
 
@@ -25,7 +30,10 @@ WRITER_MODEL = "hy-memory-30b-a3b-mlx"
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sources", default="zcode")  # grok removed 2026-11-23 (Duckets order: brain is Hermes/Juno-only)
+    ap.add_argument("--sources", default="",
+                    help="comma list: grok,zcode (named explicitly - no default)")
+    ap.add_argument("--files", nargs="*", default=[],
+                    help="exported session files (.jsonl/.md/.txt) from any agent")
     ap.add_argument("--days", type=float, default=7)
     ap.add_argument("--model", default=WRITER_MODEL)
     ap.add_argument("--data-dir", default=None)
@@ -42,6 +50,21 @@ def main() -> int:
         found = discover_sessions(kind, days=args.days)
         files.extend((kind, p) for p in found)
         print(f"{kind}: {len(found)} session file(s) in the last {args.days}d")
+    for f in args.files:
+        p = Path(f).expanduser()
+        if p.is_dir():
+            hits = sorted(q for q in p.rglob("*")
+                          if q.suffix.lower() in (".jsonl", ".md", ".txt"))
+            files.extend(("files", q) for q in hits)
+            print(f"files: {len(hits)} export file(s) under {p}")
+        elif p.exists():
+            files.append(("files", p))
+            print(f"files: 1 export file ({p})")
+        else:
+            print(f"files: NOT FOUND: {p}")
+    if not files and not args.dry_run:
+        print("nothing to import: name --sources grok,zcode and/or --files ...")
+        return 2
     if args.dry_run:
         for _kind, p in files[:20]:
             print(f"  {p} ({p.stat().st_size // 1024} KiB)")

@@ -276,3 +276,27 @@ fresh transport on its next brain call instead of hanging into a dead
 pipe for days (the 2026-11-23 stall). Host, remote script path and key
 are overridable via DUCKBOT_BRAIN_HOST / DUCKBOT_BRAIN_SCRIPT /
 DUCKBOT_BRAIN_KEY.
+
+## Importing another agent's memories (manual feature)
+
+The brain's live connections are Hermes/Juno-only, but the owner can
+import another agent's sessions on demand. Imports are NEVER automatic:
+nothing is scheduled, and the tool refuses to run until a source is
+named explicitly.
+
+Run on the machine that holds the sessions and the writer model
+(LM Studio), from the repo root:
+
+    # grok-local or zcode-local session stores (last 30 days)
+    .venv/bin/python scripts/ingest_sessions.py --sources grok --days 30
+    .venv/bin/python scripts/ingest_sessions.py --sources zcode --days 30
+
+    # any agent's exported files (.jsonl / .md / .txt, files or a folder)
+    .venv/bin/python scripts/ingest_sessions.py --files ~/exports/some-agent/
+
+Add --dry-run first to list what would be imported without storing
+anything. Imports are state-tracked (per-file mtime) and content-hash
+deduped, so re-running an import is a no-op for unchanged sessions.
+Imported material goes through the same distillation pipeline as native
+sessions (facts, episodes, intentions) with the session file recorded
+as its source.

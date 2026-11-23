@@ -12,6 +12,15 @@ reconciliation, Phase B intentions, Phase D episodes):
   zcode-local  ~/.zcode-local/cli/rollout/model-io-sess_*.jsonl
                per-call records; the LAST record's request.messages holds
                the full history, response.text the final reply.
+  files        any agent's exported sessions handed over explicitly
+               (.jsonl with role/content records or a messages list,
+               or plain .md/.txt conversation text)
+
+IMPORT IS A MANUAL, OWNER-INVOKED FEATURE (Duckets, 2026-11-23): the
+brain's live connections are Hermes/Juno-only, and nothing may ingest
+on a schedule or by itself - imports run only when the owner runs the
+CLI and names the source. discover_sessions() working again does not
+change that; scripts/ingest_sessions.py requires an explicit source.
 
 Boilerplate (system prompts, injected <user_info>/<rules> wrappers,
 system-reminders) is stripped during normalization — it is not memory.
@@ -122,10 +131,6 @@ def discover_sessions(kind: str, *, days: Optional[float] = None,
     """Find session files for a source kind, newest first."""
     home = home or Path.home()
     if kind == "grok":
-        # DISABLED 2026-11-23 (Duckets order): brain is Hermes/Juno-only.
-        # grok-local session transcripts must never be ingested.
-        return []
-    if kind == "grok":
         files = sorted(home.glob(".grok-local/sessions/*/*/chat_history.jsonl"))
     elif kind == "zcode":
         files = [p for p in home.glob(".zcode-local/cli/rollout/model-io-sess_*.jsonl")
@@ -139,7 +144,51 @@ def discover_sessions(kind: str, *, days: Optional[float] = None,
     return sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
 
 
-_TEXT_FOR_KIND = {"grok": grok_session_text, "zcode": zcode_rollout_text}
+def generic_session_text(path: str | Path) -> str:
+    """Normalize any agent's exported session file into conversation text.
+
+    Accepts .jsonl whose records carry role/type + content (or a
+    top-level messages list), and plain .md/.txt conversation text.
+    Used by the explicit --files import: the owner hands over the
+    files, so no home-directory discovery happens for this kind.
+    """
+    path = Path(path)
+    try:
+        raw = path.read_text(errors="replace")
+    except OSError:
+        return ""
+    if path.suffix.lower() != ".jsonl":
+        return raw.strip()
+    turns: list[str] = []
+    for line in raw.splitlines():
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        msgs = rec.get("messages")
+        if isinstance(msgs, list):
+            for msg in msgs:
+                if isinstance(msg, dict):
+                    role = msg.get("role") or msg.get("type")
+                    text = _parts_text(msg.get("content")).strip()
+                    if role in ("user", "assistant") and text:
+                        turns.append(f"{role.upper()}: {text}")
+            continue
+        role = rec.get("role") or rec.get("type")
+        text = _parts_text(rec.get("content")).strip()
+        if role in ("user", "assistant") and text:
+            if role == "user":
+                text = _clean_user_text(text)
+                if not text:
+                    continue
+            turns.append(f"{role.upper()}: {text}")
+    return "\n\n".join(turns)
+
+
+_TEXT_FOR_KIND = {"grok": grok_session_text, "zcode": zcode_rollout_text,
+                  "files": generic_session_text}
 
 
 def _segments(text: str, *, max_chars: int = 6000) -> list[str]:
