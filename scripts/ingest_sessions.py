@@ -25,7 +25,7 @@ WRITER_MODEL = "hy-memory-30b-a3b-mlx"
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sources", default="grok,zcode")
+    ap.add_argument("--sources", default="zcode")  # grok removed 2026-11-23 (Duckets order: brain is Hermes/Juno-only)
     ap.add_argument("--days", type=float, default=7)
     ap.add_argument("--model", default=WRITER_MODEL)
     ap.add_argument("--data-dir", default=None)

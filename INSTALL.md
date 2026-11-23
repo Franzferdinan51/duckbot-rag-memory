@@ -263,3 +263,16 @@ pwsh scripts/install.ps1     # Windows Task Scheduler
 - Read `docs/ARCHITECTURE.md` for the 4-tier CoALA model + hybrid retrieval details.
 - Read `docs/RESEARCH.md` for the upstream-project lineage (mem0, Letta, MemPalace, Graphiti, py-fsrs) and what was borrowed.
 - Read `CHANGELOG.md` for the version-by-version history.
+
+## Remote brain host (Hermes on a different machine)
+
+When Hermes runs on one machine and the brain store lives on another,
+point Hermes' MCP entry at **scripts/duckbot-memory-mcp-client.sh** on the
+Hermes host instead of a hand-written ssh command. The launcher ssh's to
+the brain host with keepalives (ServerAliveInterval=20, CountMax=3) and a
+connect timeout: if the far end vanishes (VPN/Tailscale flips, sleep,
+network drop), ssh notices within ~60s and exits, so Hermes respawns a
+fresh transport on its next brain call instead of hanging into a dead
+pipe for days (the 2026-11-23 stall). Host, remote script path and key
+are overridable via DUCKBOT_BRAIN_HOST / DUCKBOT_BRAIN_SCRIPT /
+DUCKBOT_BRAIN_KEY.

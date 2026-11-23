@@ -122,6 +122,10 @@ def discover_sessions(kind: str, *, days: Optional[float] = None,
     """Find session files for a source kind, newest first."""
     home = home or Path.home()
     if kind == "grok":
+        # DISABLED 2026-11-23 (Duckets order): brain is Hermes/Juno-only.
+        # grok-local session transcripts must never be ingested.
+        return []
+    if kind == "grok":
         files = sorted(home.glob(".grok-local/sessions/*/*/chat_history.jsonl"))
     elif kind == "zcode":
         files = [p for p in home.glob(".zcode-local/cli/rollout/model-io-sess_*.jsonl")
