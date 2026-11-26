@@ -1,10 +1,12 @@
 # DuckBot RAG + Memory System
 
-Persistent, searchable memory that dramatically expands the limited default memory of Hermes Agent (the primary runtime today) and OpenClaw (legacy, still synced). Drop-in replacement for the flat chat-history buffers both agents ship with — adds a 4-tier CoALA memory model, hybrid retrieval, entity graph, verbatim recall, FSRS-6 spaced repetition, dreaming consolidation, and a Wing/Room/Drawer 2D hierarchy on top.
+Persistent, searchable memory that dramatically expands the limited default memory of Hermes Agent (the only live runtime — the brain serves Hermes + Juno exclusively since the owner's 2026-11-23 ruling; OpenClaw support is legacy and no longer synced). Drop-in replacement for the flat chat-history buffers both agents ship with — adds a 4-tier CoALA memory model, hybrid retrieval, entity graph, verbatim recall, FSRS-6 spaced repetition, dreaming consolidation, and a Wing/Room/Drawer 2D hierarchy on top.
+
+> **What's new — 2026-11-26 (v0.18.0): the entity graph is alive, the boundary is enforced, and the brain has a backup.** The knowledge graph sat at 1 entity against ~29k chunks because the graph feed is opt-in and the brain worker never loaded the repo `.env` (only the CLI did) — both fixed, and a watermark-based backfill (`scripts/backfill_graph.py`, now a nightly step) brought the live graph to 3,977 entities / 865 relationships. The hourly sync now targets Hermes only (OpenClaw context writes are off the timer, per the 2026-11-23 boundary), and a weekly backup timer (Sun 05:00 ET) finally schedules `scripts/backup-brain.sh` — whose BSD `mktemp` syntax could never have run on Robin — keeping the newest 4 archives. Hy-Memory's model files were deleted from the Mac and Sabrent at the owner's order.
 
 > **What's new — 2026-11-26 (v0.17.0): the writer is now a light model, and the docs tell the truth again.** Hy-Memory-30B was retired: at 16 GB it was too heavy for the live path, LM Studio no longer indexed the build, and in the Robin deployment its nightly load had failed every night since 2026-11-09 while the job silently fail-opened to regex and reported success. The consolidation writer is now `lfm3-omni-2b` (2.4 GB, verified live 2026-11-26). This release also unifies the Hermes plugin to a single canonical copy (four divergent copies were in play; two profiles ran stale ones), removes MiniMax from embedding auto-detect, pins the D1 gate to `d1-2b`, and corrects the deployed-jobs table to the Robin systemd deployment that has actually hosted the brain since 2026-11-04.
 >
-> **Historical — 2026-10-19: Hy-Memory was made the live consolidation writer.** The writer path below cleared its 2026-10-16 evaluation week (nightly shadow A/B over real memory files: Hy-Memory 107 facts at a 0.243 duplicate rate vs the regex incumbent's 40 at 0.65) and was promoted — a nightly pass (`scripts/nightly_hy_pass.py`, Hermes cron, no-agent) now runs the Hy-Memory load-on-dispatch writer against the live bank. Chat model and embedder stay loaded; the writer is unloaded after each run. See [The Hy-Memory Writer Path](#the-hy-memory-writer-path) and the [deployed jobs table](#deployed-jobs-reference-mac).
+> **Historical — 2026-10-19: Hy-Memory was made the live consolidation writer.** The writer path below cleared its 2026-10-16 evaluation week (nightly shadow A/B over real memory files: Hy-Memory 107 facts at a 0.243 duplicate rate vs the regex incumbent's 40 at 0.65) and was promoted — a nightly pass (`scripts/nightly_hy_pass.py`, Hermes cron, no-agent) now runs the Hy-Memory load-on-dispatch writer against the live bank. Chat model and embedder stay loaded; the writer is unloaded after each run. See [The Hy-Memory Writer Path](#the-hy-memory-writer-path) and the [deployed jobs table](#deployed-jobs-robin--the-brain-has-lived-on-robin-since-2026-11-04).
 >
 > **2026-10-16: the Hy-Memory writer path.** Consolidation is no longer regex-only. A dedicated writer model — Tencent's Hy-Memory-30B-A3B, run locally as a 4-bit MLX build in LM Studio — extracts memory statements behind a SystemOne/D1 quality gate, with mem0-style update semantics (add / update / retire-for-review). It was A/B-validated against the regex incumbent in a nightly shadow run during the evaluation week, then promoted to the live nightly consolidation on 2026-10-19 (retired 2026-11-26 — see the v0.17.0 banner above).
 
@@ -27,7 +29,7 @@ DuckBot memory is a focused RAG and long-term memory layer for personal agent wo
 | Memory for the user | None (no user model) | Honcho-style `brain_user_model` block that accumulates over time |
 | Memory for the work | Markdown files agents re-read every session | Wing/Room/Drawer 2D hierarchy (MemPalace-style): project → day → chunk |
 | Forgetting | Linear (oldest message dropped) | FSRS-6 spaced repetition with self-tunable `w20` (per-deployment) |
-| Consolidation | Agent-driven | `reflect()` + `dreaming_cycle()` promote episodic → semantic with agent-supplied facts or regex fallback; an optional dedicated writer model (Hy-Memory, local MLX) behind a D1 gate when the batch job opts in |
+| Consolidation | Agent-driven | `reflect()` + `dreaming_cycle()` promote episodic → semantic with agent-supplied facts or regex fallback; an optional dedicated writer model (`lfm3-omni-2b`, local; Hy-Memory retired 2026-11-26) behind a D1 gate when the batch job opts in |
 | Conflict detection | None (new fact overwrites old) | mem0-style: near-duplicates marked `superseded_by` |
 | Discovery | Grep through markdown | AAAK compression dialect scans the whole corpus in <500 tokens |
 | Self-improvement | None | **Agent-driven skill pipeline**: agents stamp candidates with `brain_remember(kind="skill_candidate")` (no LLM) and promote them to agentskills.io SKILL.md themselves; `brain_skills_suggest` finds candidates by semantic query; `brain_optimize_fsrs` self-tunes the forgetting curve |
@@ -38,21 +40,21 @@ DuckBot memory is a focused RAG and long-term memory layer for personal agent wo
 
 It is designed for a practical loop:
 
-1. Capture durable context from OpenClaw memory files, project docs, and direct `remember` calls.
+1. Capture durable context from Hermes memory files, project docs, and direct `remember` calls.
 2. Retrieve with hybrid vector + keyword + temporal-proximity search.
 3. Consolidate episodic notes into semantic facts.
 4. Sync useful memories back into agent context files.
 5. Surface stale-but-important memories via proactive nudges.
 6. Distill successful tasks into reusable agentskills.io SKILL.md manifests.
 
-The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs, Hermes Agent, and the CoALA memory taxonomy, but it keeps the runtime small: no general agent framework, no hosted database requirement, no secrets in client config. OpenClaw and Hermes are the agent runtimes that call into this brain; this repo is the memory layer they use.
+The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs, Hermes Agent, and the CoALA memory taxonomy, but it keeps the runtime small: no general agent framework, no hosted database requirement, no secrets in client config. Hermes is the agent runtime that calls into this brain (an OpenClaw adapter remains for legacy compatibility); this repo is the memory layer it uses.
 
 ## Core Capabilities
 
 - **Four memory tiers:** working, episodic, semantic, and procedural.
 - **Markdown-aware chunking:** recursive splitting around headers, paragraphs, sentences, and words.
 - **Hybrid retrieval:** vector search + BM25-style keyword matching + Reciprocal Rank Fusion, with optional keyword-boost and temporal-proximity boost layers.
-- **Entity and relationship memory:** lightweight graph storage for people, projects, files, and links between them, with bi-temporal edges (`valid_from`/`valid_until` for world time, `recorded_from`/`recorded_until` for when the brain learned it).
+- **Entity and relationship memory:** lightweight graph storage for people, projects, files, and links between them, with bi-temporal edges (`valid_from`/`valid_until` for world time, `recorded_from`/`recorded_until` for when the brain learned it). Live graph (2026-11-26): 3,977 entities / 865 relationships, fed by every new `remember` (`DUCKBOT_GRAPH_FEED=1`) plus the nightly backfill.
 - **Verbatim recall:** exact source text retrieval for quotes, commands, and sensitive wording.
 - **Memory health layers:** decay (Ebbinghaus), FSRS-6 spaced repetition with self-tunable `w20`, tier priors, rerank hooks, conflict detection (mem0-style), and injection scanning.
 - **Wing/Room/Drawer 2D hierarchy (MemPalace-inspired):** people/projects × time × verbatim chunks, accessible via `brain_palace` MCP tool.
@@ -75,15 +77,15 @@ Historically, consolidation extracted facts two ways: the agent supplied them, o
 
 **The writer.** Tencent's [Hy-Memory-30B-A3B](https://huggingface.co/tencent/Hy-Memory-30B-A3B) (Apache-2.0; 30B total / ~3B active MoE, `hy_v3`, 262K context) is a dedicated memory-extraction model. On Tencent's cross-harness evaluation (Mem0 / MemOS / Hy-Memory / EverMemOS) it outscored Claude Opus 5 and Qwen3.6-35B-A3B as a drop-in memory writer. In the Hy era it ran locally as a **4-bit MLX build in LM Studio** — [`Duckets/Hy-Memory-30B-A3B-MLX-4bit`](https://huggingface.co/Duckets/Hy-Memory-30B-A3B-MLX-4bit) (affine, group 64, ~17 GB, identifier `hy-memory-30b-a3b-mlx`). The adapter is `src/hy_memory.py`: explicit `model=` only, no environment defaults, silent empty-list fallback — it can never load a model by accident. The writer is **load-on-dispatch**: jobs load it, use it, and unload it; it is never left resident.
 
-**The gate.** Not every chunk deserves the writer's time or a slot in the bank. `src/gate.py` asks the SystemOne decision layer (D1, `d1-3b` in LM Studio, via `POST /v1/systemone`) one 4-way question per chunk — route to bank `chat`, `working`, or `code`, or `none`. A chunk is skipped only when `none` wins at ≥ 0.60 confidence. The gate **fails open**: any error stores the chunk ungated rather than dropping memory. Calibration on real chunks: bio → chat 0.92, junk → none 0.84, project → working 0.97, preferences → chat 0.76.
+**The gate.** Not every chunk deserves the writer's time or a slot in the bank. `src/gate.py` asks the SystemOne decision layer (D1, `d1-2b` in LM Studio, via `POST /v1/systemone`) one 4-way question per chunk — route to bank `chat`, `working`, or `code`, or `none`. A chunk is skipped only when `none` wins at ≥ 0.60 confidence. The gate **fails open**: any error stores the chunk ungated rather than dropping memory. Calibration on real chunks: bio → chat 0.92, junk → none 0.84, project → working 0.97, preferences → chat 0.76.
 
 **Update semantics.** Extraction alone creates duplicates and contradictions, so the writer also plans *operations* against existing memories (`plan_memory_updates` / `parse_memory_ops` in `src/hy_memory.py`): `add` for new facts, `update` superseding a stale statement, and `retire` — which is **review-only and never auto-applied**, because early runs showed the model occasionally retiring an unrelated memory.
 
-**The batch job.** `scripts/consolidate_job.py` is the cutover-ready entrypoint: `--writer regex|hy-memory` (default regex = today's incumbent behavior), gate on by default, the writer role pinned as SystemOne's `memory_writer`. It is **dry-run by default**; `--apply` is wired (the hy-memory writer runs with Phase A reconciliation). For the live bank, prefer `scripts/nightly_hy_pass.py` — the deployed nightly consolidation pass (see the [deployed jobs table](#deployed-jobs-reference-mac)).
+**The batch job.** `scripts/consolidate_job.py` is the cutover-ready entrypoint: `--writer regex|hy-memory` (default regex = today's incumbent behavior), gate on by default, the writer role pinned as SystemOne's `memory_writer`. It is **dry-run by default**; `--apply` is wired (the hy-memory writer runs with Phase A reconciliation). For the live bank, prefer `scripts/nightly_hy_pass.py` — the deployed nightly consolidation pass (see the [deployed jobs table](#deployed-jobs-robin--the-brain-has-lived-on-robin-since-2026-11-04)).
 
 **The shadow A/B.** `scripts/shadow_writer_ab.py` runs both writers over the same chunks and writes a comparison report to `data/shadow/` — it imports no store code and *cannot* write to the bank. Its corpus is the most recent memory files across **both** agent homes (`~/.hermes/memories` and `~/.openclaw/workspace/memory`), so it always evaluates on whichever agent is actually in use. It ran nightly during the 2026-10-16 evaluation week; the evaluation is complete — Hy-Memory was promoted to the live writer on 2026-10-19. The script stays for future writer comparisons. First head-to-head on real consolidated memory files (2026-10-16): incumbent 40 facts at a 0.65 duplicate rate; Hy-Memory 107 facts (81 unique) at 0.243.
 
-**End-to-end proof.** `scripts/e2e_pipeline_test.py` exercises the whole path against a throwaway bank — chunk → gate → extract → update ops → apply → store + recall probes — and currently passes every stage on the MLX writer. Unit coverage lives in `tests/test_hy_memory.py`, `tests/test_gate.py`, and `tests/test_hy_memory_updates.py`.
+**End-to-end proof.** `scripts/e2e_pipeline_test.py` exercises the whole path against a throwaway bank — chunk → gate → extract → update ops → apply → store + recall probes — against the current writer (`lfm3-omni-2b`). Unit coverage lives in `tests/test_hy_memory.py`, `tests/test_gate.py`, and `tests/test_hy_memory_updates.py`.
 
 ## Quick Start
 
@@ -186,14 +188,14 @@ LMSTUDIO_EMBED_DIM=768
 | Embeddings | LM Studio `text-embedding-nomic-embed-text-v1.5` (768-dim) | `DUCKBOT_EMBEDDING=lmstudio`; the nightly jobs self-load it |
 | Reranker | Qwen3 `qwen3-reranker-0.6b` (LM Studio) | decay scoring; no-op fallback if absent |
 | Decision gate | `d1-2b` via SystemOne (`POST /v1/systemone`) | the live D1 decider pair is d1-2b / d1-omni-2b; fails open |
-| Memory writer | `lfm3-omni-2b` (2.4 GB) in LM Studio | **live nightly consolidation writer**; load-on-dispatch; replaced Hy-Memory-30B on 2026-11-26 (too heavy; load had failed nightly on Robin); see [The Memory Writer Path](#the-hy-memory-writer-path) |
+| Memory writer | `lfm3-omni-2b` (2.4 GB) in LM Studio | **live nightly consolidation writer**; load-on-dispatch; replaced Hy-Memory-30B on 2026-11-26 (too heavy; load had failed nightly on Robin); see [The Memory Writer Path](#the-memory-writer-path-hy-memory-retired-2026-11-26) |
 | Chat model | Hermes' own (served via Maya/LM Studio on the Mac) | brain jobs never load, unload, or punt the chat model |
 
 ### Alternative embedding providers
 
 If you build a *new* bank on a different provider, LM Studio embeddings work well (the live bank runs `text-embedding-nomic-embed-text-v1.5`, 768-dim; `DUCKBOT_EMBEDDING=lmstudio`), as do the cloud providers below. Fact extraction remains available agent-side regardless of provider: pass facts via `brain_remember(facts=[...])` or `reflect(extract_callback=...)`; `reflect()` uses the regex heuristics when no facts are supplied.
 
-OpenClaw and Hermes are the agent runtimes that call into this repo. This repo is the memory layer they use; it does not provide its own chat model.
+Hermes is the agent runtime that calls into this repo (the OpenClaw adapter is legacy). This repo is the memory layer it uses; it does not provide its own chat model.
 
 LM Studio is the preferred local path:
 
@@ -233,9 +235,11 @@ DUCKBOT_EMBEDDING=local
 
 If `DUCKBOT_EMBEDDING` is unset, the code auto-detects from available credentials and local services. Keep real keys only in `.env`; it is gitignored and protected by the secret-scan scripts.
 
-If you do not install the reranker model, rerank stays available as a no-op fallback. Fact extraction is agent-driven by default (pass facts to `brain_remember(facts=[...])` or `reflect(extract_callback=...)`); the optional Hy-Memory writer path above is the one exception, and only for batch jobs that explicitly opt in.
+If you do not install the reranker model, rerank stays available as a no-op fallback. Fact extraction is agent-driven by default (pass facts to `brain_remember(facts=[...])` or `reflect(extract_callback=...)`); the optional writer path above is the one exception, and only for batch jobs that explicitly opt in.
 
 ## Watcher
+
+> **Deployment note:** the watcher is **not part of the live Robin deployment** — it retired with the Mac lineup on 2026-11-04. Live ingest today is direct `remember` calls through the MCP worker, the hourly sync, and the nightly session ingest. The watcher remains available for other installs and one-off backfills.
 
 Use the watcher for live-ish ingest instead of cron. It polls every five minutes by default, tracks content hashes, and skips no-op rewrites.
 
@@ -280,10 +284,11 @@ MCP server over SSH. The old Mac/Hermes-cron lineup below is retired.
 
 | Job | Schedule | What it does |
 |---|---|---|
-| `duckbot-brain-sync.timer` | hourly | `brain_sync` writes SOUL.md / MEMORY.md / USER.md context files |
+| `duckbot-brain-sync.timer` | hourly | `brain_sync` writes SOUL.md / MEMORY.md / USER.md context files — **Hermes target only** since v0.18.0 (the old combined target also wrote OpenClaw files; off the timer per the 2026-11-23 boundary) |
 | `duckbot-brain-decay.timer` | daily 03:00 | FSRS retention-floor pruning, scored by `qwen3-reranker-0.6b` |
-| `duckbot-brain-nightly.timer` | daily 03:30 | Episodic → semantic consolidation with the light writer — load-on-dispatch (`lfm3-omni-2b`, unloaded after), fail-open to regex per chunk; a writer load failure now fails the job instead of reporting fake success |
+| `duckbot-brain-nightly.timer` | daily 03:30 | Episodic → semantic consolidation with the light writer — load-on-dispatch (`lfm3-omni-2b`, unloaded after), fail-open to regex per chunk; a writer load failure now fails the job instead of reporting fake success. Also runs the incremental graph backfill (`scripts/backfill_graph.py`) |
 | `duckbot-fsrs.timer` | weekly, Sun 04:00 | Self-tunes the forgetting curve (no LLM) |
+| `duckbot-brain-backup.timer` | weekly, Sun 05:00 | Full brain backup (`scripts/backup-brain.sh` via `scripts/brain-backup-wrapper.sh`) into `data/backups/`, newest 4 kept — added v0.18.0; before this the backup script existed but nothing ever ran it |
 | `rag-viz.service` | continuous | Brain dashboard on the tailnet (`100.88.161.36:8899`) |
 | ~~Mac Hermes-cron lineup~~ | retired 2026-11-04 | Watcher launchd, 03:00 Hy-Memory cron, service guardian — all superseded by the Robin timers above |
 | ~~Hy-Memory shadow A/B~~ | evaluation complete (2026-10-16 week) | Read-only writer comparison; Hy-Memory was promoted 2026-10-19 and retired 2026-11-26 — evaluation closed |
@@ -342,8 +347,9 @@ python -m src.cli wake-up
 # Same data, JSON output for programmatic consumers.
 python -m src.cli wake-up --json | jq '.memories'
 
-# Sync useful memories into OpenClaw and Hermes context files.
-python -m src.cli sync --target both
+# Sync useful memories into Hermes context files (the live target;
+# openclaw/both remain in the CLI for explicit legacy use).
+python -m src.cli sync --target hermes
 
 # Preview without writing.
 python -m src.cli sync --dry-run
@@ -360,7 +366,7 @@ python -m src.cli optimize-fsrs             # returns proposed w20 + sweep
 python -m src.cli apply-fsrs-w20 0.42       # commit (persists via DUCKBOT_FSRS_W20)
 ```
 
-`brain_wake_up` is the one-call session-start context load: top-k recent memories, active memory blocks, graph summary, and FSRS review queue. Designed for Hermes pre-flight + OpenClaw session-start hooks. `brain_inflate` recalls relevant memories and formats them as a markdown context block for an agent. `brain_sync` writes distilled context back to OpenClaw and Hermes memory files, respecting each platform's format and size limits. `brain_nudge` surfaces stale-but-important memories the agent might be forgetting. `brain_palace` exposes the MemPalace-inspired 2D hierarchy (person/project → time → verbatim chunk). `brain_optimize_fsrs` + `brain_apply_fsrs_w20` self-tune the FSRS-6 forgetting-curve exponent. `brain_skill_create` distills a successful task into an agentskills.io-compatible `SKILL.md`. `brain_user_model` aggregates user-related facts into a single Honcho-style user block.
+`brain_wake_up` is the one-call session-start context load: top-k recent memories, active memory blocks, graph summary, and FSRS review queue. Designed for Hermes pre-flight + OpenClaw session-start hooks. `brain_inflate` recalls relevant memories and formats them as a markdown context block for an agent. `brain_sync` writes distilled context back to the agent's memory files (Hermes in the live deployment), respecting the platform's format and size limits. `brain_nudge` surfaces stale-but-important memories the agent might be forgetting. `brain_palace` exposes the MemPalace-inspired 2D hierarchy (person/project → time → verbatim chunk). `brain_optimize_fsrs` + `brain_apply_fsrs_w20` self-tune the FSRS-6 forgetting-curve exponent. `brain_skill_create` distills a successful task into an agentskills.io-compatible `SKILL.md`. `brain_user_model` aggregates user-related facts into a single Honcho-style user block.
 
 ## Agent-Driven Skill Pipeline
 
@@ -472,13 +478,15 @@ duckbot-rag-memory/
 |   |-- connectors/       # OpenClaw (legacy + aliases), Active Memory, dreaming, learn
 |   |-- extensions/       # shared agent surface (73 tools) + generic JSON-RPC adapter for Claude Code/Cursor/Codex
 |   `-- plugins/          # Hermes MemoryProvider plugin package
-|-- tests/                # pytest suite, currently 849 tests
+|-- tests/                # pytest suite, currently ~1,040 tests
 |-- benchmarks/           # golden retrieval evals
 |-- extensions/           # native OpenClaw plugin (Node.js shim → Python MCP server)
 |-- scripts/              # install, watcher, MCP launcher, query helpers,
 |                         #   hermes-preflight.sh, hermes-postflight.sh,
 |                         #   shadow_writer_ab.py (read-only writer A/B),
 |                         #   consolidate_job.py (cutover-ready batch job),
+|                         #   backfill_graph.py (entity-graph backfill),
+|                         #   brain-sync / brain-backup / nightly wrappers (Robin jobs),
 |                         #   e2e_pipeline_test.py (full-path proof)
 |-- skills/               # OpenClaw skill manifests and plugins
 |-- docs/                 # architecture, integration, research
@@ -522,7 +530,7 @@ pytest --collect-only -q
 bash scripts/secret-scan.sh
 ```
 
-The suite stood at 849 tests at v0.15.3 and is exercised in CI on every push. The Hy-Memory path adds `tests/test_hy_memory.py`, `tests/test_gate.py`, and `tests/test_hy_memory_updates.py`, plus a full-pipeline end-to-end check that runs against a throwaway bank (never the live one):
+The suite stands at ~1,040 tests (v0.18.0) and is exercised in CI on every push. The writer path adds `tests/test_hy_memory.py`, `tests/test_gate.py`, and `tests/test_hy_memory_updates.py`, plus a full-pipeline end-to-end check that runs against a throwaway bank (never the live one):
 
 ```bash
 DUCKBOT_EMBEDDING=local .venv/bin/python scripts/e2e_pipeline_test.py

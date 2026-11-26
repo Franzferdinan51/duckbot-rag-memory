@@ -50,6 +50,16 @@ flagged but did not fix.
   copies (Mac LM Studio library + Sabrent mirror). The writer has been
   `lfm3-omni-2b` since v0.17.0; nothing referenced the Hy build.
 
+### Docs
+
+- README accuracy pass (same day): v0.18.0 banner, deployed-jobs table
+  gained the backup timer and the nightly graph step, sync examples
+  corrected to the Hermes target, the gate pin corrected to `d1-2b`
+  (two places still said `d1-3b`), two stale section anchors repaired,
+  test count updated (849 → ~1,040), the watcher section now states it
+  is not part of the live deployment, and OpenClaw is described as the
+  legacy adapter it now is rather than a live runtime.
+
 ## v0.17.0 — reconciliation: one plugin, a light writer, honest jobs (2026-11-26)
 
 Full audit of GitHub + Robin + Mac found the brain alive (29,214 chunks,
