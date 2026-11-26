@@ -1,5 +1,55 @@
 # Changelog
 
+## v0.18.0 — enhancements: a living graph, a boundary kept, a backup that runs (2026-11-26)
+
+Follow-up to the v0.17.0 reconciliation, filling the gaps the audit
+flagged but did not fix.
+
+### Added
+
+- **Knowledge-graph backfill** (`scripts/backfill_graph.py`). The graph
+  feed in `Memory.remember()` is opt-in and was never enabled live, so
+  the graph held 1 entity against 29,214 chunks and every graph feature
+  was silently working on nothing. The script walks all tier
+  collections, runs the regex `EntityExtractor` over live chunks, and
+  cognifies into `data/graph.db` (idempotent, watermark-based via
+  `data/graph_backfill_state.json`, `--full` / `--dry-run` supported).
+  The nightly wrapper now runs it incrementally as step 3b.
+- **Weekly brain backup, actually scheduled** (`scripts/brain-backup-wrapper.sh`
+  + Robin `duckbot-brain-backup.timer`, Sundays 05:00 ET). `backup-brain.sh`
+  existed for months but nothing ever ran it. The wrapper archives and
+  keeps the newest 4 backups.
+- **Canonical hourly sync wrapper** (`scripts/brain-sync-wrapper.sh`) —
+  the Robin copy previously existed only on Robin.
+
+### Fixed
+
+- **`backup-brain.sh` could not run on Linux at all**: it used BSD
+  `mktemp -t brain-backup` (no X template), which GNU mktemp rejects —
+  so even a manual run on Robin failed instantly. Both call sites now
+  use a portable X-template path. Found by actually running the new
+  weekly backup; the wrapper also now captures the backup's exit code
+  immediately and fails the service visibly instead of echoing success
+  (the same masked-failure shape as the v0.17.0 nightly bug).
+
+### Changed
+
+- **Hourly sync now targets Hermes only.** The timer ran
+  `sync --target both`, writing OpenClaw context files every hour —
+  contrary to the owner's 2026-11-23 ruling that the brain serves
+  Hermes + Juno only. The openclaw CLI target remains for explicit,
+  owner-invoked use; it is no longer on a timer.
+- **The brain worker now loads the repo .env** (`src/_env.py`, shared
+  with the CLI). Only `src/cli.py` loaded it before, so the worker —
+  the process Hermes actually talks to — ran without the `DUCKBOT_*`
+  pins, including `DUCKBOT_GRAPH_FEED=1`, which is now set live.
+
+### Removed
+
+- **Hy-Memory-30B-A3B model files deleted** (owner's order): both 16 GB
+  copies (Mac LM Studio library + Sabrent mirror). The writer has been
+  `lfm3-omni-2b` since v0.17.0; nothing referenced the Hy build.
+
 ## v0.17.0 — reconciliation: one plugin, a light writer, honest jobs (2026-11-26)
 
 Full audit of GitHub + Robin + Mac found the brain alive (29,214 chunks,

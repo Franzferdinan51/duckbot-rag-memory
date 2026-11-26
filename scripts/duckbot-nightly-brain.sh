@@ -55,11 +55,18 @@ else
   SYNCED="sync-failed"
 fi
 
+# 3b. Graph backfill (incremental, watermark-based; soft-fail — the graph
+# must never fail the night). Feeds any chunks written since the last run
+# into data/graph.db so the entity graph stays alive alongside the bank.
+GOUT=$( "$REPO/.venv/bin/python" scripts/backfill_graph.py 2>&1 | tail -1 )
+GRAPH_STATUS=$(echo "$GOUT" | grep -oE 'graph_entities=[0-9]+' | head -1)
+if [ -z "$GRAPH_STATUS" ]; then GRAPH_STATUS="graph=skipped"; fi
+
 # 4. Environment state (standing directive: always know what the machine can run).
 LOADED=$(lms ps --json 2>/dev/null | grep -o '"type"' | wc -l | tr -d ' ')
 FREEPCT=$(free -m 2>/dev/null | awk '/^Mem:/{if (NF>=7) printf "%d%%", $7*100/$2; else printf "%d%%", $4*100/$2}')
 
-echo "🧠 DuckBot brain nightly: $(echo "$OUT" | tail -1 | head -c 90) | SOUL/MEMORY/USER $SYNCED | brain=$DEC_STATUS | env: $LOADED models loaded, RAM ${FREEPCT:-?} free"
+echo "🧠 DuckBot brain nightly: $(echo "$OUT" | tail -1 | head -c 90) | SOUL/MEMORY/USER $SYNCED | brain=$DEC_STATUS | $GRAPH_STATUS | env: $LOADED models loaded, RAM ${FREEPCT:-?} free"
 
 # Cleanup: unload the embedder we self-loaded (frees ~84 MB; next run self-heals).
 lms unload text-embedding-nomic-embed-text-v1.5 >/dev/null 2>&1 || true

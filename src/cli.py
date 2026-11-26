@@ -88,27 +88,13 @@ EVAL_HISTORY_PATH = Path(__file__).resolve().parent.parent / "data" / "eval_hist
 
 
 def _load_dotenv() -> None:
-    """Load .env from the repo root into os.environ. Idempotent. Silent on missing."""
-    env_file = Path(__file__).resolve().parent.parent / ".env"
-    if not env_file.exists():
-        return
-    try:
-        # Prefer python-dotenv if installed
-        from dotenv import load_dotenv
-        load_dotenv(env_file, override=False)
-        return
-    except ImportError:
-        pass
-    # Fallback: manual parse (handles KEY=VALUE with optional quotes / comments)
-    for raw in env_file.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        k = k.strip()
-        v = v.strip().strip('"').strip("'")
-        if k and k not in os.environ:
-            os.environ[k] = v
+    """Load .env from the repo root into os.environ. Idempotent. Silent on missing.
+
+    Kept as a thin wrapper: the implementation lives in src/_env.py so the
+    brain worker loads the exact same file the exact same way.
+    """
+    from ._env import load_repo_dotenv
+    load_repo_dotenv()
 
 
 _load_dotenv()

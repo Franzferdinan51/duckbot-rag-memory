@@ -48,7 +48,7 @@ done
 
 if [ -n "$OUT_PATH" ]; then
     ARCHIVE="$OUT_PATH"
-    TMP_ARCHIVE="$(mktemp -t brain-backup).tar.gz"
+    TMP_ARCHIVE="$(mktemp "${TMPDIR:-/tmp}/brain-backup.XXXXXXXX").tar.gz"
 else
     mkdir -p "$BACKUPS_DIR"
     STAMP="$(date +%Y-%m-%d_%H%M%S)"
@@ -56,7 +56,7 @@ else
     # IMPORTANT: write to a temp path OUTSIDE the brain dir, because tar
     # would otherwise refuse to write into a subdir of the source it's
     # archiving ("Can't add archive to itself"). We mv into place at the end.
-    TMP_ARCHIVE="$(mktemp -t brain-backup).tar.gz"
+    TMP_ARCHIVE="$(mktemp "${TMPDIR:-/tmp}/brain-backup.XXXXXXXX").tar.gz"
 fi
 
 # Source .env if present so LM Studio is reachable for export.

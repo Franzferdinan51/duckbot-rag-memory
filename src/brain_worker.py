@@ -37,6 +37,13 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+# Load the repo .env BEFORE anything reads settings from os.environ.
+# Until v0.18.0 only the CLI did this, so the worker ran without the
+# .env pins (DUCKBOT_EMBEDDING, DUCKBOT_GRAPH_FEED, ...) in production.
+from src._env import load_repo_dotenv  # noqa: E402
+
+load_repo_dotenv()
+
 from src.connectors.base import Brain  # noqa: E402
 from src.extensions import tools as _tools  # noqa: E402
 
