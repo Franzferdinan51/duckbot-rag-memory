@@ -1,26 +1,28 @@
-# INSTALL.md — one-shot install for OpenClaw / Hermes / any MCP client
+# INSTALL.md — one-shot install for Hermes / any MCP client
 
 This document is the canonical install recipe for an agent (or human
-operator) that wants to wire this brain into OpenClaw or Hermes Agent.
-It exists so an OpenClaw / Hermes agent that has been pointed at this
-file can copy-paste its way to a fully-fed brain without reading the
-README.
+operator) that wants to wire this brain into Hermes Agent (the live
+runtime) or another MCP client. It exists so an agent that has been
+pointed at this file can copy-paste its way to a fully-fed brain
+without reading the README. OpenClaw sections are kept for legacy
+installs only — the reference deployment serves Hermes + Juno
+exclusively (owner's 2026-11-23 ruling) and no longer syncs OpenClaw.
 
 ## 0. What this is
 
 A 4-tier CoALA-style RAG + long-term memory system that dramatically
-expands the default memory of OpenClaw / Hermes Agent (which is
-otherwise just a chat-history buffer). The brain runs as an MCP stdio
-server; the agent invokes it as tools.
+expands the default memory of Hermes Agent (which is otherwise just a
+chat-history buffer). The brain runs as an MCP stdio server; the agent
+invokes it as tools.
 
 ## 1. Prerequisites
 
 - Python 3.12+ (`python3 --version`)
 - pip
 - ~2 GB disk for the venv + ChromaDB index
-- For the default local path: LM Studio with `text-embedding-embeddinggemma-300m` and `qwen3-reranker-0.6b` loaded in the local model list
-- **Fact extraction is the agent's job.** When your agent extracts facts from a memory, pass them via `brain_remember(facts=[...])` or `reflect(extract_callback=...)`. DuckBot does not launch a separate consolidation/chat model; `reflect()` uses lightweight regex heuristics when no agent facts are supplied.
-- For alternate embeddings: LM Studio (recommended), OR MiniMax / OpenAI API key, OR `pip install sentence-transformers` for local
+- For the default local path: LM Studio with an embedding model and `qwen3-reranker-0.6b` loaded in the local model list. The code default embedder is `text-embedding-embeddinggemma-300m`; the reference deployment pins `text-embedding-nomic-embed-text-v1.5` (768-dim) in `.env`.
+- **Fact extraction is the agent's job at write time.** When your agent extracts facts from a memory, pass them via `brain_remember(facts=[...])` or `reflect(extract_callback=...)`; `reflect()` uses lightweight regex heuristics when no agent facts are supplied. Separately, the deployed nightly consolidation job runs a dedicated writer model (`lfm3-omni-2b`, load-on-dispatch) over the day's episodic chunks — see the README's deployed-jobs table.
+- For alternate embeddings: LM Studio (recommended), OR an OpenAI API key, OR `pip install sentence-transformers` for local. (MiniMax still exists as an explicit-only provider but was removed from auto-detect in v0.17.0 and is deprecated.)
 
 No GPU required. No system packages beyond what Python itself needs.
 
@@ -35,9 +37,10 @@ cd duckbot-rag-memory
 # Configure
 cp .env.example .env
 # Edit .env: set DUCKBOT_EMBEDDING=lmstudio (default) + LMSTUDIO_URL,
-# LMSTUDIO_MODEL=text-embedding-embeddinggemma-300m,
+# LMSTUDIO_MODEL=text-embedding-nomic-embed-text-v1.5 (the reference
+# deployment's pin; the code default is embeddinggemma-300m),
 # LMSTUDIO_RERANK_MODEL=qwen3-reranker-0.6b.
-# OR DUCKBOT_EMBEDDING=minimax + MINIMAX_API_KEY, etc.
+# OR DUCKBOT_EMBEDDING=openai + OPENAI_API_KEY, etc.
 
 # Verify
 .venv/bin/python -m src.cli doctor
@@ -49,14 +52,14 @@ The `install.sh` script:
 - sets the shell wrappers executable
 - runs the secret scan
 
-## 3. Bootstrap the brain from the existing OpenClaw / Hermes corpus
+## 3. Bootstrap the brain from the existing Hermes corpus
 
 ```bash
-# For OpenClaw users — ingests every .md in ~/.openclaw/workspace
-./scripts/openclaw-bootstrap.sh
-
 # For Hermes Agent users — ingests every .md in ~/.hermes/memories
 ./scripts/hermes-bootstrap.sh
+
+# Legacy, for OpenClaw installs — ingests every .md in ~/.openclaw/workspace
+./scripts/openclaw-bootstrap.sh
 ```
 
 Both scripts:
@@ -72,7 +75,7 @@ Re-running is idempotent (content-hash dedup, no duplicates).
 
 ## 4. Register the brain as an MCP server
 
-### OpenClaw — native plugin (recommended)
+### OpenClaw — native plugin (legacy)
 
 The OpenClaw bootstrap script auto-installs a native Node.js plugin at
 `~/.openclaw/extensions/duckbot-memory/`. It spawns the existing Python
@@ -91,17 +94,10 @@ auto-fires `brain_sync` on every `session_end` so high-importance
 session facts get written back to OpenClaw's MEMORY.md / USER.md /
 SOUL.md.
 
-### OpenClaw — MCP server (fallback)
+### OpenClaw — MCP server (fallback, legacy)
 
 If the native plugin doesn't suit your setup, register the MCP server
-directly:
-
-```bash
-hermes mcp add duckbot-memory \
-  --command "$HOME/duckbot-rag-memory/scripts/duckbot-memory-mcp.sh"
-```
-
-Edit `~/.openclaw/openclaw.json` and add under `mcp.servers`:
+directly in `~/.openclaw/openclaw.json` under `mcp.servers`:
 
 ```json
 {
@@ -175,12 +171,12 @@ NOT invoked automatically by Hermes. Use them like:
 $HOME/duckbot-rag-memory/scripts/hermes-postflight.sh --days 7
 
 # One-shot wake-up anchored on a topic (paste output into agent context)
-$HOME/duckbot-rag-memory/scripts/hermes-preflight.sh --query OpenClaw
+$HOME/duckbot-rag-memory/scripts/hermes-preflight.sh --query Hermes
 ```
 
 ## 5. First session — verify the brain is wired
 
-In a fresh OpenClaw / Hermes session, call:
+In a fresh Hermes (or MCP client) session, call:
 
 ```
 brain_wake_up
@@ -199,6 +195,12 @@ relevant bootstrap script.
 
 ## 6. Cron / scheduled tasks (recommended)
 
+> **Reference deployment:** the live brain does not use cron — it runs
+> systemd user timers on Robin (hourly sync, 03:00 decay, 03:30 nightly
+> consolidation + graph backfill, Sun 04:00 FSRS, Sun 05:00 backup).
+> See the README deployed-jobs table. The cron lines below are for a
+> fresh single-host install.
+
 To keep the brain healthy without thinking about it, schedule these
 on a daily / weekly cron:
 
@@ -209,7 +211,11 @@ on a daily / weekly cron:
 # Weekly Sunday 04:00 — re-tune the FSRS forgetting curve
 0 4 * * 0 cd ~/duckbot-rag-memory && .venv/bin/python -m src.cli optimize-fsrs --apply
 
-# Every 5 minutes — incremental ingest via the watcher (default interval)
+# Weekly Sunday 05:00 — full brain backup (keeps newest 4)
+0 5 * * 0 cd ~/duckbot-rag-memory && bash scripts/brain-backup-wrapper.sh
+
+# Every 5 minutes — incremental ingest via the watcher (default interval;
+# optional — the reference deployment does not run the watcher)
 */5 * * * * cd ~/duckbot-rag-memory && .venv/bin/python -m src.watcher once >>data/watcher.log 2>&1
 ```
 
@@ -226,12 +232,13 @@ pwsh scripts/install.ps1     # Windows Task Scheduler
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DUCKBOT_EMBEDDING` | (auto-detect) | `lmstudio` / `minimax` / `openai` / `local` |
+| `DUCKBOT_EMBEDDING` | (auto-detect) | `lmstudio` / `openai` / `local` (`minimax` explicit-only, deprecated, never auto-detected) |
 | `LMSTUDIO_URL` | `http://127.0.0.1:1234/v1` | LM Studio endpoint |
 | `LMSTUDIO_API_KEY` | `lm-studio` | LM Studio bearer token |
-| `LMSTUDIO_MODEL` | `text-embedding-embeddinggemma-300m` | Embedding model id |
+| `LMSTUDIO_MODEL` | `text-embedding-embeddinggemma-300m` | Embedding model id (reference deployment pins `text-embedding-nomic-embed-text-v1.5`) |
 | `LMSTUDIO_RERANK_MODEL` | `qwen3-reranker-0.6b` | Reranker model id used when `DUCKBOT_RERANK=1` |
-| `MINIMAX_API_KEY` | (none) | MiniMax bearer token (if using MiniMax) |
+| `DUCKBOT_GRAPH_FEED` | `0` | Set to `1` to feed every new memory into the entity graph (live on the reference deployment since v0.18.0) |
+| `MINIMAX_API_KEY` | (none) | MiniMax bearer token (only if explicitly selecting the deprecated MiniMax provider) |
 | `OPENAI_API_KEY` | (none) | OpenAI bearer token (if using OpenAI) |
 | `DUCKBOT_FSRS_W20` | `0.9` | FSRS-6 forgetting-curve exponent. Tune per deployment. |
 | `DUCKBOT_RERANK` | `0` | Set to `1` to enable cross-encoder rerank (LM Studio Qwen3 reranker or `sentence-transformers`). |

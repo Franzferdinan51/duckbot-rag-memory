@@ -52,13 +52,20 @@ flagged but did not fix.
 
 ### Docs
 
-- README accuracy pass (same day): v0.18.0 banner, deployed-jobs table
+- README + INSTALL accuracy pass (same day): v0.18.0 banner, deployed-jobs table
   gained the backup timer and the nightly graph step, sync examples
   corrected to the Hermes target, the gate pin corrected to `d1-2b`
   (two places still said `d1-3b`), two stale section anchors repaired,
   test count updated (849 → ~1,040), the watcher section now states it
   is not part of the live deployment, and OpenClaw is described as the
-  legacy adapter it now is rather than a live runtime.
+  legacy adapter it now is rather than a live runtime. INSTALL.md got
+  the same treatment: OpenClaw marked legacy throughout, the false
+  "no separate consolidation model" claim corrected (the nightly writer
+  exists), MiniMax marked explicit-only/deprecated, the embedder pin
+  aligned with the reference deployment, a stray `hermes mcp add` block
+  removed from the OpenClaw fallback section, the cron section now
+  points at the Robin systemd timers and includes the weekly backup,
+  and `DUCKBOT_GRAPH_FEED` added to the env table.
 
 ## v0.17.0 — reconciliation: one plugin, a light writer, honest jobs (2026-11-26)
 
