@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """
-nightly_hy_pass.py — Hy-Memory consolidation pass for the live brain.
+nightly_hy_pass.py — nightly consolidation pass for the live brain.
 
-Sleep-time consolidation with the Hy-Memory writer (load-on-dispatch):
-  1. Load the pinned Hy-Memory build into LM Studio (8k context).
-  2. reflect(): recent episodic chunks -> Hy-Memory extraction -> dedupe
+(Historical filename: the writer was Tencent Hy-Memory-30B until
+2026-11-26. Hy was retired — at 16 GB it was too heavy to keep in the
+live path, LM Studio no longer indexed the build, and in the Robin
+deployment its load failed every single night (2026-11-09 → 2026-11-26)
+while the job silently fail-opened to regex and reported success.
+The writer is now lfm3-omni-2b, a 2.4 GB generalist that is indexed in
+LM Studio and verified live against this exact extraction contract on
+2026-11-26: 4/4 facts extracted from the smoke chunk, zero invention.)
+
+Sleep-time consolidation with the writer (load-on-dispatch):
+  1. Load the pinned writer into LM Studio (8k context).
+  2. reflect(): recent episodic chunks -> writer extraction -> dedupe
      -> promote to the semantic tier. Fails open per chunk to regex
      extraction (extract_memories_hy returns [] on any writer failure).
   3. Unload the writer. The chat model + embedder stay loaded, so a
-     running agent session is never disturbed (128GB unified memory
-     hosts both comfortably).
+     running agent session is never disturbed.
 
 Usage (from the repo root, venv):
     .venv/bin/python scripts/nightly_hy_pass.py [--days 30] [--max-chunks 200]
@@ -30,7 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-DEFAULT_MODEL = "hy-memory-30b-a3b-mlx"  # MLX 4-bit (GGUF retired 2026-10-16)
+DEFAULT_MODEL = "lfm3-omni-2b"  # 2.4 GB light writer (Hy-Memory 30B retired 2026-11-26: 16 GB, unindexed in LM Studio, load failed every night on Robin)
 LMS = Path.home() / ".lmstudio" / "bin" / "lms"
 
 

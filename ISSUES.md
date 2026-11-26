@@ -58,18 +58,18 @@ python3 -m venv --clear .venv
 
 ---
 
-## 4. Desktop vs Workspace Repo Duality
+## 4. Desktop vs Workspace Repo Duality — RESOLVED (2026-11-26)
 
-**Symptom:** Two installations of duckbot-rag-memory exist:
-- `~/Desktop/duckbot-rag-memory/` (legacy, now orphaned)
-- `~/.openclaw/workspace/duckbot-rag-memory/` (current, tracked by OpenClaw plugin)
+**Historical symptom:** Two installations existed
+(`~/Desktop/duckbot-rag-memory/` legacy, `~/.openclaw/workspace/…`).
 
-**Root Cause:** The repo was originally on Desktop. Later moved to the workspace directory
-for proper OpenClaw integration.
-
-**Fix applied:** LaunchAgent (`com.duckbot.memory-watcher`) updated to point to workspace repo.
-
-**Recommendation:** Delete `~/Desktop/duckbot-rag-memory/` to avoid confusion, or keep as backup.
+**Resolution:** The canonical install is now `~/duckbot-rag-memory` on
+every host. The brain itself lives on Robin (`~/duckbot-rag-memory`,
+systemd timers); the Mac keeps a checkout at the same path for the
+Hermes plugin + MCP-over-SSH. GitHub `main`, Robin, and the Mac were
+verified at the same commit in the 2026-11-26 reconciliation. The
+Desktop and .openclaw-workspace copies are gone/retired — do not
+recreate them.
 
 ---
 
@@ -143,7 +143,6 @@ launchctl load ~/Library/LaunchAgents/com.duckbot.memory-watcher.plist
    Poll interval reduced from 300s to 60s (5× more responsive). If you set
    `DUCKBOT_WATCH_USE_FSEVENTS=1` and the watcher crashes, that's the known bug —
    don't file it, just unset the env var and use polling.
-5. **Clean up orphaned desktop repo**: `~/Desktop/duckbot-rag-memory/` is deprecated;
-   the canonical location is `~/.openclaw/workspace/duckbot-rag-memory/`. The desktop
-   repo is still running its own watcher and MCP server (on different paths). Safe
-   to delete once the workspace-based system is fully verified.
+5. ~~Clean up orphaned desktop repo~~ — done: canonical location is
+   `~/duckbot-rag-memory` on both live hosts (Robin hosts the brain;
+   Mac hosts the Hermes plugin). See issue 4 (resolved 2026-11-26).

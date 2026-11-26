@@ -104,7 +104,7 @@ duckbot-rag-memory/
 |-- scripts/            # install / start / cron / launchers / helpers
 |   |-- install.{ps1,sh,linux.sh,macos.sh}        # bootstrap (venv, deps, .env)
 |   |-- install-linux-timers.sh                   # systemd timers: decay + fsrs (Linux)
-|   |-- nightly_hy_pass.py                        # Hy-Memory nightly consolidation (load-on-dispatch)
+|   |-- nightly_hy_pass.py                        # nightly consolidation, light writer lfm3-omni-2b (historical filename; Hy-Memory retired 2026-11-26)
 |   |-- consolidate_job.py                        # batch consolidation (--writer regex|hy-memory)
 |   |-- shadow_writer_ab.py                       # read-only writer A/B (eval era)
 |   |-- start-watcher.{ps1,sh,windows.bat}        # file-watcher daemon
@@ -137,12 +137,15 @@ The watcher has been the recommended path since v0.10:
 - Daemonized with `start_new_session` (no orphan processes)
 - Logs to `data/watcher.log`
 
-On the reference Mac, scheduled maintenance lives in **Hermes cron**
-(host-side, not repo code — full lineup in the README deployed-jobs
-table): nightly Hy-Memory consolidation + sync (03:00, no-agent),
-decay pruning (03:00, `qwen3-reranker-0.6b`), FSRS self-tune
-(Sun 04:00, no-agent), hourly brain-sync, and a service guardian
-(08:00/14:00/20:00).
+Since 2026-11-04 the brain lives on **Robin** and scheduled
+maintenance runs as **systemd user timers on Robin** (host-side
+wrappers in `~/rag-jobs/`, not repo code — full lineup in the README
+deployed-jobs table): hourly brain-sync, decay pruning (03:00,
+`qwen3-reranker-0.6b`), nightly consolidation (03:30, writer
+`lfm3-omni-2b` load-on-dispatch — Hy-Memory-30B retired 2026-11-26),
+FSRS self-tune (Sun 04:00). The Mac Hermes reaches the brain via the
+`duckbot-memory` MCP server over SSH. The old Mac Hermes-cron lineup
+is retired.
 
 If you still want the original cron-style nightly batch (consolidate +
 eval + sync), run these manually:

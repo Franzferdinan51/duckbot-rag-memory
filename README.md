@@ -2,9 +2,11 @@
 
 Persistent, searchable memory that dramatically expands the limited default memory of Hermes Agent (the primary runtime today) and OpenClaw (legacy, still synced). Drop-in replacement for the flat chat-history buffers both agents ship with — adds a 4-tier CoALA memory model, hybrid retrieval, entity graph, verbatim recall, FSRS-6 spaced repetition, dreaming consolidation, and a Wing/Room/Drawer 2D hierarchy on top.
 
-> **What's new — 2026-10-19: Hy-Memory is the live consolidation writer.** The writer path below cleared its 2026-10-16 evaluation week (nightly shadow A/B over real memory files: Hy-Memory 107 facts at a 0.243 duplicate rate vs the regex incumbent's 40 at 0.65) and was promoted — a nightly pass (`scripts/nightly_hy_pass.py`, Hermes cron, no-agent) now runs the Hy-Memory load-on-dispatch writer against the live bank. Chat model and embedder stay loaded; the writer is unloaded after each run. See [The Hy-Memory Writer Path](#the-hy-memory-writer-path) and the [deployed jobs table](#deployed-jobs-reference-mac).
+> **What's new — 2026-11-26 (v0.17.0): the writer is now a light model, and the docs tell the truth again.** Hy-Memory-30B was retired: at 16 GB it was too heavy for the live path, LM Studio no longer indexed the build, and in the Robin deployment its nightly load had failed every night since 2026-11-09 while the job silently fail-opened to regex and reported success. The consolidation writer is now `lfm3-omni-2b` (2.4 GB, verified live 2026-11-26). This release also unifies the Hermes plugin to a single canonical copy (four divergent copies were in play; two profiles ran stale ones), removes MiniMax from embedding auto-detect, pins the D1 gate to `d1-2b`, and corrects the deployed-jobs table to the Robin systemd deployment that has actually hosted the brain since 2026-11-04.
 >
-> **2026-10-16: the Hy-Memory writer path.** Consolidation is no longer regex-only. A dedicated writer model — Tencent's Hy-Memory-30B-A3B, run locally as a 4-bit MLX build in LM Studio — extracts memory statements behind a SystemOne/D1 quality gate, with mem0-style update semantics (add / update / retire-for-review). It was A/B-validated against the regex incumbent in a nightly shadow run during the evaluation week, then promoted to the live nightly consolidation on 2026-10-19.
+> **Historical — 2026-10-19: Hy-Memory was made the live consolidation writer.** The writer path below cleared its 2026-10-16 evaluation week (nightly shadow A/B over real memory files: Hy-Memory 107 facts at a 0.243 duplicate rate vs the regex incumbent's 40 at 0.65) and was promoted — a nightly pass (`scripts/nightly_hy_pass.py`, Hermes cron, no-agent) now runs the Hy-Memory load-on-dispatch writer against the live bank. Chat model and embedder stay loaded; the writer is unloaded after each run. See [The Hy-Memory Writer Path](#the-hy-memory-writer-path) and the [deployed jobs table](#deployed-jobs-reference-mac).
+>
+> **2026-10-16: the Hy-Memory writer path.** Consolidation is no longer regex-only. A dedicated writer model — Tencent's Hy-Memory-30B-A3B, run locally as a 4-bit MLX build in LM Studio — extracts memory statements behind a SystemOne/D1 quality gate, with mem0-style update semantics (add / update / retire-for-review). It was A/B-validated against the regex incumbent in a nightly shadow run during the evaluation week, then promoted to the live nightly consolidation on 2026-10-19 (retired 2026-11-26 — see the v0.17.0 banner above).
 
 [![Status](https://img.shields.io/badge/latest_changelog-0.15.3-yellow)]()
 [![MCP](https://img.shields.io/badge/MCP_server-0.15.3-green)]()
@@ -67,11 +69,11 @@ The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs,
 
 > If you (or an agent) just want to install this without reading the README, see [INSTALL.md](INSTALL.md) for a single-page copy-paste recipe (prereqs → install → bootstrap → register MCP → cron).
 
-## The Hy-Memory Writer Path
+## The Memory Writer Path (Hy-Memory, retired 2026-11-26)
 
-Historically, consolidation extracted facts two ways: the agent supplied them, or `reflect()` fell back to lightweight regex heuristics (`src/consolidate.py`). Regex is free and predictable, but it misses most of what a conversation actually established. The Hy-Memory path adds a third writer — a model built for exactly this job — the nightly consolidation pass is that opt-in: `scripts/nightly_hy_pass.py` runs `reflect()` with the Hy extraction callback (fail-open to regex per chunk), and it has been the live writer since 2026-10-19.
+Historically, consolidation extracted facts two ways: the agent supplied them, or `reflect()` fell back to lightweight regex heuristics (`src/consolidate.py`). Regex is free and predictable, but it misses most of what a conversation actually established. The Hy-Memory path added a third writer — a model built for exactly this job. It was the live writer on the Mac from 2026-10-19, but after the brain moved to Robin (2026-11-04) its load failed every night and consolidation silently ran on regex while reporting success; the 16 GB build was also dropped from LM Studio's index. On 2026-11-26 the writer role moved to `lfm3-omni-2b` (2.4 GB) using the same adapter (`src/hy_memory.py`, kept name for API compatibility), the same prompts (plus a tightened update-ops example), and the same fail-open semantics. The section below is kept as the design record of the Hy era.
 
-**The writer.** Tencent's [Hy-Memory-30B-A3B](https://huggingface.co/tencent/Hy-Memory-30B-A3B) (Apache-2.0; 30B total / ~3B active MoE, `hy_v3`, 262K context) is a dedicated memory-extraction model. On Tencent's cross-harness evaluation (Mem0 / MemOS / Hy-Memory / EverMemOS) it outscored Claude Opus 5 and Qwen3.6-35B-A3B as a drop-in memory writer. We run it locally as a **4-bit MLX build in LM Studio** — [`Duckets/Hy-Memory-30B-A3B-MLX-4bit`](https://huggingface.co/Duckets/Hy-Memory-30B-A3B-MLX-4bit) (affine, group 64, ~17 GB, identifier `hy-memory-30b-a3b-mlx`). The adapter is `src/hy_memory.py`: explicit `model=` only, no environment defaults, silent empty-list fallback — it can never load a model by accident. The writer is **load-on-dispatch**: jobs load it, use it, and unload it; it is never left resident.
+**The writer.** Tencent's [Hy-Memory-30B-A3B](https://huggingface.co/tencent/Hy-Memory-30B-A3B) (Apache-2.0; 30B total / ~3B active MoE, `hy_v3`, 262K context) is a dedicated memory-extraction model. On Tencent's cross-harness evaluation (Mem0 / MemOS / Hy-Memory / EverMemOS) it outscored Claude Opus 5 and Qwen3.6-35B-A3B as a drop-in memory writer. In the Hy era it ran locally as a **4-bit MLX build in LM Studio** — [`Duckets/Hy-Memory-30B-A3B-MLX-4bit`](https://huggingface.co/Duckets/Hy-Memory-30B-A3B-MLX-4bit) (affine, group 64, ~17 GB, identifier `hy-memory-30b-a3b-mlx`). The adapter is `src/hy_memory.py`: explicit `model=` only, no environment defaults, silent empty-list fallback — it can never load a model by accident. The writer is **load-on-dispatch**: jobs load it, use it, and unload it; it is never left resident.
 
 **The gate.** Not every chunk deserves the writer's time or a slot in the bank. `src/gate.py` asks the SystemOne decision layer (D1, `d1-3b` in LM Studio, via `POST /v1/systemone`) one 4-way question per chunk — route to bank `chat`, `working`, or `code`, or `none`. A chunk is skipped only when `none` wins at ≥ 0.60 confidence. The gate **fails open**: any error stores the chunk ungated rather than dropping memory. Calibration on real chunks: bio → chat 0.92, junk → none 0.84, project → working 0.97, preferences → chat 0.76.
 
@@ -183,9 +185,9 @@ LMSTUDIO_EMBED_DIM=768
 |---|---|---|
 | Embeddings | LM Studio `text-embedding-nomic-embed-text-v1.5` (768-dim) | `DUCKBOT_EMBEDDING=lmstudio`; the nightly jobs self-load it |
 | Reranker | Qwen3 `qwen3-reranker-0.6b` (LM Studio) | decay scoring; no-op fallback if absent |
-| Decision gate | `d1-3b` via SystemOne (`POST /v1/systemone`) | kept warm by SystemOne; fails open |
-| Memory writer | `hy-memory-30b-a3b-mlx` — Hy-Memory 4-bit MLX in LM Studio | **live nightly consolidation writer**; load-on-dispatch; see [The Hy-Memory Writer Path](#the-hy-memory-writer-path) |
-| Chat model | `qwen3.8-27b-splash` (LM Studio) | Hermes default — standing model rule; never punted by the brain jobs |
+| Decision gate | `d1-2b` via SystemOne (`POST /v1/systemone`) | the live D1 decider pair is d1-2b / d1-omni-2b; fails open |
+| Memory writer | `lfm3-omni-2b` (2.4 GB) in LM Studio | **live nightly consolidation writer**; load-on-dispatch; replaced Hy-Memory-30B on 2026-11-26 (too heavy; load had failed nightly on Robin); see [The Memory Writer Path](#the-hy-memory-writer-path) |
+| Chat model | Hermes' own (served via Maya/LM Studio on the Mac) | brain jobs never load, unload, or punt the chat model |
 
 ### Alternative embedding providers
 
@@ -218,8 +220,8 @@ NVIDIA_EMBED_MODEL=nvidia/nemotron-3-embed-1b
 
 ```bash
 # Cloud fallback
-DUCKBOT_EMBEDDING=minimax
-MINIMAX_API_KEY=...
+DUCKBOT_EMBEDDING=lmstudio  # MiniMax was removed from auto-detect 2026-11-26 (explicit-only, deprecated)
+# MINIMAX_API_KEY=...
 
 # OpenAI
 DUCKBOT_EMBEDDING=openai
@@ -269,18 +271,22 @@ On macOS, polling is the default because `watchdog`/FSEvents has historically be
 DUCKBOT_WATCH_USE_FSEVENTS=1 python -m src.watcher run
 ```
 
-### Deployed jobs (reference Mac)
+### Deployed jobs (Robin — the brain has lived on Robin since 2026-11-04)
+
+All jobs are systemd user timers on Robin (`~/rag-jobs/` wrappers + an
+`lms` API shim that reaches the Mac's LM Studio over the tailnet
+tunnel). The Mac Hermes reaches the brain through the `duckbot-memory`
+MCP server over SSH. The old Mac/Hermes-cron lineup below is retired.
 
 | Job | Schedule | What it does |
 |---|---|---|
-| Watcher (`com.duckbot.memory-watcher`, launchd) | continuous | Ingests the OpenClaw workspace memory files (`~/.openclaw/workspace/memory` + workspace root files); `brain_sync` keeps the Hermes and OpenClaw context files in sync, so Hermes-written memory flows in too |
-| Hy-Memory consolidation (Hermes cron, no-agent) | nightly 03:00 | Episodic → semantic consolidation with the Hy-Memory writer — load-on-dispatch (`hy-memory-30b-a3b-mlx`, unloaded after), fail-open to regex per chunk; chat model + embedder stay loaded |
-| Brain decay (no-agent) | daily 03:00 | FSRS retention-floor pruning, scored by `qwen3-reranker-0.6b` |
-| FSRS optimize (no-agent, no LLM) | weekly, Sun 04:00 | Self-tunes the forgetting curve |
-| Brain-sync → Hermes files (no-agent) | hourly | `brain_sync` writes SOUL.md / MEMORY.md / USER.md |
-| Service guardian RAG-watch (no-agent) | 08:00 / 14:00 / 20:00 | Keeps the MCP server + watcher alive |
-| ~~Brain Reflect (agent job)~~ | paused — superseded | Was weekly episodic → semantic, pinned to LFM2.5-24B-A2B (not served on the reference Mac); superseded by the Hy-Memory nightly consolidation |
-| ~~Hy-Memory shadow A/B~~ | evaluation complete (2026-10-16 week) | Read-only writer comparison over both agent homes; Hy-Memory promoted to the live writer — evaluation closed |
+| `duckbot-brain-sync.timer` | hourly | `brain_sync` writes SOUL.md / MEMORY.md / USER.md context files |
+| `duckbot-brain-decay.timer` | daily 03:00 | FSRS retention-floor pruning, scored by `qwen3-reranker-0.6b` |
+| `duckbot-brain-nightly.timer` | daily 03:30 | Episodic → semantic consolidation with the light writer — load-on-dispatch (`lfm3-omni-2b`, unloaded after), fail-open to regex per chunk; a writer load failure now fails the job instead of reporting fake success |
+| `duckbot-fsrs.timer` | weekly, Sun 04:00 | Self-tunes the forgetting curve (no LLM) |
+| `rag-viz.service` | continuous | Brain dashboard on the tailnet (`100.88.161.36:8899`) |
+| ~~Mac Hermes-cron lineup~~ | retired 2026-11-04 | Watcher launchd, 03:00 Hy-Memory cron, service guardian — all superseded by the Robin timers above |
+| ~~Hy-Memory shadow A/B~~ | evaluation complete (2026-10-16 week) | Read-only writer comparison; Hy-Memory was promoted 2026-10-19 and retired 2026-11-26 — evaluation closed |
 
 ### Hermes MemoryProvider plugin — install path matters
 

@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-WRITER_MODEL = "hy-memory-30b-a3b-mlx"
+WRITER_MODEL = "lfm3-omni-2b"
 
 
 def main() -> int:

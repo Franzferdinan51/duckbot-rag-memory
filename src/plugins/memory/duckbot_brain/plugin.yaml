@@ -5,7 +5,7 @@
 #
 # Hermes plugin schema: https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins
 
-version: "0.4.0"
+version: "0.17.0"
 name: duckbot-brain
 type: memory_provider
 description: >

@@ -31,7 +31,7 @@ OpenClaw wires this up by adding to `~/.openclaw/openclaw.json`:
           "args": ["-m", "src.mcp_server"],
           "cwd": "<repo>",
           "env": {
-            "DUCKBOT_EMBEDDING": "minimax",
+            "DUCKBOT_EMBEDDING": "lmstudio",
             "MINIMAX_API_KEY": "<redacted - read from openclaw.json secret store>"
           }
         }
@@ -1074,7 +1074,7 @@ def openclaw_config_snippet(repo_path: str = "~/Desktop/duckbot-rag-memory") -> 
             "cwd": repo_path,
             "description": "DuckBot brain: vector + graph + blocks + quarantine + dreaming + /learn + active-memory (27 tools)",
             "env": {
-                "DUCKBOT_EMBEDDING": "minimax",
+                "DUCKBOT_EMBEDDING": "lmstudio",
                 # MINIMAX_API_KEY should be read from openclaw.json's secrets,
                 # not hardcoded. See openclaw.json docs for the secret-store format.
             },

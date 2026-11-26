@@ -1,7 +1,7 @@
 """
 hy_memory.py — optional Hy-Memory writer adapter for the consolidation path.
 
-Hy-Memory (tencent/Hy-Memory-30B-A3B, Apache-2.0) is a specialist
+Originally built for Hy-Memory (tencent/Hy-Memory-30B-A3B, Apache-2.0), a specialist
 long-term-memory writer model: given a chunk of conversation or notes, it
 decides what is worth retaining and returns concise, self-contained
 memory statements as JSON. This module is a thin adapter that runs that
@@ -116,7 +116,11 @@ corrected full statement as "text"), "retire" when an existing memory is \
 now false and nothing replaces it (target only). Do not repeat facts the \
 bank already states correctly. Return only a JSON object {"ops": [...]} \
 with no other text. Each op is {"op": "add"|"update"|"retire", \
-"target": string|null, "text": string|null}."""
+"target": string|null, "text": string|null}. Example of the exact shape: \
+{"ops": [{"op": "add", "target": null, "text": "Duckets lives in Ohio."}, \
+{"op": "update", "target": "Duckets lives in Texas.", "text": "Duckets \
+lives in Ohio."}]}. Every element of "ops" must be an object like those, \
+never a bare string."""
 
 
 def parse_memory_ops(text: Optional[str]) -> list[dict]:

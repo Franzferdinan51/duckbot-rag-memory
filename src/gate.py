@@ -30,7 +30,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional
 
-DECISION_MODEL = "d1-3b"
+DECISION_MODEL = "d1-2b"
 BANKS = ("chat", "working", "code")
 SKIP_THRESHOLD = 0.60
 

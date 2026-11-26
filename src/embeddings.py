@@ -12,7 +12,7 @@ Three providers, switchable via DUCKBOT_EMBEDDING env var:
              dim is detected from /v1/models or set via LMSTUDIO_EMBED_DIM
              (typically 384 for bge-small or 1024 for bge-large)
 
-  minimax  — MiniMax embeddings API (paid, high quality)
+  minimax  — MiniMax embeddings API (DEPRECATED, explicit-only since 2026-11-26; never auto-detected)
              requires MINIMAX_API_KEY, defaults to https://api.minimax.io/v1
              uses text-embedding-01 model, 1536d
 
@@ -828,14 +828,15 @@ async def _lmstudio_selfheal(provider: "LMStudioEmbeddings") -> bool:
 async def auto_detect_provider(prefer: str | None = None) -> EmbeddingProvider:
     """Pick the best available provider based on env vars + reachability.
 
-    Priority (per Duckets 2026-06-23): LM Studio primary, MiniMax fallback.
-    Sentence-transformers is the offline last resort.
+    Priority: LM Studio primary (per Duckets 2026-06-23), OpenAI fallback,
+    sentence-transformers as the offline last resort. MiniMax was removed
+    from every auto-detect chain on 2026-11-26 (explicit-only, deprecated).
 
     Order:
       1. DUCKBOT_EMBEDDING env var (explicit) — honored over prefer
       2. `prefer` argument (e.g. "lmstudio") — used if DUCKBOT_EMBEDDING unset
       3. LM Studio reachable → LMStudioEmbeddings (DEFAULT)
-      4. MINIMAX_API_KEY set → MiniMax (FALLBACK)
+      4. (MiniMax removed from auto-detect 2026-11-26 — explicit DUCKBOT_EMBEDDING=minimax only)
       5. OPENAI_API_KEY set → OpenAI (alt fallback)
       6. sentence-transformers installed → LocalEmbeddings
       7. None available → raises EmbeddingError
@@ -852,8 +853,8 @@ async def auto_detect_provider(prefer: str | None = None) -> EmbeddingProvider:
         if await provider._resolve_dim():
             return provider
         # LM Studio embedding endpoint is down/unavailable — fall back to
-        # the same chain used by auto-detect (MiniMax if key present, etc.)
-        # rather than hard-failing when the user explicitly requested lmstudio.
+        # the same chain used by auto-detect rather than hard-failing when
+        # the user explicitly requested lmstudio.
         target = "lmstudio"  # triggers the full fallback chain below
     elif explicit == "local":
         return LocalEmbeddings()
@@ -876,15 +877,15 @@ async def auto_detect_provider(prefer: str | None = None) -> EmbeddingProvider:
     # Try the preferred target first, then walk fallback chain
     chain = []
     if target == "lmstudio":
-        chain = [_make_lmstudio, _make_minimax, _make_openai]
+        chain = [_make_lmstudio, _make_openai]
     elif target == "nvidia":
-        chain = [_make_nvidia, _make_lmstudio, _make_minimax, _make_openai]
+        chain = [_make_nvidia, _make_lmstudio, _make_openai]
     elif target == "minimax":
         chain = [_make_minimax, _make_lmstudio, _make_openai]
     elif target == "openai":
-        chain = [_make_openai, _make_lmstudio, _make_minimax]
+        chain = [_make_openai, _make_lmstudio]
     else:
-        chain = [_make_lmstudio, _make_minimax, _make_openai]
+        chain = [_make_lmstudio, _make_openai]
 
     last_exc = None
     for factory in chain:

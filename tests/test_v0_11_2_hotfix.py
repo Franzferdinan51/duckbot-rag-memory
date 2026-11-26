@@ -204,11 +204,15 @@ async def test_auto_detect_provider_falls_back_when_lmstudio_probe_fails(monkeyp
 
     monkeypatch.delenv("DUCKBOT_EMBEDDING", raising=False)
     monkeypatch.setenv("MINIMAX_API_KEY", "dummy-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy-openai-key")
     monkeypatch.setattr(emb, "LMStudioEmbeddings", FakeLMStudioEmbeddings)
 
     provider = await auto_detect_provider()
 
-    assert provider.name == "minimax"
+    # 2026-11-26: MiniMax was removed from auto-detect (explicit-only).
+    # With LM Studio faked as a bad model, the chain now falls through
+    # to OpenAI — never to MiniMax, even with MINIMAX_API_KEY set.
+    assert provider.name == "openai"
 
 
 # ---------------------------------------------------------------------------

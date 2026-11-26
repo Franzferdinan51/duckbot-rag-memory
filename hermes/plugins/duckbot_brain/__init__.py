@@ -497,8 +497,11 @@ class DuckBotBrainProvider:
             return ""
         query = query.strip()
         # Don't block the agent loop waiting for the brain to warm up.
-        # If background warm-up hasn't completed yet, return empty.
-        if not self._brain_ready or self._brain is None:
+        # If background warm-up hasn't produced a brain yet, return empty.
+        # (v0.17.0: gate on the brain object, not the _brain_ready flag —
+        # the flag alone vetoed a usable brain whenever warm-up's probe
+        # step lagged or failed after construction succeeded.)
+        if self._brain is None:
             logger.debug("prefetch: brain not ready yet, returning empty")
             return ""
         try:
@@ -674,7 +677,7 @@ class DuckBotBrainProvider:
         # Brain may already be warm from a previous initialize() in this
         # session (e.g. if Hermes re-fires the hook). If so, return
         # immediately.
-        if self._brain_ready and self._brain is not None:
+        if self._brain is not None:
             try:
                 return self._brain.wake_up(
                     k=8,
@@ -691,10 +694,10 @@ class DuckBotBrainProvider:
         # agent can continue without context, and the first prefetch()
         # call will populate context on the next turn.
         wait_until = _time_oss.monotonic() + timeout_s
-        while not self._brain_ready and _time_oss.monotonic() < wait_until:
+        while self._brain is None and _time_oss.monotonic() < wait_until:
             _time_oss.sleep(0.1)
 
-        if not self._brain_ready or self._brain is None:
+        if self._brain is None:
             logger.info(
                 "on_session_start: brain not warm within %.1fs, returning placeholder",
                 timeout_s,
@@ -893,7 +896,7 @@ def on_session_end(messages=None) -> dict:
 
 
 # Also expose at module top-level for direct import access
-__version__ = "0.16.0"
+__version__ = "0.17.0"
 
 __all__ = [
     "register",

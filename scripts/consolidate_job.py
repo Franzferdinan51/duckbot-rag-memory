@@ -28,7 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 WRITER_ROLE = "memory_writer"           # SystemOne role name (pinned)
-WRITER_MODEL = "hy-memory-30b-a3b-mlx"  # pinned writer build (MLX 4-bit; GGUF retired 2026-10-16)
+WRITER_MODEL = "lfm3-omni-2b"  # pinned writer (2.4 GB; replaced Hy-Memory 30B 2026-11-26 — too heavy, never loaded in the Robin deployment)
 
 
 def main() -> int:

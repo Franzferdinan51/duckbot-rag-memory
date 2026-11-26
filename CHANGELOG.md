@@ -1,5 +1,85 @@
 # Changelog
 
+## v0.17.0 — reconciliation: one plugin, a light writer, honest jobs (2026-11-26)
+
+Full audit of GitHub + Robin + Mac found the brain alive (29,214 chunks,
+hourly sync healthy) but the repo and deployment badly drifted. This
+release reconciles all three copies.
+
+### Fixed
+
+- **Hermes plugin existed in four divergent copies.** The deployed
+  `~/.hermes/plugins/duckbot-brain/` matched the older
+  `src/plugins/memory/` copy (789 lines, no warm-up), the repo's
+  `hermes/plugins/` copy was newer (905 lines, background warm-up,
+  `max_workers=2`) but never deployed, and the `shield` / `blender`
+  profile copies were staler still (583 / 565 lines) — the visible
+  symptom was chronic 8s memory-prefetch timeouts in Hermes (10 on
+  2026-11-26 alone). All copies are now byte-identical to the canonical
+  `hermes/plugins/duckbot_brain/` source, deployed to the top-level
+  plugin dir and every profile that carries one. Two real bugs were
+  found in the newer copy during unification and fixed: its
+  `plugin.yaml` carried an unquoted description containing a colon —
+  invalid YAML that a strict loader cannot parse — and its
+  `_brain_ready` flag could veto a fully constructed brain in
+  `prefetch()` / `on_session_start()` whenever the warm-up probe
+  lagged or failed after construction succeeded; both now gate on the
+  brain object itself.
+- **Version coherence:** `src/__init__.py` said 0.15.2, `pyproject.toml`
+  0.15.3, the plugin 0.16.0. Everything is now 0.17.0.
+
+### Changed
+
+- **Consolidation writer: Hy-Memory-30B → `lfm3-omni-2b`.** Hy (16 GB)
+  was too heavy for the live path, LM Studio no longer indexes the
+  build, and in the Robin deployment its nightly load failed every
+  night from 2026-11-09 to 2026-11-26 while the wrapper masked the
+  failure as success and consolidation silently ran on regex. The
+  writer pin is now `lfm3-omni-2b` (2.4 GB, indexed in LM Studio) in
+  `nightly_hy_pass.py`, `consolidate_job.py`, `ingest_sessions.py`,
+  `mine_experience.py`, `coding_chain.py`, `e2e_pipeline_test.py`, and
+  `shadow_writer_ab.py`. Verified live on the Mac before the swap:
+  extraction returned 4/4 facts with zero invention. `src/hy_memory.py`
+  keeps its name/API (house rule: no renames without a migration path).
+- **Update-ops prompt tightened** with a concrete op-object example —
+  the loose spec made a small generalist model return op names instead
+  of op objects (found in the 2026-11-26 smoke test; Hy followed the
+  loose spec, lfm3-omni-2b did not).
+- **D1 gate pin: `d1-3b` → `d1-2b`** in `src/gate.py` — the live
+  decider pair is d1-2b / d1-omni-2b. (This was an uncommitted edit
+  sitting in the Mac checkout; now committed.)
+- **MiniMax removed from embedding auto-detect** (all fallback chains).
+  The provider class remains for explicit `DUCKBOT_EMBEDDING=minimax`
+  only and is marked deprecated; `.env.example` and the OpenClaw
+  connector's emitted config no longer default to it.
+
+### Host fixes (Robin, applied with this release)
+
+- **Nightly wrapper masked writer failures:** `duckbot-nightly-brain.sh`
+  captured `$?` *after* writing the log file, so the Hy load failure
+  could never reach the failure branch. Exit code is now captured
+  immediately; a failed writer pass reports FAILED in the nightly line.
+  Canonical copy added at `scripts/duckbot-nightly-brain.sh`.
+- **Nightly wrapper was Mac-shaped on Linux:** its D1 health check
+  pointed at `~/.hermes/tools/d1/d1.py` (absent on Robin →
+  `brain=skipped-no-d1` every night) and it called macOS
+  `memory_pressure` (→ `RAM ? free`). D1 status now probes the LM
+  Studio API for `d1-2b`; RAM free comes from `free`.
+- Mac checkout junk removed (`.env.bak-*`, `plugin.yaml.bak-*`,
+  probe logs).
+
+### Docs
+
+- README: Hy "live writer" claim corrected (design record kept),
+  deployed-jobs table rewritten for the Robin systemd deployment,
+  model table updated (writer `lfm3-omni-2b`, gate `d1-2b`).
+- AGENTS.md: scheduling section now describes the Robin timers.
+- ISSUES.md: desktop/workspace duality marked resolved — canonical
+  install is `~/duckbot-rag-memory` on both live hosts.
+- `.env.example`: truthful auto-detect order, LM Studio primary,
+  OpenClaw paths marked legacy, dead Desktop PYTHON_BIN removed.
+
+
 ## Unreleased — bridge mode: the memory provider works in the Hermes gateway (2026-10-28)
 
 ### Added

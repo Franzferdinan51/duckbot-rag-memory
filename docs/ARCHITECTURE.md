@@ -88,7 +88,7 @@ Why RRF: it doesn't require score normalization (vector cosine distance and BM25
 Periodically (cron-driven), we run a "dream" pass:
 1. Pull recent episodic chunks (last 7 days)
 2. Group by topic (cosine similarity clustering — simple threshold for v0.1)
-3. Extract durable facts: agent-supplied facts, or the Hy-Memory writer (`src/hy_memory.py`, load-on-dispatch — the live nightly pass), with regex heuristics as the fail-open fallback
+3. Extract durable facts: agent-supplied facts, or the writer adapter (`src/hy_memory.py`, load-on-dispatch — the live nightly pass; writer model is `lfm3-omni-2b` since 2026-11-26, Hy-Memory-30B retired), with regex heuristics as the fail-open fallback
 4. Add extracted facts to the SEMANTIC tier
 5. Optionally mark old episodic chunks as superseded (skip for v0.1)
 

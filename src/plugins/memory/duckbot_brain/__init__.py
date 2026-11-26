@@ -38,17 +38,28 @@ from typing import Any, Dict, List, Optional
 
 # Fix sys.path so `from src.connectors.base import Brain` resolves.
 # When Hermes loads this plugin the cwd is ~ and Python has no
-# duckbot-rag-memory on the path. Locate the repo root using a
-# home-sibling path first, then an upward walk for dev layouts.
+# duckbot-rag-memory on the path.  We locate the repo root using a
+# two-pass strategy:
+#
+#  PASS 1 — expanduser("~") primary (Windows-safe, works on all platforms).
+#    ~/duckbot-rag-memory is the canonical install location.
+#
+#  PASS 2 — upward walk from __file__ (dev / IDE layouts).
+#    Handles the case where the repo IS above the plugin dir.
+#
+#  If both fail we raise ImportError with a useful message.
 from pathlib import Path as _P
 import os as _os
 
 _DUCKBOT_ROOT: str | None = None
-_home = _P(_os.path.expanduser("~"))
+
+# PASS 1 — expanduser primary (handles Windows correctly; no .parent math)
+_home = _P(_os.path.expanduser("~"))                    # ~  (C:\Users\franz on Windows)
 _repo_home_sibling = _home / "duckbot-rag-memory"
 if (_repo_home_sibling / "src" / "connectors" / "base.py").exists():
     _DUCKBOT_ROOT = str(_repo_home_sibling)
 
+# PASS 2 — upward walk from __file__ (dev layout)
 if _DUCKBOT_ROOT is None:
     for _up in range(8):
         _candidate = _P(__file__).resolve().parents[_up]
@@ -58,8 +69,12 @@ if _DUCKBOT_ROOT is None:
 
 if _DUCKBOT_ROOT is None:
     raise ImportError(
-        "duckbot-brain plugin could not locate duckbot-rag-memory. "
-        f"Tried {_repo_home_sibling} and parents of {_P(__file__).resolve()}"
+        "duckbot-brain plugin could not locate duckbot-rag-memory.\n"
+        f"  Tried: {_repo_home_sibling}\n"
+        f"  Walked from: {_P(__file__).resolve()}\n"
+        "Expected to find src/connectors/base.py either at\n"
+        "  ~/duckbot-rag-memory/ (expanduser path) or\n"
+        "  somewhere above the plugin __init__.py location."
     )
 
 if _DUCKBOT_ROOT not in sys.path:
@@ -265,14 +280,17 @@ class DuckBotBrainProvider:
 
     def __init__(self) -> None:
         self._brain: Optional[Brain] = None
+        self._brain_ready: bool = False
+        self._brain_lock = threading.Lock()
         # Bridge mode (v0.16.0): set by is_available() when this
         # interpreter can't host the Brain but the worker can.
         self._bridge_mode: bool = False
         self._worker: Optional[_WorkerClient] = None
         self._avail_probed: bool = False
         self._avail_result: bool = False
+        self._unavailable_reason: str = ""
         self._executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="duckbot-brain-sync"
+            max_workers=2, thread_name_prefix="duckbot-brain-sync"
         )
         self._session_id: str = ""
         self._hermes_home: str = ""
@@ -314,19 +332,14 @@ class DuckBotBrainProvider:
     def is_available(self) -> bool:
         """Is the Brain reachable from this process — directly or bridged?
 
-        Direct mode: the Brain class imports, the repo root is on the
-        Python path, and the vector backend's hard dependency
-        (chromadb) is importable in THIS interpreter.
-
-        Bridge mode (v0.16.0): the Hermes gateway runs an isolated
-        bundled Python (-I: no user site-packages, PYTHONPATH
-        stripped), which cannot import chromadb. The 2026-10-19 host
-        gate made the provider self-disable there; bridge mode instead
-        probes the brain worker under the repo venv Python — the same
-        interpreter the 'duckbot-memory' MCP server uses — and forwards
-        calls to it, so the provider stays live in the gateway too.
-        The probe runs once per provider instance; the worker stays
-        warm for the session.
+        Direct mode: the Brain class + chromadb import in THIS
+        interpreter (CLI sessions, the repo venv). Bridge mode: this
+        interpreter can't host the Brain (the Hermes gateway's isolated
+        bundled Python), so probe the brain worker under the repo venv
+        Python instead — the provider stays live in the gateway too
+        (v0.16.0; before this, the 2026-10-19 host gate made it
+        self-disable there). The probe runs once per provider instance
+        and the worker stays warm for the session.
         """
         if self._avail_probed:
             return self._avail_result
@@ -342,8 +355,7 @@ class DuckBotBrainProvider:
             return True
         except Exception as e:  # noqa: BLE001
             direct_err = f"{type(e).__name__}: {e}"
-        # Direct mode impossible in this interpreter — try the bridge
-        # (the Hermes gateway's isolated Python is the canonical case).
+        # Direct mode impossible in this interpreter — try the bridge.
         try:
             python_bin = _venv_python(_DUCKBOT_ROOT)
             if python_bin is None:
@@ -369,9 +381,8 @@ class DuckBotBrainProvider:
         """Why is_available() is False — surfaced in Hermes' startup warning."""
         return (
             getattr(self, "_unavailable_reason", "")
-            or "brain imports but is not usable in this interpreter; "
-               "use the 'duckbot-memory' MCP server (repo venv Python), "
-               "or check data/brain-worker.log for the bridge failure"
+            or "brain is not usable in this interpreter and the "
+               "repo-venv bridge worker did not answer"
         )
 
     def initialize(self, session_id: str, **kwargs: Any) -> None:
@@ -380,6 +391,13 @@ class DuckBotBrainProvider:
         Per Hermes ABC: `hermes_home` and `platform` are guaranteed in kwargs.
         We may also receive `agent_context` ("primary"|"subagent"|"cron"|"flush")
         and skip writes for non-primary contexts.
+
+        v0.15.2: kicks off brain warm-up in a background thread so the FIRST
+        prefetch() doesn't block the agent's typing indicator waiting for
+        ChromaDB + LM Studio + reranker to initialize. Previously the first
+        prefetch called `_get_brain()` synchronously, which could take 2-5+
+        seconds on cold start (file locks, model loads, embedding warmup) and
+        was visible to the user as a stuck typing indicator.
         """
         self._session_id = session_id
         self._hermes_home = kwargs.get("hermes_home", "")
@@ -396,12 +414,46 @@ class DuckBotBrainProvider:
             },
         )
 
-        # Lazy brain — only construct on first recall/sync to keep startup fast.
+        # Reset warm-up state so a re-initialize (e.g. new session_id)
+        # triggers a fresh background warm-up.
         self._brain = None
+        self._brain_ready = False
+
+        # Kick off brain construction in the background. The agent loop
+        # can call prefetch() immediately and get an empty result until
+        # the brain is warm; subsequent prefetches are fast.
+        try:
+            self._executor.submit(self._warm_brain_background)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Failed to queue brain warm-up: %s", e)
+
         logger.info(
-            "DuckBot brain provider initialized for session=%s platform=%s context=%s",
+            "DuckBot brain provider initialized for session=%s platform=%s context=%s (warm-up queued)",
             session_id, self._platform, self._agent_context,
         )
+
+    def _warm_brain_background(self) -> None:
+        """Background brain construction. Runs on the executor thread.
+
+        Sets `_brain_ready = True` on success. If construction raises, the
+        error is logged but never propagated — prefetch will fall back to
+        an empty result and the next prefetch (after brain is fixed) will
+        succeed.
+        """
+        try:
+            brain = self._get_brain()
+            # Touch the brain with a no-op recall so we know embedding
+            # providers + ChromaDB collections are initialized end-to-end.
+            # Empty query is a no-op in the recall path, so this just
+            # validates the pipeline works without returning junk.
+            try:
+                brain.recall("", k=1, rerank=False, decay=False)
+            except Exception as warmup_err:  # noqa: BLE001
+                logger.debug("brain warm-up probe failed (non-fatal): %s", warmup_err)
+            self._brain_ready = True
+            logger.info("DuckBot brain warm-up complete")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Brain warm-up failed (prefetch will return empty): %s", e)
 
     def shutdown(self) -> None:
         """Best-effort cleanup on agent exit."""
@@ -432,6 +484,11 @@ class DuckBotBrainProvider:
 
         Hermes ABC: should be fast (cached background result preferred).
         We do a tiny recall (k=3, no rerank, no decay) to stay under ~150ms.
+
+        v0.15.2: if the brain is not yet warm (initial session-startup race),
+        return "" immediately instead of blocking on brain construction. The
+        agent's typing indicator stays active and the brain finishes warming
+        in the background. Subsequent prefetches will hit the warm cache.
         """
         # Strip whitespace — a query of just spaces should be treated like
         # an empty query, otherwise we'd embed meaningless whitespace and
@@ -439,6 +496,14 @@ class DuckBotBrainProvider:
         if not query or not query.strip():
             return ""
         query = query.strip()
+        # Don't block the agent loop waiting for the brain to warm up.
+        # If background warm-up hasn't produced a brain yet, return empty.
+        # (v0.17.0: gate on the brain object, not the _brain_ready flag —
+        # the flag alone vetoed a usable brain whenever warm-up's probe
+        # step lagged or failed after construction succeeded.)
+        if self._brain is None:
+            logger.debug("prefetch: brain not ready yet, returning empty")
+            return ""
         try:
             brain = self._get_brain()
             results = brain.recall(query, k=3, rerank=False, decay=False)
@@ -592,10 +657,64 @@ class DuckBotBrainProvider:
         context pre-loaded without an extra round-trip. Cheaper than
         the agent calling `brain_wake_up` itself because the wake-up
         runs in the plugin process (no MCP framing overhead).
+
+        v0.15.3: added a soft wall-clock budget for this hook so a slow
+        cold-start brain warm-up can't block the agent's typing
+        indicator. If the brain warm-up exceeds `on_session_start_timeout_s`
+        (default 6s), return a placeholder with `wake_up_truncated: True`
+        and `status: 'background_warming'` so the agent continues with
+        whatever context is available and the warm-up finishes in the
+        background. The first prefetch() will then return real results
+        on the next call.
         """
+        import os as _os_oss
+        import time as _time_oss
+        timeout_s = float(_os_oss.environ.get(
+            "DUCKBOT_ON_SESSION_START_TIMEOUT_S", "6.0"
+        ))
+        deadline = _time_oss.monotonic() + timeout_s
+
+        # Brain may already be warm from a previous initialize() in this
+        # session (e.g. if Hermes re-fires the hook). If so, return
+        # immediately.
+        if self._brain is not None:
+            try:
+                return self._brain.wake_up(
+                    k=8,
+                    include_blocks=True,
+                    include_graph=True,
+                    include_fsrs_review=True,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("on_session_start failed (brain warm): %s", e)
+                return None
+
+        # Cold path — wait briefly for warm-up to finish, but don't block
+        # the agent loop past the timeout. Return a placeholder so the
+        # agent can continue without context, and the first prefetch()
+        # call will populate context on the next turn.
+        wait_until = _time_oss.monotonic() + timeout_s
+        while self._brain is None and _time_oss.monotonic() < wait_until:
+            _time_oss.sleep(0.1)
+
+        if self._brain is None:
+            logger.info(
+                "on_session_start: brain not warm within %.1fs, returning placeholder",
+                timeout_s,
+            )
+            return {
+                "memories": [],
+                "blocks": [],
+                "graph_summary": {},
+                "fsrs_review_queue": [],
+                "stats": {},
+                "wake_up_truncated": True,
+                "wake_up_status": "background_warming",
+                "wake_up_elapsed_ms": int(timeout_s * 1000),
+            }
+
         try:
-            brain = self._get_brain()
-            return brain.wake_up(
+            return self._brain.wake_up(
                 k=8,
                 include_blocks=True,
                 include_graph=True,
@@ -777,7 +896,7 @@ def on_session_end(messages=None) -> dict:
 
 
 # Also expose at module top-level for direct import access
-__version__ = "0.16.0"
+__version__ = "0.17.0"
 
 __all__ = [
     "register",
