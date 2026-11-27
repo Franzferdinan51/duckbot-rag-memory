@@ -40,7 +40,7 @@ class Chunk:
     """A single chunk with provenance metadata."""
 
     text: str
-    source_path: str  # e.g. ~/.openclaw/workspace/memory/2026-06-22.md
+    source_path: str  # e.g. ~/.hermes/memories/2026-06-22.md
     start_char: int   # offset in original document
     end_char: int
     chunk_index: int  # ordinal within the source document

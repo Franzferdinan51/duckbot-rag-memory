@@ -38,7 +38,6 @@ from src.hy_memory import extract_memories_hy  # noqa: E402
 # 2026-10-16) so the comparison always runs on the live agent's data.
 DEFAULT_MEMORY_DIRS = [
     Path.home() / ".hermes" / "memories",
-    Path.home() / ".openclaw" / "workspace" / "memory",
 ]
 
 

@@ -1413,11 +1413,6 @@ def cmd_hermes(args: argparse.Namespace) -> int:
     return hermes.main(args.verb + [args.remainder] if hasattr(args, "remainder") and args.remainder else args.verb)
 
 
-def cmd_openclaw(args: argparse.Namespace) -> int:
-    """OpenClaw CLI shim: 'python -m src.cli openclaw <verb> [args...]' delegates to the shared 12-tool surface."""
-    from .connectors import openclaw_shim
-    return openclaw_shim.main(list(args.verb))
-
 
 def cmd_skills(args: argparse.Namespace) -> int:
     """Skill pipeline CLI: 'python -m src.cli skills <verb> [args...]'.
@@ -1536,7 +1531,7 @@ async def _run_brain_sync(target: str, memory_k: int, user_k: int) -> dict:
 
 
 def cmd_sync(args: argparse.Namespace) -> int:
-    """Sync stored memories to OpenClaw and/or Hermes agent context files.
+    """Sync stored memories to Hermes agent context files.
 
     This is what makes the enhanced brain work: it writes memories back to
     the files that agents read at startup (MEMORY.md, USER.md, SOUL.md).
@@ -1558,7 +1553,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="duckbot-rag-memory",
-        description="RAG + memory system for OpenClaw/Hermes agent memory",
+        description="RAG + memory system for Hermes agent memory",
     )
     sub = parser.add_subparsers(dest="cmd")
 
@@ -1700,7 +1695,7 @@ def main() -> int:
     )
     p_update.set_defaults(func=cmd_update)
 
-    # Wake-up: session-start context load (Hermes pre-flight / OpenClaw init).
+    # Wake-up: session-start context load (Hermes pre-flight).
     p_wakeup = sub.add_parser(
         "wake-up",
         help="one-call session-start context load (memories + blocks + graph + FSRS queue)",
@@ -1786,7 +1781,7 @@ def main() -> int:
         "inspect",
         help="consolidated entity view: graph + recent memories + blocks",
     )
-    p_inspect.add_argument("entity", help="entity name to inspect (e.g. 'Duckets', 'OpenClaw')")
+    p_inspect.add_argument("entity", help="entity name to inspect (e.g. 'Duckets', 'Hermes')")
     p_inspect.add_argument("-k", type=int, default=10, help="max memories to recall")
     p_inspect.set_defaults(func=cmd_inspect)
 
@@ -1837,9 +1832,6 @@ def main() -> int:
     p_hermes.add_argument("verb", nargs="+", help="verb (remember, recall, stats, etc.) + args")
     p_hermes.set_defaults(func=cmd_hermes)
 
-    p_openclaw = sub.add_parser("openclaw", help="OpenClaw agent CLI shim: openclaw <verb> [args...]")
-    p_openclaw.add_argument("verb", nargs="+", help="verb (wake-up, recall, remember, stats, tools, call, etc.) + args")
-    p_openclaw.set_defaults(func=cmd_openclaw)
 
     # Skills pipeline: stamp / list / promote / suggest (no LLM).
     # Use argparse.REMAINDER for the verb+args so the subcommand can parse
@@ -1853,8 +1845,8 @@ def main() -> int:
     p_dash.add_argument("--json", action="store_true", help="output as JSON")
     p_dash.set_defaults(func=cmd_dashboard)
 
-    p_sync = sub.add_parser("sync", help="Sync stored memories to OpenClaw/Hermes context files (enhanced brain)")
-    p_sync.add_argument("--target", choices=["openclaw", "hermes", "both"], default="both",
+    p_sync = sub.add_parser("sync", help="Sync stored memories to Hermes context files (enhanced brain)")
+    p_sync.add_argument("--target", choices=["hermes"], default="hermes",
                         help="which agent to sync (default: both)")
     p_sync.add_argument("--memory-k", type=int, default=20, help="max memories per tier for MEMORY.md")
     p_sync.add_argument("--user-k", type=int, default=15, help="max facts for USER.md")

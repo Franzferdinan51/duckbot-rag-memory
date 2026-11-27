@@ -4,9 +4,9 @@ This document is the canonical install recipe for an agent (or human
 operator) that wants to wire this brain into Hermes Agent (the live
 runtime) or another MCP client. It exists so an agent that has been
 pointed at this file can copy-paste its way to a fully-fed brain
-without reading the README. OpenClaw sections are kept for legacy
-installs only — the reference deployment serves Hermes + Juno
-exclusively (owner's 2026-11-23 ruling) and no longer syncs OpenClaw.
+without reading the README. The reference deployment serves Hermes
++ Juno exclusively (owner's 2026-11-23 ruling); OpenClaw support was
+removed entirely in v0.19.0.
 
 ## 0. What this is
 
@@ -57,12 +57,9 @@ The `install.sh` script:
 ```bash
 # For Hermes Agent users — ingests every .md in ~/.hermes/memories
 ./scripts/hermes-bootstrap.sh
-
-# Legacy, for OpenClaw installs — ingests every .md in ~/.openclaw/workspace
-./scripts/openclaw-bootstrap.sh
 ```
 
-Both scripts:
+The script:
 1. Run `python -m src.cli doctor` to confirm setup
 2. `python -m src.cli ingest <workspace>` — pulls every markdown
    file into the brain, auto-detecting tier
@@ -74,41 +71,6 @@ Both scripts:
 Re-running is idempotent (content-hash dedup, no duplicates).
 
 ## 4. Register the brain as an MCP server
-
-### OpenClaw — native plugin (legacy)
-
-The OpenClaw bootstrap script auto-installs a native Node.js plugin at
-`~/.openclaw/extensions/duckbot-memory/`. It spawns the existing Python
-MCP server as a subprocess and proxies all 73 tools + session_start /
-session_end hooks via JSON-RPC. Zero npm dependencies.
-
-```bash
-# Already done by the bootstrap script. Just restart the gateway:
-openclaw gateway restart
-openclaw plugins list | grep duckbot-memory    # should show "✓ installed"
-```
-
-The plugin auto-fires `brain_wake_up` on every `session_start` so the
-agent gets full context without being told to call it manually, and
-auto-fires `brain_sync` on every `session_end` so high-importance
-session facts get written back to OpenClaw's MEMORY.md / USER.md /
-SOUL.md.
-
-### OpenClaw — MCP server (fallback, legacy)
-
-If the native plugin doesn't suit your setup, register the MCP server
-directly in `~/.openclaw/openclaw.json` under `mcp.servers`:
-
-```json
-{
-  "duckbot-brain": {
-    "command": "/Users/you/duckbot-rag-memory/.venv/bin/python",
-    "args": ["-m", "src.mcp_server"]
-  }
-}
-```
-
-Restart OpenClaw / `mcporter list` should now show 73 tools.
 
 ### Hermes Agent — MemoryProvider plugin (recommended)
 
@@ -251,22 +213,21 @@ pwsh scripts/install.ps1     # Windows Task Scheduler
 | `DUCKBOT_WATCH_USE_FSEVENTS` | `0` | Use native FSEvents instead of polling (macOS). |
 | `DUCKBOT_SKIP_SECRET_SCAN` | `0` | Set to `1` to skip the pre-commit secret scan. |
 | `HERMES_HOME` | `~/.hermes/memories` | Hermes Agent workspace path (used by `hermes-bootstrap.sh`). |
-| `OPENCLAW_HOME` | `~/.openclaw/workspace` | OpenClaw workspace path (used by `openclaw-bootstrap.sh`). |
 
 ## 8. Common failure modes
 
 | Symptom | Fix |
 |---|---|
 | `doctor` reports no embedding provider | Set `DUCKBOT_EMBEDDING` + the corresponding API key/url. |
-| MCP server starts but tools fail with "Event loop is closed" | You're inside another event loop; restart the host (OpenClaw / Hermes). |
+| MCP server starts but tools fail with "Event loop is closed" | You're inside another event loop; restart the host (Hermes). |
 | Recall returns nothing | The brain was bootstrapped into a different `data/` directory. Check `pwd` of the MCP server. |
 | Cross-encoder rerank times out | Keep `k` small for recall or disable rerank for that query; the reranker scores the current top results only. |
 | FSRS review queue is empty | Means no chunks have `fsrs_stability_days` or `fsrs_last_review_ts` metadata. Re-ingest or run `optimize-fsrs` to populate. |
-| Bootstrap script says "no .md files" | Wrong workspace path; set `OPENCLAW_HOME` or `HERMES_HOME` env var. |
+| Bootstrap script says "no .md files" | Wrong workspace path; set the `HERMES_HOME` env var. |
 
 ## 9. What to do next
 
-- Read `README.md` for a tour of all 73 tools.
+- Read `README.md` for a tour of all 67 tools.
 - Read `docs/ARCHITECTURE.md` for the 4-tier CoALA model + hybrid retrieval details.
 - Read `docs/RESEARCH.md` for the upstream-project lineage (mem0, Letta, MemPalace, Graphiti, py-fsrs) and what was borrowed.
 - Read `CHANGELOG.md` for the version-by-version history.

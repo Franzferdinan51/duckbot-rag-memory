@@ -2,20 +2,14 @@
 
 A stdio JSON-RPC adapter for the DuckBot brain. Use this for clients
 that take an MCP server command (Claude Code, Cursor, Codex CLI,
-mcporter, etc.) — **not for OpenClaw**.
+mcporter, etc.).
 
-OpenClaw users should install the native Node.js plugin at
-[`extensions/duckbot-memory/`](../../../extensions/duckbot-memory/)
-instead. That plugin spawns the Python MCP server (`src/mcp_server.py`)
-as a subprocess; OpenClaw plugins run in-process in the Node gateway
-and can't load Python.
-
-This adapter exposes the 73-tool core agent surface (same list the
+This adapter exposes the 12-tool core agent surface (same list the
 Hermes MemoryProvider plugin advertises) so an agent author can rely
 on the same tool names regardless of which platform they're on. The
-full 73 tools are available via `python -m src.mcp_server`.
+full 67 tools are available via `python -m src.mcp_server`.
 
-The 73 tools:
+The 12 tools:
 
 - **`brain_wake_up`** — one-call session-start context load. Call this first on every session start. Returns recent memories (superseded filtered), active blocks, graph summary, FSRS review queue, and stats in one MCP call.
 - `brain_recall` — hybrid vector + BM25 + RRF retrieval, with optional cross-encoder rerank and Ebbinghaus decay.

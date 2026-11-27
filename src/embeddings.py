@@ -86,7 +86,7 @@ del _fix_posthog_api
 #   1. No embed-result cache. Every `brain_decay_status`, `brain_fsrs_review`,
 #      and watcher poll re-embedded the same chunks.
 #   2. Each call opened a new `httpx.AsyncClient`. With v0.10/v0.11's
-#      three concurrent embed paths (Layer 6 OpenClaw, Layer 16 Hermes,
+#      concurrent embed paths (Layer 16 Hermes,
 #      MCP server), bursts collided at LM Studio and triggered
 #      `ERR_HTTP_HEADERS_SENT`.
 #   3. No rate limiter. When a burst arrived, all callers slammed
@@ -312,6 +312,7 @@ def get_embed_cache_stats() -> dict:
 # None so we don't keep retrying a broken endpoint in the same process.
 # Added in v0.11.2 alongside _embed_cache to fix "dim probe" spam in LM Studio.
 # ---------------------------------------------------------------------------
+_LM_LOAD_CHECK_TS: dict[str, float] = {}  # model -> last _ensure_loaded check (monotonic)
 _EMBEDDER_DIM_CACHE: dict[tuple[str, str], int | None] = {}
 
 
@@ -562,6 +563,43 @@ class LMStudioEmbeddings:
             _EMBEDDER_DIM_CACHE[cache_key] = None
         return False
 
+    async def _ensure_loaded(self) -> None:
+        """Load the embedding model in LM Studio if it isn't loaded.
+
+        v0.19.0 (owner's order: "it needs to load it when called"): LM
+        Studio unloads idle models on a TTL, and a cold embedder made
+        brain_wake_up take ~8.6s — over Hermes' 8s prefetch timeout,
+        which wedged sessions on "Running brain wake up" (2026-11-26).
+        So embed() checks the REST API's loaded_instances (throttled to
+        once a minute per process) and POSTs a load when the model is
+        present but unloaded. Never raises: any failure falls through
+        to the normal request path and its existing error handling.
+        """
+        now = time.monotonic()
+        if now - _LM_LOAD_CHECK_TS.get(self.model, 0.0) < 60.0:
+            return
+        _LM_LOAD_CHECK_TS[self.model] = now
+        base = self.base_url[:-3] if self.base_url.endswith("/v1") else self.base_url
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as mgmt:
+                resp = await mgmt.get(f"{base}/api/v1/models")
+                if resp.status_code != 200:
+                    return
+                entry = next(
+                    (m for m in resp.json().get("models", []) if m.get("key") == self.model),
+                    None,
+                )
+                if entry is None or entry.get("loaded_instances"):
+                    return
+            async with httpx.AsyncClient(timeout=180.0) as loader:
+                await loader.post(
+                    f"{base}/api/v1/models/load",
+                    json={"model": self.model},
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+        except Exception:
+            pass
+
     async def embed(self, texts: list[str], timeout_ms: Optional[int] = None) -> list[list[float]]:
         if not texts:
             return []
@@ -575,6 +613,7 @@ class LMStudioEmbeddings:
                 to_fetch.append((i, t))
         if not to_fetch:
             return results  # type: ignore[return-value]
+        await self._ensure_loaded()
         for i in range(0, len(to_fetch), self.batch_size):
             batch = to_fetch[i:i + self.batch_size]
             batch_texts = [t for _, t in batch]

@@ -1,24 +1,17 @@
 # Integration Guide
 
 How to plug duckbot-rag-memory into the rest of your stack — Hermes,
-OpenClaw, Claude Code, Codex, or anything else that speaks MCP stdio.
+Claude Code, Codex, or anything else that speaks MCP stdio.
 
 ## TL;DR — for the impatient
 
 ```bash
-# OpenClaw: use the native Node.js plugin (zero deps, auto session hooks)
-./scripts/openclaw-bootstrap.sh
-openclaw gateway restart
-openclaw plugins list | grep duckbot-memory    # should show "✓ installed"
-
 # Hermes: use the MemoryProvider plugin (auto-wakes on session start)
 ./scripts/hermes-bootstrap.sh
 grep duckbot-brain ~/.hermes/config.yaml       # memory.provider: duckbot-brain
-# Host-gate caveat (reference Mac): Hermes' backends run an isolated (-I)
-# Python without chromadb, so the plugin self-disables there and the
-# provider is unselected (hermes memory off) to keep sessions quiet.
-# The canonical Hermes surface there is the MCP server below + the cron
-# jobs in the README deployed-jobs table.
+# Host-gate caveat: in Hermes backends whose Python lacks chromadb,
+# the plugin self-disables itself; the canonical surface there is the
+# MCP server below + the cron jobs in the README deployed-jobs table.
 
 # Anything else (Claude Code / Cursor / Codex / mcporter): MCP server via launcher
 hermes mcp add duckbot-memory \
@@ -170,7 +163,7 @@ Three levels of confidence:
 hermes mcp test duckbot-memory
 
 # 2. Tools discovered
-hermes mcp list  # should show 73 tools, ✓ enabled
+hermes mcp list  # should show 67 tools, ✓ enabled
 
 # 3. End-to-end
 python -m src.cli query "What did we decide about cloud-only models?"
@@ -202,7 +195,7 @@ remember() → recall() → brain_inflate() → agent context
 When you start a new task or session, call `brain_inflate`:
 
 ```
-# OpenClaw / Hermes tool call
+# Hermes / MCP tool call
 brain_inflate(query="what are we working on?", k=10, agent_name="mavis")
 ```
 
@@ -225,9 +218,6 @@ Syncs memories to agent context files automatically:
 
 | Platform | Path | Format | Notes |
 |----------|------|--------|-------|
-| OpenClaw | `~/.openclaw/workspace/memory/MEMORY.md` | Rich markdown | No char limit |
-| OpenClaw | `~/.openclaw/workspace/memory/USER.md` | Rich markdown | User facts |
-| OpenClaw | `~/.openclaw/workspace/memory/SOUL.md` | Rich markdown | Procedural tier |
 | Hermes | `~/.hermes/memories/MEMORY.md` | `§`-delimited | 2,200 char limit |
 | Hermes | `~/.hermes/memories/USER.md` | `§`-delimited | 1,375 char limit |
 | Hermes | `~/.hermes/SOUL.md` | Markdown | Global personality |
@@ -235,32 +225,12 @@ Syncs memories to agent context files automatically:
 The cron already calls `brain_sync` after every ingest run. To sync manually:
 
 ```bash
-# Both platforms
-python -m src.cli sync --target both
-
-# OpenClaw only
-python -m src.cli sync --target openclaw
-
-# Hermes only
+# Hermes (the only sync target since v0.19.0)
 python -m src.cli sync --target hermes
 
 # Dry run (preview)
 python -m src.cli sync --dry-run
 ```
-
-### OpenClaw skill
-
-The `duckbot-brain` skill teaches your OpenClaw agents to use the enhanced
-brain. Install it:
-
-```bash
-mkdir -p ~/.openclaw/workspace/skills/duckbot-brain/
-ln -sf ~/duckbot-rag-memory/skills/duckbot-brain/SKILL.md \
-  ~/.openclaw/workspace/skills/duckbot-brain/SKILL.md
-```
-
-The skill file lives at `skills/duckbot-brain/SKILL.md` in this repo.
-It auto-discovers from `~/.openclaw/workspace/skills/`.
 
 ## Configuration knobs
 
@@ -274,9 +244,7 @@ It auto-discovers from `~/.openclaw/workspace/skills/`.
 | `LMSTUDIO_RERANK_MODEL` | `qwen3-reranker-0.6b` | Required local reranker model when `DUCKBOT_RERANK=1`. |
 | `DUCKBOT_REGEX_ONLY` | unset | Force regex-only fact extraction in `reflect()`. Use for offline / air-gapped / CI runs. (Legacy alias: `DUCKBOT_NO_LLM_EXTRACTION=1`.) The brain never auto-loads a chat model regardless of this setting. |
 | `LMSTUDIO_API_KEY` | `lm-studio` | Bearer token. LM Studio's recent builds require it. |
-| `OPENCLAW_WORKSPACE` | `~/.openclaw/workspace` | Watch this dir + auto-ingest new files. |
-| `OPENCLAW_MEMORY` | `<workspace>/memory` | Specifically watch this subdir. |
-| `HERMES_HOME` | `~/.hermes` | Hermes home dir. When set, `brain_sync` also writes to Hermes context files. |
+| `HERMES_HOME` | `~/.hermes` | Hermes home dir. `brain_sync` writes to its context files. |
 
 All are read at startup. Restart the MCP server (and any consuming hermes
 session) after changing them.

@@ -3,11 +3,11 @@ connectors/ — framework adapters for the DuckBot brain.
 
 This package exposes the brain (Layers 0-5) to other agent frameworks:
 
-  - openclaw — Model Context Protocol (MCP) server config + tool definitions
-               for OpenClaw's MCP integration. Stdlib HTTP transport.
   - hermes   — Python-import-friendly facade for Hermes agents (Telegram-polling
                gateway, not HTTP). Includes a CLI shim so Hermes can shell out
                instead of importing.
+
+(OpenClaw adapters were removed in v0.19.0 — the brain serves Hermes + Juno only.)
 
 Why a dedicated package? The brain's core modules (memory, graph, blocks,
 entities, injection_scan) should stay framework-agnostic. Connectors adapt

@@ -67,11 +67,7 @@ STATE_PATH = Path(__file__).resolve().parent.parent / "data" / "watcher_state.js
 LOG_PATH = Path(__file__).resolve().parent.parent / "data" / "watcher.log"
 PID_PATH = Path(__file__).resolve().parent.parent / "data" / "watcher.pid"
 DEFAULT_WATCH = [
-    Path.home() / ".openclaw" / "workspace" / "memory",
-    Path.home() / ".openclaw" / "workspace" / "MEMORY.md",
-    Path.home() / ".openclaw" / "workspace" / "AGENTS.md",
-    Path.home() / ".openclaw" / "workspace" / "SOUL.md",
-    Path.home() / ".openclaw" / "workspace" / "IDENTITY.md",
+    Path.home() / ".hermes" / "memories",
     Path.home() / "Desktop" / "ai-Py-boy-emulation-main",
     Path.home() / "Desktop" / "Newest Desktop Control",
 ]

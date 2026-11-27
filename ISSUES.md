@@ -4,6 +4,8 @@
 
 **Problem:** After a `brain_update` (git pull), the Python MCP server still runs the old code.
 The only way to pick up changes was restarting the entire OpenClaw gateway.
+(v0.19.0 note: the OpenClaw plugin shim this issue's fix describes was
+removed with the rest of OpenClaw support; `brain_restart` itself remains.)
 
 **Root Cause:** The Python MCP server runs as a long-lived subprocess spawned by the
 plugin shim. There was no mechanism to restart it without killing the gateway.

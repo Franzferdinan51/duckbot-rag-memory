@@ -40,7 +40,7 @@ class BrainRecallInput(BaseModel if _PYDANTIC_AVAILABLE else dict):
 class BrainRememberInput(BaseModel if _PYDANTIC_AVAILABLE else dict):
     if _PYDANTIC_AVAILABLE:
         text: str = Field(description='the memory content')
-        source: str = Field(default='openclaw-extension://ad-hoc', description='where this came from')
+        source: str = Field(default='extension://ad-hoc', description='where this came from')
         tier: Optional[Literal['working','episodic','semantic','procedural']] = Field(default=None)
         kind: Optional[Literal['skill_candidate']] = Field(default=None)
         summary: Optional[str] = Field(default=None)

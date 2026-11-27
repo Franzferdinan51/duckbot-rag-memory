@@ -332,23 +332,7 @@ TOOLS = [
             "required": ["needle"],
         },
     },
-    # ---- v0.11.0 — OpenClaw dreaming bridge + Hermes /learn + Active Memory ----
-    {
-        "name": "dreaming_read",
-        "description": "Pull dream entries from OpenClaw dreaming surface into the brain. Idempotent.",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "dreaming_cycle",
-        "description": "Distill high-importance chunks into a new dream entry.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "k": {"type": "integer", "default": 10, "description": "max chunks to consider"},
-                "min_importance": {"type": "number", "default": 0.5, "description": "floor for inclusion"},
-            },
-        },
-    },
+    # ---- v0.11.0 — Hermes /learn (OpenClaw dreaming bridge + Active Memory removed in v0.19.0) ----
     {
         "name": "learn",
         "description": "Ingest a reusable rule into the brain and (optionally) invoke Hermes /learn.",
@@ -362,18 +346,6 @@ TOOLS = [
                 "invoke_hermes": {"type": "boolean", "default": True},
             },
             "required": ["text"],
-        },
-    },
-    {
-        "name": "active_memory",
-        "description": "Dispatch an Active Memory tool call (memory_query, memory_store, memory_recent, memory_forget).",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "tool": {"type": "string", "enum": ["memory_query", "memory_store", "memory_recent", "memory_forget"]},
-                "args": {"type": "object", "description": "args for the inner tool"},
-            },
-            "required": ["tool"],
         },
     },
     # ---- v0.11.2 — Enhanced Brain: context inflation ----
@@ -398,7 +370,7 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "target": {"type": "string", "enum": ["openclaw", "hermes", "both"], "default": "openclaw", "description": "which agent's memory files to write"},
+                "target": {"type": "string", "enum": ["hermes"], "default": "hermes", "description": "which agent's memory files to write (Hermes only — OpenClaw support removed in v0.19.0)"},
                 "memory_k": {"type": "integer", "default": 20, "description": "max memories per tier for MEMORY.md"},
                 "user_k": {"type": "integer", "default": 15, "description": "max facts for USER.md"},
                 "dry_run": {"type": "boolean", "default": False, "description": "preview what would be written without writing files"},
@@ -603,7 +575,8 @@ TOOLS = [
 
 # -----------------------------------------------------------------------------
 # Connector tools (Layers 1-4 + dashboard) - backed by the framework-agnostic
-# Brain facade. OpenClaw picks them up automatically because they're in TOOLS.
+# Brain facade, defined in src/connectors/brain_tools.py and registered into
+# TOOLS/HANDLERS below for any name without a native handler.
 # -----------------------------------------------------------------------------
 
 # Tool definitions and handlers are loaded lazily so a missing layer doesn't
@@ -629,7 +602,7 @@ def _imp(r) -> float:
 
 def _register_connector_tools() -> None:
     try:
-        from src.connectors.openclaw import TOOL_DEFINITIONS, handle as _handle
+        from src.connectors.brain_tools import TOOL_DEFINITIONS, handle as _handle
         # Add the tool schemas ONLY for tools that aren't already in the
         # canonical TOOLS list (e.g. brain_block_*, brain_graph_*,
         # brain_seed_blocks). For tools that already have a native
@@ -922,22 +895,7 @@ async def handle_search_verbatim(args: dict) -> dict:
     )}
 
 
-# ---- v0.11.0 — OpenClaw dreaming bridge + Hermes /learn + Active Memory ----
-
-async def handle_dreaming_read(args: dict) -> dict:
-    from src.connectors.base import Brain
-    brain = Brain()
-    return brain.dreaming_read()
-
-
-async def handle_dreaming_cycle(args: dict) -> dict:
-    from src.connectors.base import Brain
-    brain = Brain()
-    return brain.dreaming_cycle(
-        k=args.get("k", 10),
-        min_importance=args.get("min_importance", 0.5),
-    )
-
+# ---- v0.11.0 — Hermes /learn ----
 
 async def handle_learn(args: dict) -> dict:
     if not args.get("text") or not str(args["text"]).strip():
@@ -950,17 +908,6 @@ async def handle_learn(args: dict) -> dict:
         source=args.get("source", "<hermes-/learn>"),
         metadata=args.get("metadata"),
         invoke_hermes=args.get("invoke_hermes", True),
-    )
-
-
-async def handle_active_memory(args: dict) -> dict:
-    if not args.get("tool"):
-        return {"error": "tool is required"}
-    from src.connectors.base import Brain
-    brain = Brain()
-    return brain.active_memory(
-        tool=args["tool"],
-        args=args.get("args", {}),
     )
 
 
@@ -1128,18 +1075,19 @@ async def handle_brain_inflate(args: dict) -> dict:
 
 
 async def handle_brain_sync(args: dict) -> dict:
-    """Sync stored memories back to agent context files.
+    """Sync stored memories back to Hermes context files.
 
-    Supports two targets:
-    - OpenClaw:  ~/.openclaw/workspace/memory/{MEMORY,USER,SOUL}.md
-                 No char limits — rich markdown format.
     - Hermes:    ~/.hermes/memories/{MEMORY,USER}.md (char-limited, §-delimited)
                  ~/.hermes/SOUL.md (no limit)
+
+    (OpenClaw target removed in v0.19.0 — the brain serves Hermes + Juno only.)
 
     This is what makes the brain "enhanced" vs. just "storage":
     it actively maintains the files agents read at startup.
     """
-    target = args.get("target", "openclaw")
+    target = args.get("target", "hermes")
+    if target != "hermes":
+        return {"error": f"unsupported sync target: {target!r} (Hermes only — OpenClaw support removed in v0.19.0)"}
     memory_k = args.get("memory_k", 20)
     user_k = args.get("user_k", 15)
     dry_run = args.get("dry_run", False)
@@ -1197,89 +1145,10 @@ async def handle_brain_sync(args: dict) -> dict:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # ---------------------------------------------------------------------------
-    # OpenClaw target — rich markdown, no char limits
-    # ---------------------------------------------------------------------------
-    if target in ("openclaw", "both"):
-        openclaw_memory = Path(os.environ.get(
-            "OPENCLAW_WORKSPACE_MEMORY",
-            str(Path.home() / ".openclaw" / "workspace" / "memory"),
-        ))
-        openclaw_memory.mkdir(parents=True, exist_ok=True)
-
-        tier_emoji = {"working": "⚡", "episodic": "📖", "semantic": "🧩", "procedural": "⚙️"}
-
-        # MEMORY.md
-        oc_mem_lines = [
-            f"# DuckBot Enhanced Memory — {now}",
-            "",
-            "_Auto-generated by duckbot-rag-memory's enhanced brain. Do not edit manually._",
-            "",
-        ]
-        for tier_name, items in tier_summaries.items():
-            emoji = tier_emoji.get(tier_name, "•")
-            oc_mem_lines.append(f"## {emoji} {tier_name.title()}")
-            for r in items[:memory_k // 4]:
-                imp = _imp(r)
-                oc_mem_lines.append(
-                    f"- **[{imp:.0%}]** {r.text[:400]}{'...' if len(r.text) > 400 else ''}"
-                )
-                if _src(r):
-                    oc_mem_lines.append(f"  _src: {_src(r)}_")
-            if not items:
-                oc_mem_lines.append("_No memories in this tier._")
-            oc_mem_lines.append("")
-        oc_mem_content = "\n".join(oc_mem_lines)
-        oc_mem_key = "openclaw/MEMORY.md"
-        if dry_run:
-            written[oc_mem_key] = _dry(oc_mem_content)
-        else:
-            (openclaw_memory / "MEMORY.md").write_text(oc_mem_content, encoding="utf-8")
-            written[oc_mem_key] = str(openclaw_memory / "MEMORY.md")
-
-        # USER.md
-        seen_texts: set[str] = set()
-        oc_user_lines = [f"# User Profile — {now}", "", "_What the enhanced brain knows about the user._", ""]
-        for r in user_results:
-            if r.text not in seen_texts:
-                seen_texts.add(r.text)
-                oc_user_lines.append(f"- {r.text[:500]}")
-                # r.source_path lives in metadata on QueryResult, not as a
-                # direct attribute. The previous code crashed on every
-                # brain_sync call with AttributeError; fall back to the
-                # metadata dict.
-                src = (r.metadata or {}).get("source_path", "")
-                tier_val = r.tier.value if hasattr(r.tier, "value") else r.tier
-                if src:
-                    oc_user_lines.append(f"  _src: {src} ({tier_val})_")
-        if len(oc_user_lines) <= 3:
-            oc_user_lines.append("_No user facts stored yet._")
-        oc_user_content = "\n".join(oc_user_lines)
-        oc_user_key = "openclaw/USER.md"
-        if dry_run:
-            written[oc_user_key] = _dry(oc_user_content)
-        else:
-            (openclaw_memory / "USER.md").write_text(oc_user_content, encoding="utf-8")
-            written[oc_user_key] = str(openclaw_memory / "USER.md")
-
-        # SOUL.md (procedural — identity + principles)
-        oc_soul_lines = [f"# Agent Soul — {now}", "", "_Identity and principles from the procedural memory tier._", ""]
-        for r in soul_results:
-            oc_soul_lines.append(f"- {r.text[:4000]}")
-        if len(oc_soul_lines) <= 3:
-            oc_soul_lines.append("_No soul memories yet._")
-        oc_soul_content = "\n".join(oc_soul_lines)
-        oc_soul_key = "openclaw/SOUL.md"
-        if dry_run:
-            written[oc_soul_key] = _dry(oc_soul_content)
-        else:
-            (openclaw_memory / "SOUL.md").write_text(oc_soul_content, encoding="utf-8")
-            written[oc_soul_key] = str(openclaw_memory / "SOUL.md")
-
-    # ---------------------------------------------------------------------------
     # Hermes target — char-limited §-delimited format per Hermes spec
     # https://hermes-agent.nousresearch.com/docs/user-guide/features/memory
     # ---------------------------------------------------------------------------
-    if target in ("hermes", "both"):
+    if target == "hermes":
         hermes_home = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
         hermes_memories = hermes_home / "memories"
         hermes_memories.mkdir(parents=True, exist_ok=True)
@@ -2503,10 +2372,7 @@ HANDLERS = {
     "forget_by_query": handle_forget_by_query,
     "search_verbatim": handle_search_verbatim,
     # v0.11.0 — OpenClaw dreaming bridge + Hermes /learn + Active Memory
-    "dreaming_read": handle_dreaming_read,
-    "dreaming_cycle": handle_dreaming_cycle,
     "learn": handle_learn,
-    "active_memory": handle_active_memory,
     # v0.11.2 — Enhanced Brain: context inflation
     "brain_inflate": handle_brain_inflate,
     "brain_wake_up": handle_brain_wake_up,

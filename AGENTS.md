@@ -2,7 +2,7 @@
 
 ## What this is
 
-A persistent RAG (Retrieval-Augmented Generation) + memory system built for DuckBot's OpenClaw + Hermes workflows. Inspired by (and pulling from) mem0, Letta, Cognee, Hermes Agent, and the CoALA paper.
+A persistent RAG (Retrieval-Augmented Generation) + memory system built for DuckBot's Hermes workflows (OpenClaw support removed in v0.19.0). Inspired by (and pulling from) mem0, Letta, Cognee, Hermes Agent, and the CoALA paper.
 
 ## Quick start for agents
 
@@ -18,7 +18,7 @@ cp .env.example .env
 # Edit .env to set LMSTUDIO_API_KEY (recommended) or OPENAI_API_KEY
 
 # Ingest current memory (one-shot backfill)
-python -m src.cli ingest ~/.openclaw/workspace/memory
+python -m src.cli ingest ~/.hermes/memories
 
 # Query from any shell (loads .env, cross-platform venv detection)
 ./duck-memory query "What did we decide about cloud-only models?"
@@ -66,7 +66,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the deep dive.
 - Hybrid retrieval: vector + BM25-style keyword search + Reciprocal Rank Fusion
 - Eval harness: recall@K, MRR, p50/p95 latency
 - File-watcher daemon polls every 5 min (content-hash dedup — no spam)
-- MCP stdio server with 73 tools (recall/remember/forget/reflect/stats/...)
+- MCP stdio server with 67 tools (recall/remember/forget/reflect/stats/...)
 - Shell wrappers: `scripts/duckbot-ask` + `scripts/brain-recall` for any cron/script
 
 ## File layout
@@ -89,7 +89,7 @@ duckbot-rag-memory/
 |   |-- gate.py           # SystemOne D1 per-chunk routing gate (fail-open)
 |   |-- eval.py           # benchmark runner
 |   |-- memory.py         # the unified Memory facade (remember/recall/reflect/forget/stats)
-|   |-- mcp_server.py     # MCP stdio JSON-RPC server (73 tools)
+|   |-- mcp_server.py     # MCP stdio JSON-RPC server (67 tools)
 |   |-- watcher.py        # polling daemon (5-min interval, content-hash dedup)
 |   |-- cli.py            # python -m src.cli
 |   |-- decay.py fsrs.py rerank.py tier_priors.py  # brain layers (L8/L9/L7/L11)
@@ -97,8 +97,7 @@ duckbot-rag-memory/
 |   |-- injection_scan.py                          # brain layer (L15)
 |   |-- verbatim_text storage is in chunk.py metadata + VerbatimResult in connectors/base.py (L13)
 |   |-- backends/         # chroma / lancedb / qdrant (pluggable)
-|   `-- connectors/       # openclaw / active_memory / dreaming / learn
-|-- extensions/         # native OpenClaw plugin (Node.js shim → Python MCP server, zero deps)
+|   `-- connectors/       # base (Brain facade) / brain_tools / hermes / learn
 |-- tests/              # pytest suite (748 tests collected; CI skips LM Studio tests)
 |-- benchmarks/         # golden.jsonl for eval
 |-- scripts/            # install / start / cron / launchers / helpers
@@ -112,7 +111,7 @@ duckbot-rag-memory/
 |   |-- duckbot-ask, brain-recall.sh               # shell brain-query helpers
 |   |-- secret-scan.{ps1,sh}                      # pre-commit secret guard
 |   `-- _format_{snippet,compact}.py              # format helpers for duckbot-ask
-|-- skills/             # OpenClaw skill manifests + plugins
+|-- skills/             # skill manifests + plugins
 |-- docs/               # ARCHITECTURE.md, INTEGRATION.md, RESEARCH.md
 |-- data/               # gitignored: chroma db + watcher state + logs
 |-- .gitignore          # excludes env, data, venv, memory/
@@ -152,10 +151,10 @@ eval + sync), run these manually:
 ```bash
 python -m src.cli reflect   # episodic → semantic consolidation
 python -m src.cli eval benchmarks/golden.jsonl
-python -m src.cli sync      # write to OpenClaw/Hermes context files
+python -m src.cli sync      # write to Hermes context files
 ```
 The script handles:
-1. Ingest from `~/.openclaw/workspace/memory` + project docs
+1. Ingest from `~/.hermes/memories` + project docs
 2. Consolidate episodic -> semantic (heuristic)
 3. Run eval against `benchmarks/golden.jsonl`
 4. Snapshot stats
@@ -163,23 +162,16 @@ The script handles:
 
 Logs go to `data/logs/cron-YYYYMMDD-HHMMSS.log`.
 
-## Integration with OpenClaw + Hermes
+## Integration with Hermes
 
-This project integrates with both. See [docs/INTEGRATION.md](docs/INTEGRATION.md)
-for the full step-by-step.
-
-**OpenClaw (cron + ingest source):**
-- The watcher daemon ingests from `~/.openclaw/workspace/memory/`,
-  `AGENTS.md`, `SOUL.md`, `USER.md`, `IDENTITY.md`, `TOOLS.md`.
-- The `/goal` skill can call `python -m src.cli query "..."` to surface
-  prior context.
+See [docs/INTEGRATION.md](docs/INTEGRATION.md) for the full
+step-by-step.
 
 **Hermes Agent (MCP server):**
 - `hermes mcp add duckbot-memory --command "$(pwd)/scripts/duckbot-memory-mcp.sh"`
-  (or `.bat` on Windows). 73 tools become available:
+  (or `.bat` on Windows). 67 tools become available:
   `brain_recall`, `brain_remember`, `brain_forget`, `brain_decay_status`,
-  `brain_fsrs_review`, `brain_dreaming_read`, `brain_dreaming_cycle`,
-  `brain_learn`, `brain_active_memory`, `recall_verbatim`,
+  `brain_fsrs_review`, `brain_learn`, `recall_verbatim`,
   `search_verbatim`, `stats`, `watch`, `doctor`, etc.
 - The launcher (`duckbot-memory-mcp.sh` / `.bat`) loads `.env` itself
   so `LMSTUDIO_API_KEY` never ends up in `hermes config.yaml`.
@@ -201,7 +193,7 @@ Run `git diff --check` after editing to catch any stragglers.
 - **Idempotent ingest.** Re-running on the same file produces the same chunk IDs (content hash).
 - **Per-tier storage.** Working tier can be aged out; procedural never is.
 - **Open-source first.** Every external dep + every design pattern traces back to a public project (see `docs/RESEARCH.md`).
-- **No agent runtime.** This is just memory, not a replacement for OpenClaw or Hermes.
+- **No agent runtime.** This is just memory, not a replacement for Hermes.
 - **Honest limitations.** Documented in CHANGELOG.md and inline TODO comments.
 - **No deletions.** Additive changes only. Refactors that rename need a migration path.
 - **No secrets.** `.env` is gitignored. `scripts/secret-scan.{ps1,sh}` enforces it pre-commit.

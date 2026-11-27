@@ -177,13 +177,13 @@ def test_brain_recall_verbatim_passes_rerank_through(monkeypatch):
 
 
 def test_openclaw_connector_has_brain_recall_verbatim_tool():
-    from src.connectors.openclaw import TOOL_DEFINITIONS
+    from src.connectors.brain_tools import TOOL_DEFINITIONS
     names = {t["name"] for t in TOOL_DEFINITIONS}
     assert "brain_recall_verbatim" in names
 
 
 def test_brain_recall_verbatim_schema_accepts_rerank_and_decay():
-    from src.connectors.openclaw import TOOL_DEFINITIONS
+    from src.connectors.brain_tools import TOOL_DEFINITIONS
     tool = next(t for t in TOOL_DEFINITIONS if t["name"] == "brain_recall_verbatim")
     props = tool["inputSchema"]["properties"]
     assert "rerank" in props

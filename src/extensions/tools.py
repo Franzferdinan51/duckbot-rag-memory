@@ -8,7 +8,7 @@ expose.
 Why 12 and not 64 (the full MCP server surface)?
 
   - These 12 are the ones every skill file (skills/duckbot-brain,
-    skills/openclaw-imports, skills/codex-imports, skills/cursor-imports)
+    skills/codex-imports, skills/cursor-imports)
     advertises to agents, plus the 2 agent-driven skill-pipeline tools
   - The full 67 are still available via:
       * `python -m src.cli <verb>` (CLI)
@@ -479,7 +479,7 @@ def dispatch(name: str, args: dict) -> dict:
 
         if name == "brain_remember":
             text = args["text"]
-            source = args.get("source") or "openclaw-extension://ad-hoc"
+            source = args.get("source") or "extension://ad-hoc"
             kind = args.get("kind")
 
             # Reject empty / whitespace-only text. Without this, an empty

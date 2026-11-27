@@ -5,7 +5,7 @@
 We considered LangChain, LlamaIndex, Haystack, RAGFlow. We rejected all of them for the same reason: **too much surface area for a focused, personal-scale pipeline.**
 
 DuckBot's memory system has a single user (Duckets) and a single use case (recall across sessions). We don't need:
-- Agent frameworks (we have OpenClaw)
+- Agent frameworks (we have Hermes)
 - Document loaders for PDFs, DOCX, HTML scraping (we only ingest markdown)
 - Streaming response handlers (cron runs offline)
 - Token-by-token callbacks

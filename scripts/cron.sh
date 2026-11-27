@@ -71,8 +71,7 @@ PY="$(resolve_python)" || {
 }
 
 # 3. Output / logging
-OPENCLAW_MEMORY="${OPENCLAW_MEMORY:-$HOME/.openclaw/workspace/memory}"
-OPENCLAW_WORKSPACE="${OPENCLAW_WORKSPACE:-$HOME/.openclaw/workspace}"
+SOURCE_MEMORY="${SOURCE_MEMORY:-$HOME/.hermes/memories}"
 LOG_DIR="$REPO_ROOT/data/logs"
 mkdir -p "$LOG_DIR"
 TS="$(date +%Y%m%d-%H%M%S)"
@@ -82,7 +81,7 @@ log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG_
 
 log "=== DuckBot RAG cron starting (python: $PY) ==="
 log "Repo: $REPO_ROOT"
-log "Source memory: $OPENCLAW_MEMORY"
+log "Source memory: $SOURCE_MEMORY"
 
 # 4. Detect embedding availability
 EMBEDDING_MODE="none"
@@ -110,11 +109,8 @@ run_phase() {
 }
 
 INGEST_ARGS=(
-  "$OPENCLAW_WORKSPACE/MEMORY.md"
-  "$OPENCLAW_WORKSPACE/AGENTS.md"
-  "$OPENCLAW_WORKSPACE/SOUL.md"
-  "$OPENCLAW_WORKSPACE/IDENTITY.md"
-  "$OPENCLAW_MEMORY"
+  "$HOME/.hermes/SOUL.md"
+  "$SOURCE_MEMORY"
   "$HOME/Desktop/ai-Py-boy-emulation-main"
   "$HOME/Desktop/Newest Desktop Control"
 )

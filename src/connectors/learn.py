@@ -7,13 +7,12 @@ skill from any input. We integrate it as a bridge:
   learn(text, ...)
     1. Ingest `text` into the brain as `procedural` tier (a rule /
        best-practice, which is what /learn is for).
-    2. Also write `text` to ~/.openclaw/workspace/memory/learning/<date>.md
-       so OpenClaw's dreamer + memory system can pick it up.
-    3. If Hermes is on PATH, optionally shell out to `hermes learn` to
+    2. If Hermes is on PATH, optionally shell out to `hermes learn` to
        trigger its skill-creation path too.
 
 The brain does NOT block on Hermes. If hermes isn't installed, we just
-skip step 3.
+skip step 2. (An earlier step wrote a copy into OpenClaw's learning
+directory; removed in v0.19.0 with the rest of OpenClaw support.)
 """
 
 from __future__ import annotations
@@ -21,15 +20,11 @@ from __future__ import annotations
 import asyncio
 import shutil
 import subprocess
-import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Optional
 
 from ..memory import Memory, Tier
 
-
-DEFAULT_LEARNING_DIR = Path.home() / ".openclaw" / "workspace" / "memory" / "learning"
 
 
 @dataclass
@@ -54,11 +49,9 @@ class LearnBridge:
     def __init__(
         self,
         memory: Memory,
-        learning_dir: Path = DEFAULT_LEARNING_DIR,
         invoke_hermes: bool = True,
     ):
         self.memory = memory
-        self.learning_dir = Path(learning_dir)
         self.invoke_hermes = invoke_hermes
 
     async def learn(
@@ -87,19 +80,7 @@ class LearnBridge:
             result.error = f"brain remember failed: {e}"
             return result
 
-        # Step 2: write to OpenClaw's learning dir (so dreamer / memory
-        # system can pick it up).
-        try:
-            self.learning_dir.mkdir(parents=True, exist_ok=True)
-            date_str = time.strftime("%Y-%m-%d", time.localtime())
-            out = self.learning_dir / f"{date_str}.md"
-            with out.open("a", encoding="utf-8") as f:
-                f.write(f"\n## /learn @ {time.strftime('%H:%M:%S')}\n\n{text}\n")
-            result.written_to = str(out)
-        except OSError as e:
-            result.error = f"learn dir write failed: {e}"
-
-        # Step 3: optionally invoke `hermes learn "<text>"`.
+        # Step 2: optionally invoke `hermes learn "<text>"`.
         if self.invoke_hermes and shutil.which("hermes"):
             try:
                 # `--` ensures `text` can't be interpreted as a flag by

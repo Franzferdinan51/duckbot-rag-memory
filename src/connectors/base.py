@@ -1,7 +1,7 @@
 """
 connectors/base.py — shared facade for the brain that all connectors build on.
 
-This is the contract: any framework connector (OpenClaw, Hermes, future ones)
+This is the contract: any framework connector (Hermes, future ones)
 should call this facade rather than poking at the lower-level modules directly.
 The facade gives a single, sync, framework-agnostic interface that maps cleanly
 to MCP tools, Python function calls, or CLI subcommands.
@@ -935,7 +935,7 @@ class Brain:
     def inspect(self, entity: str, k: int = 10) -> dict:
         """Consolidated entity view: graph + recent memories + blocks.
 
-        Given an entity name (e.g. "Duckets", "OpenClaw", "BATMAN"),
+        Given an entity name (e.g. "Duckets", "Hermes", "BATMAN"),
         return everything the brain knows about it in one dict:
           - graph: matching entity + its aliases + active relationships
             + recent history (last 20)
@@ -1273,7 +1273,7 @@ class Brain:
     # -------------------------------------------------------------------- stats
     # New tool surface (v0.10.0 — useful MCP tools extension).
     # Each method is sync + JSON-serializable so it maps 1:1 to an MCP tool
-    # exposed by `src.mcp_server.py` AND the OpenClaw extension at
+    # exposed by `src.mcp_server.py` AND the Hermes plugin at
     # `src/extensions/duckbot_brain/adapter.py`.
 
     # -- FSRS-6 spaced repetition (L9) -----------------------------------
@@ -1664,33 +1664,10 @@ class Brain:
         return _run_async(_search())
 
     # ----------------------------------------------------- v0.11.0 extensions
-    # The next three methods are the v0.11.0 add-on integrations:
-    #   - OpenClaw dreaming bridge (DREAMS.md + memory/dreaming/*.md)
-    #   - Hermes /learn shim (skill creation + brain ingest)
-    #   - Active Memory tool aliases (memory_query / memory_store / etc.)
-    # They are exposed on the Brain facade so MCP / OpenClaw / Hermes
-    # connectors and CLI callers all share the same entry point.
-
-    def dreaming_read(self) -> dict:
-        """Pull DREAMS.md + memory/dreaming/*.md into the brain as `semantic`.
-
-        Idempotent — uses content-hash state to skip already-ingested entries.
-        Returns a dict with new_entries, skipped, by_kind, sources.
-        """
-        from .dreaming import read_dreams
-        mem = self._memory()
-        return read_dreams(mem)
-
-    def dreaming_cycle(self, k: int = 10, min_importance: float = 0.5) -> dict:
-        """Distill high-importance episodic chunks into a new dream entry.
-
-        Writes to memory/dreaming/deep/<date>.md so OpenClaw's dreamer can
-        pick it up on its next pass. Returns distilled_chunks, by_tier,
-        output_files.
-        """
-        from .dreaming import write_dream_cycle
-        mem = self._memory()
-        return write_dream_cycle(mem, k=k, min_importance=min_importance)
+    # The Hermes /learn shim (skill creation + brain ingest), exposed on
+    # the Brain facade so MCP / Hermes connectors and CLI callers all
+    # share the same entry point. (The v0.11.0 OpenClaw dreaming bridge
+    # and Active Memory aliases were removed in v0.19.0.)
 
     def learn(
         self,
@@ -1700,7 +1677,7 @@ class Brain:
         metadata: Optional[dict] = None,
         invoke_hermes: bool = True,
     ) -> dict:
-        """Hermes /learn shim. Ingest + write to memory/learning/ + invoke
+        """Hermes /learn shim. Ingest into the brain + invoke
         `hermes learn` if available. Returns chunk_id, written_to,
         hermes_invoked, hermes_output.
         """
@@ -1715,15 +1692,6 @@ class Brain:
             invoke_hermes=invoke_hermes,
         )
 
-    def active_memory(self, tool: str, args: Optional[dict] = None) -> dict:
-        """OpenClaw Active Memory tool alias.
-
-        Dispatches `memory_query`, `memory_store`, `memory_recent`,
-        `memory_forget` to the brain. Returns {ok, tool, data, error}.
-        """
-        from .active_memory import make_adapter
-        adapter = make_adapter(self)
-        return adapter.call(tool, args or {})
 
     # -------------------------------------------------------------------- stats
     def stats(self, include_vector_store: bool = True) -> BrainStats:

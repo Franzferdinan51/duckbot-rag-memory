@@ -1,6 +1,8 @@
 # DuckBot RAG + Memory System
 
-Persistent, searchable memory that dramatically expands the limited default memory of Hermes Agent (the only live runtime — the brain serves Hermes + Juno exclusively since the owner's 2026-11-23 ruling; OpenClaw support is legacy and no longer synced). Drop-in replacement for the flat chat-history buffers both agents ship with — adds a 4-tier CoALA memory model, hybrid retrieval, entity graph, verbatim recall, FSRS-6 spaced repetition, dreaming consolidation, and a Wing/Room/Drawer 2D hierarchy on top.
+Persistent, searchable memory that dramatically expands the limited default memory of Hermes Agent (the only live runtime — the brain serves Hermes + Juno exclusively since the owner's 2026-11-23 ruling; OpenClaw support was removed entirely in v0.19.0). Drop-in replacement for the flat chat-history buffer Hermes ships with — adds a 4-tier CoALA memory model, hybrid retrieval, entity graph, verbatim recall, FSRS-6 spaced repetition, dreaming consolidation, and a Wing/Room/Drawer 2D hierarchy on top.
+
+> **What's new — 2026-11-26 (v0.19.0): OpenClaw support is gone, and the embedder loads itself.** At the owner's direction ("we don't really support OpenClaw anymore — I use you and Hermes"), the OpenClaw connector, CLI shim + verb, Node extension, bootstrap script, sync targets, dreaming bridge, and Active Memory aliases are all removed; `brain_sync` is Hermes-only and the MCP surface is 67 tools. The embedder now loads itself when called: LM Studio's idle TTL kept unloading it, and a cold embedder made `brain_wake_up` take ~8.6s — over Hermes' 8s prefetch timeout, wedging sessions on "Running brain wake up" — so `embed()` checks LM Studio's loaded instances and POSTs a load when needed, and the hourly sync's self-heal (now over the REST API; its old `lms` lines were silent no-ops on Robin) no longer unloads it.
 
 > **What's new — 2026-11-26 (v0.18.0): the entity graph is alive, the boundary is enforced, and the brain has a backup.** The knowledge graph sat at 1 entity against ~29k chunks because the graph feed is opt-in and the brain worker never loaded the repo `.env` (only the CLI did) — both fixed, and a watermark-based backfill (`scripts/backfill_graph.py`, now a nightly step) brought the live graph to 3,977 entities / 865 relationships. The hourly sync now targets Hermes only (OpenClaw context writes are off the timer, per the 2026-11-23 boundary), and a weekly backup timer (Sun 05:00 ET) finally schedules `scripts/backup-brain.sh` — whose BSD `mktemp` syntax could never have run on Robin — keeping the newest 4 archives. Hy-Memory's model files were deleted from the Mac and Sabrent at the owner's order.
 
@@ -21,7 +23,7 @@ DuckBot memory is a focused RAG and long-term memory layer for personal agent wo
 
 ## What You Get That Default Memory Doesn't
 
-| | OpenClaw / Hermes default | + This brain |
+| | Hermes default | + This brain |
 |---|---|---|
 | Capacity | Last N chat turns (typically 20–50) | Unlimited — every fact the agent has ever seen |
 | Persistence | Session-only (or simple `.md` files) | 4-tier CoALA model: working, episodic, semantic, procedural |
@@ -36,7 +38,7 @@ DuckBot memory is a focused RAG and long-term memory layer for personal agent wo
 | Proactive | None | `brain_nudge` surfaces stale-but-important memories the agent is forgetting |
 | Audit trail | None | Bi-temporal graph: `valid_from`/`valid_until` (world time) + `recorded_from`/`recorded_until` (when the brain knew) |
 
-**TL;DR:** OpenClaw/Hermes remember the last 50 messages and call it memory. This brain makes the agent actually learn from the corpus it's seen.
+**TL;DR:** Hermes remembers the last 50 messages and calls it memory. This brain makes the agent actually learn from the corpus it's seen.
 
 It is designed for a practical loop:
 
@@ -47,7 +49,7 @@ It is designed for a practical loop:
 5. Surface stale-but-important memories via proactive nudges.
 6. Distill successful tasks into reusable agentskills.io SKILL.md manifests.
 
-The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs, Hermes Agent, and the CoALA memory taxonomy, but it keeps the runtime small: no general agent framework, no hosted database requirement, no secrets in client config. Hermes is the agent runtime that calls into this brain (an OpenClaw adapter remains for legacy compatibility); this repo is the memory layer it uses.
+The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs, Hermes Agent, and the CoALA memory taxonomy, but it keeps the runtime small: no general agent framework, no hosted database requirement, no secrets in client config. Hermes is the agent runtime that calls into this brain; this repo is the memory layer it uses.
 
 ## Core Capabilities
 
@@ -66,8 +68,8 @@ The project draws from mem0, Letta/MemGPT, Cognee, MemPalace, Graphiti, py-fsrs,
 - **Proactive memory nudges:** surface stale-but-important memories before they're forgotten, via `brain_nudge` MCP tool.
 - **Local-first embeddings:** LM Studio works well locally; MiniMax, OpenAI, and sentence-transformers are also supported.
 - **Watcher daemon:** polls markdown sources every five minutes by default and dedups unchanged content by hash.
-- **MCP stdio server:** 73 tools for recall, remember, reflect, graph, blocks, dreaming, learning, quarantine, sync, wake-up, palace, index, nudge, skillgen, user modeling, agent-driven skill pipeline, export/import, and demo seeding.
-- **Shell wrappers:** `scripts/duckbot-ask`, `scripts/brain-recall.sh`, `scripts/hermes-preflight.sh`, `scripts/hermes-postflight.sh`, and the one-command bootstraps `scripts/openclaw-bootstrap.sh` / `scripts/hermes-bootstrap.sh` for first-time setup.
+- **MCP stdio server:** 67 tools for recall, remember, reflect, graph, blocks, learning, quarantine, sync, wake-up, palace, index, nudge, skillgen, user modeling, agent-driven skill pipeline, export/import, and demo seeding.
+- **Shell wrappers:** `scripts/duckbot-ask`, `scripts/brain-recall.sh`, `scripts/hermes-preflight.sh`, `scripts/hermes-postflight.sh`, and the one-command bootstrap `scripts/hermes-bootstrap.sh` for first-time setup.
 
 > If you (or an agent) just want to install this without reading the README, see [INSTALL.md](INSTALL.md) for a single-page copy-paste recipe (prereqs → install → bootstrap → register MCP → cron).
 
@@ -83,7 +85,7 @@ Historically, consolidation extracted facts two ways: the agent supplied them, o
 
 **The batch job.** `scripts/consolidate_job.py` is the cutover-ready entrypoint: `--writer regex|hy-memory` (default regex = today's incumbent behavior), gate on by default, the writer role pinned as SystemOne's `memory_writer`. It is **dry-run by default**; `--apply` is wired (the hy-memory writer runs with Phase A reconciliation). For the live bank, prefer `scripts/nightly_hy_pass.py` — the deployed nightly consolidation pass (see the [deployed jobs table](#deployed-jobs-robin--the-brain-has-lived-on-robin-since-2026-11-04)).
 
-**The shadow A/B.** `scripts/shadow_writer_ab.py` runs both writers over the same chunks and writes a comparison report to `data/shadow/` — it imports no store code and *cannot* write to the bank. Its corpus is the most recent memory files across **both** agent homes (`~/.hermes/memories` and `~/.openclaw/workspace/memory`), so it always evaluates on whichever agent is actually in use. It ran nightly during the 2026-10-16 evaluation week; the evaluation is complete — Hy-Memory was promoted to the live writer on 2026-10-19. The script stays for future writer comparisons. First head-to-head on real consolidated memory files (2026-10-16): incumbent 40 facts at a 0.65 duplicate rate; Hy-Memory 107 facts (81 unique) at 0.243.
+**The shadow A/B.** `scripts/shadow_writer_ab.py` runs both writers over the same chunks and writes a comparison report to `data/shadow/` — it imports no store code and *cannot* write to the bank. Its corpus is the most recent memory files in the Hermes home (`~/.hermes/memories`). It ran nightly during the 2026-10-16 evaluation week; the evaluation is complete — Hy-Memory was promoted to the live writer on 2026-10-19. The script stays for future writer comparisons. First head-to-head on real consolidated memory files (2026-10-16): incumbent 40 facts at a 0.65 duplicate rate; Hy-Memory 107 facts (81 unique) at 0.243.
 
 **End-to-end proof.** `scripts/e2e_pipeline_test.py` exercises the whole path against a throwaway bank — chunk → gate → extract → update ops → apply → store + recall probes — against the current writer (`lfm3-omni-2b`). Unit coverage lives in `tests/test_hy_memory.py`, `tests/test_gate.py`, and `tests/test_hy_memory_updates.py`.
 
@@ -125,8 +127,7 @@ duck-memory query -n 5 "DuckBot design constraints"
 ./scripts/demo.sh            # macOS / Linux
 # Windows: double-click scripts\demo.bat
 
-# Bootstrap with OpenClaw or Hermes Agent
-./scripts/openclaw-bootstrap.sh
+# Bootstrap with Hermes Agent
 ./scripts/hermes-bootstrap.sh
 
 # Query from any shell (loads .env, cross-platform)
@@ -163,7 +164,7 @@ python -m src.cli update --no-deps --no-doctor  # pull only, skip upgrade/checks
 # reference Mac the plugin self-disables because Hermes' isolated backend
 # Python has no chromadb, so the MCP brain_* tools + the nightly jobs do):
 ./scripts/hermes-preflight.sh                 # one-shot wake_up block
-./scripts/hermes-preflight.sh --query OpenClaw  # anchored on a topic
+./scripts/hermes-preflight.sh --query Hermes  # anchored on a topic
 ./scripts/hermes-postflight.sh                # nightly reflect pass
 ```
 
@@ -195,7 +196,7 @@ LMSTUDIO_EMBED_DIM=768
 
 If you build a *new* bank on a different provider, LM Studio embeddings work well (the live bank runs `text-embedding-nomic-embed-text-v1.5`, 768-dim; `DUCKBOT_EMBEDDING=lmstudio`), as do the cloud providers below. Fact extraction remains available agent-side regardless of provider: pass facts via `brain_remember(facts=[...])` or `reflect(extract_callback=...)`; `reflect()` uses the regex heuristics when no facts are supplied.
 
-Hermes is the agent runtime that calls into this repo (the OpenClaw adapter is legacy). This repo is the memory layer it uses; it does not provide its own chat model.
+Hermes is the agent runtime that calls into this repo. This repo is the memory layer it uses; it does not provide its own chat model.
 
 LM Studio is the preferred local path:
 
@@ -263,10 +264,10 @@ python -m src.watcher status
 python -m src.watcher stop
 ```
 
-Default watch paths include OpenClaw memory files and selected project docs. Pass explicit paths to override:
+Default watch paths include the Hermes memories folder and selected project docs. Pass explicit paths to override:
 
 ```bash
-python -m src.watcher run ~/.openclaw/workspace/memory ./AGENTS.md ./README.md
+python -m src.watcher run ~/.hermes/memories ./AGENTS.md ./README.md
 ```
 
 On macOS, polling is the default because `watchdog`/FSEvents has historically been unstable in the same process as ChromaDB and httpx. You can opt into native events with:
@@ -284,7 +285,7 @@ MCP server over SSH. The old Mac/Hermes-cron lineup below is retired.
 
 | Job | Schedule | What it does |
 |---|---|---|
-| `duckbot-brain-sync.timer` | hourly | `brain_sync` writes SOUL.md / MEMORY.md / USER.md context files — **Hermes target only** since v0.18.0 (the old combined target also wrote OpenClaw files; off the timer per the 2026-11-23 boundary) |
+| `duckbot-brain-sync.timer` | hourly | `brain_sync` writes SOUL.md / MEMORY.md / USER.md context files — **Hermes only** (the combined target was retired in v0.18.0 and the OpenClaw targets removed entirely in v0.19.0) |
 | `duckbot-brain-decay.timer` | daily 03:00 | FSRS retention-floor pruning, scored by `qwen3-reranker-0.6b` |
 | `duckbot-brain-nightly.timer` | daily 03:30 | Episodic → semantic consolidation with the light writer — load-on-dispatch (`lfm3-omni-2b`, unloaded after), fail-open to regex per chunk; a writer load failure now fails the job instead of reporting fake success. Also runs the incremental graph backfill (`scripts/backfill_graph.py`) |
 | `duckbot-fsrs.timer` | weekly, Sun 04:00 | Self-tunes the forgetting curve (no LLM) |
@@ -321,7 +322,7 @@ hermes mcp add duckbot-memory `
 
 Prefer the launcher scripts over passing env vars directly to MCP config. They load `.env` at process start, set unbuffered output, and choose the correct venv path per OS.
 
-The current MCP server exposes 73 tools:
+The current MCP server exposes 67 tools:
 
 | Area | Tools |
 | --- | --- |
@@ -340,15 +341,14 @@ See [docs/INTEGRATION.md](docs/INTEGRATION.md) for client-specific setup, Window
 The enhanced brain closes the loop between retrieval and agent startup context.
 
 ```bash
-# One-call session-start context load (Hermes pre-flight, OpenClaw init).
+# One-call session-start context load (Hermes pre-flight).
 # Default output: markdown block ready to paste into an agent's context.
 python -m src.cli wake-up
 
 # Same data, JSON output for programmatic consumers.
 python -m src.cli wake-up --json | jq '.memories'
 
-# Sync useful memories into Hermes context files (the live target;
-# openclaw/both remain in the CLI for explicit legacy use).
+# Sync useful memories into Hermes context files (the only target).
 python -m src.cli sync --target hermes
 
 # Preview without writing.
@@ -359,14 +359,14 @@ python -m src.cli nudge --k 5 --min-importance 0.6
 
 # Wing/Room/Drawer 2D view (MemPalace-inspired).
 python -m src.cli palace                    # list all wings
-python -m src.cli palace --wing openclaw    # walk one wing
+python -m src.cli palace --wing hermes     # walk one wing
 
 # Self-tune the forgetting curve (FSRS w20).
 python -m src.cli optimize-fsrs             # returns proposed w20 + sweep
 python -m src.cli apply-fsrs-w20 0.42       # commit (persists via DUCKBOT_FSRS_W20)
 ```
 
-`brain_wake_up` is the one-call session-start context load: top-k recent memories, active memory blocks, graph summary, and FSRS review queue. Designed for Hermes pre-flight + OpenClaw session-start hooks. `brain_inflate` recalls relevant memories and formats them as a markdown context block for an agent. `brain_sync` writes distilled context back to the agent's memory files (Hermes in the live deployment), respecting the platform's format and size limits. `brain_nudge` surfaces stale-but-important memories the agent might be forgetting. `brain_palace` exposes the MemPalace-inspired 2D hierarchy (person/project → time → verbatim chunk). `brain_optimize_fsrs` + `brain_apply_fsrs_w20` self-tune the FSRS-6 forgetting-curve exponent. `brain_skill_create` distills a successful task into an agentskills.io-compatible `SKILL.md`. `brain_user_model` aggregates user-related facts into a single Honcho-style user block.
+`brain_wake_up` is the one-call session-start context load: top-k recent memories, active memory blocks, graph summary, and FSRS review queue. Designed for Hermes pre-flight session-start hooks. `brain_inflate` recalls relevant memories and formats them as a markdown context block for an agent. `brain_sync` writes distilled context back to the agent's memory files (Hermes in the live deployment), respecting the platform's format and size limits. `brain_nudge` surfaces stale-but-important memories the agent might be forgetting. `brain_palace` exposes the MemPalace-inspired 2D hierarchy (person/project → time → verbatim chunk). `brain_optimize_fsrs` + `brain_apply_fsrs_w20` self-tune the FSRS-6 forgetting-curve exponent. `brain_skill_create` distills a successful task into an agentskills.io-compatible `SKILL.md`. `brain_user_model` aggregates user-related facts into a single Honcho-style user block.
 
 ## Agent-Driven Skill Pipeline
 
@@ -425,7 +425,7 @@ python -m src.cli skills suggest "docker"
 python -m src.cli skills promote <chunk_id> "Restart BATMAN" "When BATMAN is offline" "docker compose down" "docker compose up -d"
 ```
 
-The same 73-tool core surface (which includes `brain_skills_list`, `brain_skills_suggest`, and `brain_skills_promote`) is exposed by every thin entry point: OpenClaw adapter, Hermes plugin, and the canonical MCP server. See [docs/PLUGIN_SURFACE.md](docs/PLUGIN_SURFACE.md) for the full comparison.
+The same 67-tool core surface (which includes `brain_skills_list`, `brain_skills_suggest`, and `brain_skills_promote`) is exposed by every thin entry point: the generic JSON-RPC adapter, the Hermes plugin, and the canonical MCP server. See [docs/PLUGIN_SURFACE.md](docs/PLUGIN_SURFACE.md) for the full comparison.
 
 ## Architecture
 
@@ -437,7 +437,7 @@ Markdown sources
   -> embeddings provider
   -> ChromaDB collections by tier
   -> hybrid query + RRF + optional recall adjustments
-  -> CLI, MCP, OpenClaw, Hermes, Codex, Cursor
+  -> CLI, MCP, Hermes, Codex, Cursor
 ```
 
 Storage lives under `data/` and is gitignored:
@@ -463,7 +463,7 @@ duckbot-rag-memory/
 |   |-- consolidate.py    # episodic -> semantic distillation (regex incumbent)
 |   |-- hy_memory.py      # Hy-Memory writer adapter + update-op planner (explicit model only)
 |   |-- gate.py           # SystemOne/D1 chunk gate: chat|working|code|none, fail-open
-|   |-- mcp_server.py     # MCP stdio server (73 tools)
+|   |-- mcp_server.py     # MCP stdio server (67 tools)
 |   |-- watcher.py        # polling watcher daemon
 |   |-- cli.py            # command-line interface
 |   |-- dialect.py        # AAAK compression dialect (brain_index)
@@ -475,12 +475,11 @@ duckbot-rag-memory/
 |   |-- blocks.py graph.py entities.py
 |   |                      # blocks + temporal graph + entity extraction
 |   |-- backends/         # chroma, lancedb, qdrant interfaces
-|   |-- connectors/       # OpenClaw (legacy + aliases), Active Memory, dreaming, learn
-|   |-- extensions/       # shared agent surface (73 tools) + generic JSON-RPC adapter for Claude Code/Cursor/Codex
+|   |-- connectors/       # Brain facade, Hermes connector, /learn shim
+|   |-- extensions/       # shared agent surface (12 core tools) + generic JSON-RPC adapter for Claude Code/Cursor/Codex
 |   `-- plugins/          # Hermes MemoryProvider plugin package
 |-- tests/                # pytest suite, currently ~1,040 tests
 |-- benchmarks/           # golden retrieval evals
-|-- extensions/           # native OpenClaw plugin (Node.js shim → Python MCP server)
 |-- scripts/              # install, watcher, MCP launcher, query helpers,
 |                         #   hermes-preflight.sh, hermes-postflight.sh,
 |                         #   shadow_writer_ab.py (read-only writer A/B),
@@ -488,13 +487,13 @@ duckbot-rag-memory/
 |                         #   backfill_graph.py (entity-graph backfill),
 |                         #   brain-sync / brain-backup / nightly wrappers (Robin jobs),
 |                         #   e2e_pipeline_test.py (full-path proof)
-|-- skills/               # OpenClaw skill manifests and plugins
+|-- skills/               # skill manifests and plugins
 |-- docs/                 # architecture, integration, research
 |-- data/                 # gitignored runtime state
 |-- .env.example          # local config template
 |-- AGENTS.md             # instructions for coding agents
 |-- CHANGELOG.md          # release history
-|-- INSTALL.md           # one-page install recipe for OpenClaw/Hermes agents
+|-- INSTALL.md           # one-page install recipe for Hermes / MCP agents
 |-- CONTRIBUTING.md       # contribution guide
 |-- SECURITY.md           # disclosure and hardening notes
 `-- README.md
@@ -510,7 +509,7 @@ python -m src.cli eval benchmarks/golden.jsonl
 python -m src.cli consolidate 7
 python -m src.cli compact
 python -m src.cli dashboard --json
-python -m src.cli sync --target openclaw|hermes|both
+python -m src.cli sync --target hermes
 python -m src.cli skills stamp "I learned to restart BATMAN"
 python -m src.cli skills list
 python -m src.cli skills promote <chunk_id> <name> <description> <instr1> [instr2 ...]

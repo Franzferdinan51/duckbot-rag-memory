@@ -1,5 +1,88 @@
 # Changelog
 
+## v0.19.0 — OpenClaw removed; the embedder loads itself (2026-11-26)
+
+Owner's direction: "we don't really support OpenClaw anymore because
+I use you and Hermes." This release removes OpenClaw support entirely
+(owner-directed exception to the additive-only house rule) and fixes
+the cold-embedder wedge behind Hermes' stuck "Running brain wake up."
+
+### Removed
+
+- **OpenClaw connector + shim** (`src/connectors/openclaw.py`,
+  `src/connectors/openclaw_shim.py`), the Node.js plugin
+  (`extensions/duckbot-memory/`), the bootstrap
+  (`scripts/openclaw-bootstrap.sh`), the `openclaw` CLI verb, and the
+  `skills/openclaw-imports/` manifests.
+- **Dreaming bridge + Active Memory** (`src/connectors/dreaming.py`,
+  `src/connectors/active_memory.py`), their Brain facade methods, and
+  the `dreaming_read` / `dreaming_cycle` / `active_memory` /
+  `brain_dreaming_*` / `brain_active_memory` tools. The MCP surface is
+  now **67 tools**.
+- **OpenClaw sync targets**: `brain_sync` and `src.cli sync` accept
+  `hermes` only; any other target returns an explicit error instead of
+  silently writing nothing.
+- **`/learn`'s OpenClaw file write**: the Hermes /learn shim no longer
+  writes `~/.openclaw/workspace/memory/learning/` files
+  (`LearnResult.written_to` remains, always `None`).
+
+### Changed
+
+- **`src/connectors/openclaw.py` → `src/connectors/brain_tools.py`.**
+  The module's TOOL_DEFINITIONS + `handle()` dispatch were never
+  OpenClaw-specific — the MCP server registers the graph / blocks /
+  quarantine / dashboard family from them and Hermes depends on that
+  surface — so the tool layer was renamed and de-branded (its
+  `openclaw_config_snippet()` helper deleted) instead of removed.
+- **Hermes updated on the Mac the same day** (310 commits, to upstream
+  head) — its gateway restart also cleared the wedged session and
+  activated the unified v0.17/v0.18 plugin code.
+
+### Fixed
+
+- **Embedder loads when called** (`LMStudioEmbeddings._ensure_loaded`).
+  LM Studio's idle TTL kept unloading the embedding model, and a cold
+  embedder made `brain_wake_up` take ~8.6s — over Hermes' 8s prefetch
+  timeout, wedging sessions on "Running brain wake up" (2026-11-26).
+  `embed()` now checks LM Studio's REST `loaded_instances` (throttled
+  to once a minute per process) and POSTs a load when the model is
+  present but unloaded. Never raises; failures fall through to the
+  normal request path.
+- **Hourly sync self-heal rewritten** (`scripts/brain-sync-wrapper.sh`):
+  its `lms ps/load/unload` lines were silent no-ops on Robin (there is
+  no `lms` binary there — an earlier incident report wrongly blamed
+  the sync for unloading the embedder; the real culprit was LM
+  Studio's own idle TTL). The heal now uses the LM Studio REST API
+  and never unloads the embedder.
+- **Plugin version pins unified**: `plugin.yaml` said 0.18.0 while the
+  plugin `__init__.py` still said 0.17.0; everything is now 0.19.0.
+
+### Kept deliberately (data, not platform support)
+
+- `src/entities.py` still extracts "OpenClaw" as a project entity and
+  `~/.openclaw/...` paths from memory *text* — the bank holds years of
+  OpenClaw-era content and recall over it must keep working.
+- `src/skillgen.py`'s skill-frontmatter metadata key (`openclaw`) is
+  an agentskills.io file-format identifier, not a runtime integration.
+- `docs/RESEARCH.md` and `docs/superpowers/` are dated historical
+  records and were not rewritten.
+
+### Migration
+
+- Sync callers: drop `--target openclaw|both` — only `hermes` works.
+- Anyone importing `src.connectors.openclaw` should import
+  `src.connectors.brain_tools` (same `TOOL_DEFINITIONS` / `handle`).
+- The `openclaw` CLI verb and the Node extension are gone with no
+  replacement; Hermes + the MCP server are the supported surfaces.
+
+### Docs
+
+- README, INSTALL, AGENTS, CONTRIBUTING, `docs/INTEGRATION.md`,
+  `docs/PLUGIN_SURFACE.md` (rewritten with the verified 67-tool
+  surface), `docs/ARCHITECTURE.md`, `.env.example`, and `ISSUES.md`
+  scrubbed of OpenClaw-as-current-support; tool counts corrected to
+  the verified 67.
+
 ## v0.18.0 — enhancements: a living graph, a boundary kept, a backup that runs (2026-11-26)
 
 Follow-up to the v0.17.0 reconciliation, filling the gaps the audit

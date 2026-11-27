@@ -8,20 +8,17 @@ brain as a memory provider. Used by:
   - mcporter
   - Any other MCP client that takes a command + args + env config
 
-This is NOT an OpenClaw native plugin — OpenClaw plugins run in-process
-inside the Node gateway and can't load Python. OpenClaw users should
-install the Node.js shim at `extensions/duckbot-memory/` instead, which
-spawns the Python MCP server (`src/mcp_server.py`) as a subprocess.
+This is a standalone stdio adapter — it spawns nothing and runs
+in-process with the client that launches it, delegating to the same
+tool surface as the Python MCP server (`src/mcp_server.py`).
 
-The 73 tools exposed here delegate to the shared surface at
+The 12 core tools exposed here delegate to the shared surface at
 `src.extensions.tools`, so an agent author can rely on the same tool
-names regardless of which platform they're on. The full 73 tools are
+names regardless of which platform they're on. The full 67 tools are
 available via `python -m src.mcp_server` for admin / CLI use.
 
 Pattern sources:
   - MCP spec (Model Context Protocol, Content-Length framed JSON-RPC)
-  - OpenClaw active-memory extension (TypeScript, MIT) — for naming
-    conventions, even though we run as a separate process.
 """
 
 # MIT License — see LICENSE in the repository root.

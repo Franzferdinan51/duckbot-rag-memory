@@ -53,7 +53,7 @@ duckbot-rag-memory/
 │   ├── duckbot-ask, brain-recall.sh           # shell brain-query helpers
 │   ├── secret-scan.{ps1,sh}                  # pre-commit secret guard
 │   └── _format_{snippet,compact}.py           # format helpers for duckbot-ask
-├── skills/              # OpenClaw skill manifests + plugins
+├── skills/              # skill manifests + plugins
 ├── src/                 # core library
 │   ├── chunk.py embeddings.py tier.py store.py query.py consolidate.py eval.py cli.py
 │   ├── memory.py        # the Memory facade
@@ -61,14 +61,14 @@ duckbot-rag-memory/
 │   ├── watcher.py       # polling daemon
 │   ├── decay.py fsrs.py rerank.py tier_priors.py  # brain layers
 │   ├── blocks.py entities.py graph.py              # brain layers
-│   ├── connectors/      # OpenClaw, Active Memory, dreaming, learn
+│   ├── connectors/      # Brain facade, brain_tools, Hermes, learn
 │   └── backends/        # chroma / lancedb / qdrant (pluggable)
 ├── tests/               # pytest (CPU-only CI; LM Studio tests skip)
 ├── AGENTS.md            # quickstart for AI agents
 ├── ARCHITECTURE.md      # (in docs/) deep dive
 ├── CHANGELOG.md         # version history
 ├── CONTRIBUTING.md      # this file
-├── INTEGRATION.md       # (in docs/) hermes/openclaw wiring
+├── INTEGRATION.md       # (in docs/) hermes wiring
 ├── LICENSE              # MIT
 ├── README.md            # one-pager
 ├── SECURITY.md          # vuln disclosure policy
@@ -110,7 +110,7 @@ brain logic via mocks.
   the failure, never bare `except: pass`.
 - **Docstrings on public functions.** One-line summary is fine.
 - **Commits**: `type(scope): summary` format, e.g.
-  `feat(brain): v0.11.0 OpenClaw dreaming bridge`. Past-tense body.
+  `feat(brain): v0.11.0 Hermes /learn shim`. Past-tense body.
 - **CHANGELOG entry per merge.** Add a line under `## Unreleased`
   before opening the PR.
 

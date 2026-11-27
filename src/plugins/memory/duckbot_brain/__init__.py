@@ -896,7 +896,7 @@ def on_session_end(messages=None) -> dict:
 
 
 # Also expose at module top-level for direct import access
-__version__ = "0.17.0"
+__version__ = "0.19.0"
 
 __all__ = [
     "register",

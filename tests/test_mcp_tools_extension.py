@@ -6,7 +6,7 @@ Covers:
   - Brain.forget_by_query
   - Brain.search_verbatim    (L13)
   - The new tools registered in src.mcp_server.TOOLS
-  - The new tools registered in src.connectors.openclaw.TOOL_DEFINITIONS
+  - The new tools registered in src.connectors.brain_tools.TOOL_DEFINITIONS
   - The new tools registered in src/extensions/duckbot_brain/adapter.py
 """
 
@@ -349,22 +349,22 @@ def test_mcp_server_handlers_for_new_tools():
 
 
 # -----------------------------------------------------------------------------
-# Tool registration: connectors/openclaw.py
+# Tool registration: connectors/brain_tools.py
 # -----------------------------------------------------------------------------
 
 
-def test_openclaw_connector_registers_new_tools():
-    """src.connectors.openclaw.TOOL_DEFINITIONS must include the 4 new v0.10.0 tools."""
-    from src.connectors.openclaw import TOOL_DEFINITIONS
+def test_brain_tools_connector_registers_new_tools():
+    """src.connectors.brain_tools.TOOL_DEFINITIONS must include the 4 new v0.10.0 tools."""
+    from src.connectors.brain_tools import TOOL_DEFINITIONS
     names = {t["name"] for t in TOOL_DEFINITIONS}
     expected = {"brain_fsrs_review", "brain_decay_status", "brain_forget_by_query", "brain_search_verbatim"}
     missing = expected - names
-    assert not missing, f"Missing tools in openclaw.TOOL_DEFINITIONS: {missing}"
+    assert not missing, f"Missing tools in brain_tools.TOOL_DEFINITIONS: {missing}"
 
 
-def test_openclaw_connector_dispatches_new_tools():
-    """src.connectors.openclaw.handle must dispatch the new tools without error."""
-    from src.connectors.openclaw import handle
+def test_brain_tools_connector_dispatches_new_tools():
+    """src.connectors.brain_tools.handle must dispatch the new tools without error."""
+    from src.connectors.brain_tools import handle
     # Each new tool should at least return a dict (not raise NotImplementedError)
     # We can't test full happy-path without a real store, but we can verify dispatch.
     for tool in ("brain_fsrs_review", "brain_decay_status", "brain_forget_by_query", "brain_search_verbatim"):
@@ -376,60 +376,60 @@ def test_openclaw_connector_dispatches_new_tools():
             assert "queue" in r or "by_tier" in r or "error" in r, f"{tool} unexpected: {r}"
 
 
-def test_openclaw_handle_recall_verbatim_strips_whitespace(monkeypatch):
-    import src.connectors.openclaw as openclaw
+def test_brain_tools_handle_recall_verbatim_strips_whitespace(monkeypatch):
+    import src.connectors.brain_tools as brain_tools
     brain = MagicMock()
     brain.recall_verbatim.return_value = []
-    monkeypatch.setattr(openclaw, "Brain", lambda *a, **kw: brain)
+    monkeypatch.setattr(brain_tools, "Brain", lambda *a, **kw: brain)
     try:
-        out = openclaw.handle("brain_recall_verbatim", {"query": "   "})
+        out = brain_tools.handle("brain_recall_verbatim", {"query": "   "})
     finally:
         monkeypatch.undo()
     assert "error" in out
     brain.recall_verbatim.assert_not_called()
 
 
-def test_openclaw_handle_recall_strips_whitespace(monkeypatch):
-    import src.connectors.openclaw as openclaw
+def test_brain_tools_handle_recall_strips_whitespace(monkeypatch):
+    import src.connectors.brain_tools as brain_tools
     brain = MagicMock()
     brain.recall.return_value = []
-    monkeypatch.setattr(openclaw, "Brain", lambda *a, **kw: brain)
+    monkeypatch.setattr(brain_tools, "Brain", lambda *a, **kw: brain)
     try:
-        out = openclaw.handle("brain_recall", {"query": "   "})
+        out = brain_tools.handle("brain_recall", {"query": "   "})
     finally:
         monkeypatch.undo()
     assert "error" in out
     brain.recall.assert_not_called()
 
 
-def test_openclaw_handle_recall_ignores_whitespace_tier(monkeypatch):
-    import src.connectors.openclaw as openclaw
+def test_brain_tools_handle_recall_ignores_whitespace_tier(monkeypatch):
+    import src.connectors.brain_tools as brain_tools
     brain = MagicMock()
     brain.recall.return_value = []
-    monkeypatch.setattr(openclaw, "Brain", lambda *a, **kw: brain)
-    out = openclaw.handle("brain_recall", {"query": "what changed", "tier": "   "})
+    monkeypatch.setattr(brain_tools, "Brain", lambda *a, **kw: brain)
+    out = brain_tools.handle("brain_recall", {"query": "what changed", "tier": "   "})
     assert "error" not in out
     brain.recall.assert_called_once()
     assert brain.recall.call_args.kwargs["tier"] is None
 
 
-def test_openclaw_handle_recall_rejects_invalid_tier(monkeypatch):
-    import src.connectors.openclaw as openclaw
+def test_brain_tools_handle_recall_rejects_invalid_tier(monkeypatch):
+    import src.connectors.brain_tools as brain_tools
     brain = MagicMock()
-    monkeypatch.setattr(openclaw, "Brain", lambda *a, **kw: brain)
-    out = openclaw.handle("brain_recall", {"query": "what changed", "tier": "not-a-tier"})
+    monkeypatch.setattr(brain_tools, "Brain", lambda *a, **kw: brain)
+    out = brain_tools.handle("brain_recall", {"query": "what changed", "tier": "not-a-tier"})
     assert "error" in out
     assert "tier must be one of" in out["error"]
     brain.recall.assert_not_called()
 
 
-def test_openclaw_handle_forget_by_query_strips_whitespace(monkeypatch):
-    import src.connectors.openclaw as openclaw
+def test_brain_tools_handle_forget_by_query_strips_whitespace(monkeypatch):
+    import src.connectors.brain_tools as brain_tools
     brain = MagicMock()
     brain.forget_by_query.return_value = {"deleted": 0, "deleted_ids": []}
-    monkeypatch.setattr(openclaw, "Brain", lambda *a, **kw: brain)
+    monkeypatch.setattr(brain_tools, "Brain", lambda *a, **kw: brain)
     try:
-        out = openclaw.handle("brain_forget_by_query", {"query": "  "})
+        out = brain_tools.handle("brain_forget_by_query", {"query": "  "})
     finally:
         monkeypatch.undo()
     assert "error" in out
@@ -441,7 +441,7 @@ def test_openclaw_handle_forget_by_query_strips_whitespace(monkeypatch):
 # -----------------------------------------------------------------------------
 
 
-def test_openclaw_extension_adapter_registers_new_tools():
+def test_extension_adapter_registers_new_tools():
     """src.extensions.duckbot_brain.adapter exposes the v0.14.0 "core agent
     surface" — the 12 tools shared with the Hermes MemoryProvider plugin.
 
@@ -468,7 +468,7 @@ def test_openclaw_extension_adapter_registers_new_tools():
     )
 
 
-def test_openclaw_extension_adapter_brain_stats_uses_real_attrs(monkeypatch, brain):
+def test_extension_adapter_brain_stats_uses_real_attrs(monkeypatch, brain):
     """The brain_stats tool must return fields that exist on BrainStats.
 
     Regression: the previous adapter code referenced s.chunks_per_tier and

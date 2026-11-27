@@ -32,7 +32,7 @@ def test_rerank_backend_loads_qwen3_reranker():
 
 def test_brain_recall_with_rerank_stamps_rerank_score():
     """When rerank=True, results should carry rerank_score in metadata."""
-    from src.connectors.openclaw import handle
+    from src.connectors.brain_tools import handle
     r = handle("brain_recall", {
         "query": "Duckets",
         "k": 3,
@@ -57,7 +57,7 @@ def test_brain_recall_with_rerank_stamps_rerank_score():
 
 def test_rerank_improves_relevance_for_clean_fact():
     """Verify rerank promotes a clean relevant fact above less-relevant ones."""
-    from src.connectors.openclaw import handle
+    from src.connectors.brain_tools import handle
 
     # Seed a clean, isolated fact (use timestamp to ensure uniqueness against
     # the rest of the brain's content)
@@ -136,7 +136,7 @@ def test_rerank_improves_relevance_for_clean_fact():
 
 def test_wake_up_uses_rerank_when_query_given():
     """When wake_up gets a query, it should enable rerank (verified by latency)."""
-    from src.connectors.openclaw import handle
+    from src.connectors.brain_tools import handle
     t0 = time.time()
     r = handle("brain_wake_up", {"query": "Duckets", "k": 3})
     elapsed = time.time() - t0
@@ -161,7 +161,7 @@ def test_rerank_default_in_schema_is_off():
     (default False) to keep cheap recalls cheap. This test pins the
     OpenClaw-side choice so a silent flip is caught.
     """
-    from src.connectors.openclaw import TOOL_DEFINITIONS
+    from src.connectors.brain_tools import TOOL_DEFINITIONS
     tools = TOOL_DEFINITIONS
     recall_tool = next((t for t in tools if t["name"] == "brain_recall"), None)
     assert recall_tool is not None

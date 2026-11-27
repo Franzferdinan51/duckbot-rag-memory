@@ -1,10 +1,18 @@
 # Plugin Surface — what every agent sees
 
 The duckbot-rag-memory project exposes the brain through several
-entry points. As of **v0.14.0** they all advertise the same 12 "core
-agent tools" — so an agent author can write one set of `brain_*`
-calls and have it work on OpenClaw, Hermes, Codex, Cursor, and the
-canonical MCP server.
+entry points. They all advertise the same 12 "core agent tools" — so
+an agent author can write one set of `brain_*` calls and have it work
+on Hermes, Codex, Cursor, and the canonical MCP server.
+
+> **v0.19.0:** OpenClaw support was removed at the owner's direction
+> ("we don't really support OpenClaw anymore — I use you and Hermes").
+> The Node.js shim (`extensions/duckbot-memory/`), the
+> `python -m src.cli openclaw` shell shim, the OpenClaw connector, and
+> the `skills/openclaw-imports/` manifests are gone. The generic
+> JSON-RPC adapter and the Hermes plugin remain, and the MCP server
+> surface is **67 tools** (the dreaming bridge and Active Memory
+> aliases were removed with OpenClaw).
 
 ## The 12 core tools
 
@@ -30,50 +38,25 @@ session-start call.
 
 | Entry point | Tools exposed | Discovery shape | Rate-limited? | Hooks? |
 |---|---|---|---|---|
-| `python -m src.mcp_server` | **69** | MCP `tools/list` | yes (per-tool token bucket) | n/a (it's a server) |
+| `python -m src.mcp_server` | **67** | MCP `tools/list` | yes (per-tool token bucket) | n/a (it's a server) |
 | `scripts/duckbot-memory-mcp.sh` | 67 (wraps the MCP server) | MCP stdio | yes | n/a |
-| `extensions/duckbot-memory/index.js` (Node.js shim) | **67** (proxied) | OpenClaw in-process plugin (`package.json#main`) | yes (per-tool bucket on the Python side) | `session_start`, `session_end`, `gateway_stop` |
 | `python -m src.extensions.duckbot_brain.adapter` | **12** | Generic JSON-RPC over stdio (for Claude Code / Cursor / Codex / mcporter) | yes (same module) | n/a |
 | `from src.plugins.memory.duckbot_brain import DuckBotBrainProvider` | **12** (function-call shape) | `plugin.yaml` | yes | `on_session_start`, `on_session_end` |
-| `python -m src.cli openclaw <verb>` | **12** (shell shim, parallel to `hermes`) | argparse | yes | n/a |
+| `python -m src.cli hermes <verb>` | **12** (shell shim) | argparse | yes | n/a |
 | `python -m src.cli <verb>` | per-verb | argparse | n/a | n/a |
 | `scripts/duckbot-ask "..."` | per-flavor (compact/snippet/json) | shell wrapper | n/a | n/a |
 
-All three thin entry points (OpenClaw Node.js shim, Hermes plugin, the
-JSON-RPC adapter) call the same dispatch in `src/extensions/tools.py`.
-The OpenClaw shim additionally proxies to the full 73-tool MCP server
-via JSON-RPC over stdio. If you add a tool to `src/mcp_server.py`'s
-TOOLS list or to the thin surface, both surfaces pick it up.
-
-> **v0.15.0 note:** the previous `python -m
-> src.extensions.duckbot_brain.adapter` entry was marketed as the
-> OpenClaw native plugin, but it wasn't — OpenClaw plugins run
-> in-process in the Node gateway and can't load Python. The real
-> native OpenClaw plugin is now `extensions/duckbot-memory/` (a
-> zero-dependency Node.js shim). The Python JSON-RPC adapter stays
-> in place as a generic MCP client adapter for Claude Code / Cursor
-> / Codex / mcporter.
+Both thin entry points (Hermes plugin, JSON-RPC adapter) call the
+same dispatch in `src/extensions/tools.py`. If you add a tool to
+`src/mcp_server.py`'s TOOLS list or to the thin surface, both
+surfaces pick it up.
 
 ## How to verify discovery from an agent
 
-### OpenClaw (native plugin)
+### Generic JSON-RPC adapter
 
-The native plugin is `extensions/duckbot-memory/` — a Node.js shim that
-spawns the Python MCP server as a subprocess and registers all 73 tools
-plus `session_start` / `session_end` hooks via OpenClaw's plugin SDK.
-See `extensions/duckbot-memory/README.md` for install + config.
-
-Quick check: after bootstrap, restart the gateway and confirm:
-
-```bash
-openclaw plugins list | grep duckbot-memory    # should show "✓ installed"
-```
-
-### OpenClaw (generic JSON-RPC adapter — legacy / advanced)
-
-If you're hand-rolling a custom OpenClaw gateway without the plugin
-SDK, the Python adapter at `src/extensions/duckbot_brain/adapter.py`
-speaks MCP stdio JSON-RPC (73-tool subset):
+The Python adapter at `src/extensions/duckbot_brain/adapter.py`
+speaks MCP stdio JSON-RPC (the 12-tool thin surface):
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
@@ -85,7 +68,8 @@ The response's `result.tools[*].name` array should be exactly:
 ```
 brain_wake_up, brain_recall, brain_recall_verbatim, brain_remember,
 brain_reflect, brain_stats, brain_fsrs_review, brain_decay_status,
-brain_search_verbatim, brain_skills_list, brain_skills_promote
+brain_search_verbatim, brain_skills_list, brain_skills_suggest,
+brain_skills_promote
 ```
 
 ### Hermes (Python import)
@@ -94,7 +78,7 @@ brain_search_verbatim, brain_skills_list, brain_skills_promote
 from src.plugins.memory.duckbot_brain import DuckBotBrainProvider
 provider = DuckBotBrainProvider()
 schemas = provider.get_tool_schemas()
-# 11 entries, each {"type": "function", "function": {"name", "description", "parameters"}}
+# 12 entries, each {"type": "function", "function": {"name", "description", "parameters"}}
 ```
 
 Or check the lifecycle hooks:
@@ -106,7 +90,7 @@ context = provider.on_session_start()   # brain_wake_up shape
 provider.on_session_end(messages)        # persists durable rules as procedural
 ```
 
-### MCP server (canonical, 73 tools)
+### MCP server (canonical, 67 tools)
 
 ```bash
 ./scripts/duckbot-memory-mcp.sh &
@@ -117,11 +101,11 @@ provider.on_session_end(messages)        # persists durable rules as procedural
 ### CLI / shell wrapper (no discovery needed)
 
 ```bash
-# OpenClaw-style shell shim (73-tool core surface)
-python -m src.cli openclaw wake-up
-python -m src.cli openclaw recall "What did we decide about cloud-only models?"
-python -m src.cli openclaw tools
-python -m src.cli openclaw call brain_recall '{"query": "x", "k": 3}'
+# Hermes shell shim (12-tool core surface)
+python -m src.cli hermes wake-up
+python -m src.cli hermes recall "What did we decide about cloud-only models?"
+python -m src.cli hermes tools
+python -m src.cli hermes call brain_recall '{"query": "x", "k": 3}'
 
 # Brain-query helpers (any of these)
 scripts/duckbot-ask "What did we decide about cloud-only models?"
@@ -129,13 +113,13 @@ scripts/duckbot-ask -f compact -n 3 "Duckets correction style"
 scripts/brain-recall "BATMAN worker offline"
 ```
 
-## The 73 tools the MCP server has but the thin entry points don't
+## The MCP server's tools beyond the thin 12
 
-The thin 73-tool surface is intentional — it's the portable stdio subset
-that works across all three thin entry points without bringing in heavy
-deps (graph, blocks, quarantine, dreaming, active-memory, etc.). The
-remaining 73 tools are admin / CLI tools that an agent shouldn't be
-calling at runtime:
+The thin 12-tool surface is intentional — it's the portable stdio
+subset that works across the thin entry points without bringing in
+heavy deps. The canonical MCP server exposes **67 tools** in total;
+the remaining 55 are admin / server-side tools an agent shouldn't
+normally call at runtime:
 
 - `brain_graph_*` (7) — knowledge-graph CRUD, cognify, reconcile
 - `brain_block_*` (6) — memory-block CRUD + seed_blocks
@@ -146,42 +130,43 @@ calling at runtime:
   `brain_apply_fsrs_w20`, `brain_fsrs_optimize_apply`,
   `brain_export`, `brain_import`, `brain_seed_demo`,
   `brain_sync`, `brain_decay_apply` (14)
-- `dreaming_read`, `dreaming_cycle`, `learn`, `active_memory` (4)
-- `doctor`, `watch` (2)
-- Legacy un-prefixed: `remember`, `recall`, `reflect`, `forget`, `stats`,
-  `fsrs_review`, `decay_status`, `forget_by_query`, `search_verbatim` (9)
-- Also in MCP but not thin: `active_memory`, `brain_active_memory` (2)
+- `learn`, `doctor`, `watch` (3)
+- The connector family registered from
+  `src/connectors/brain_tools.py` (graph/blocks/quarantine/dashboard
+  dispatch for names without native handlers)
+- Legacy un-prefixed: `remember`, `recall`, `reflect`, `forget`,
+  `stats`, `fsrs_review`, `decay_status`, `forget_by_query`,
+  `search_verbatim` (9)
 
-(Categories above overlap; 64 MCP total − 12 thin surface = 52 MCP-exclusive.
-All 64 remain available via `python -m src.mcp_server`.)
+(Categories overlap — several tools are reachable under both a
+`brain_*` name and a legacy name. The authoritative count is the
+67 returned by `tools/list`.)
 
-If an agent needs one of these (e.g. `brain_export` for a backup), the
-right path is `python -m src.cli brain_export` (CLI) or call the
+If an agent needs one of these (e.g. `brain_export` for a backup),
+the right path is `python -m src.cli brain_export` (CLI) or call the
 canonical MCP server (`python -m src.mcp_server`).
 
 ## What the skill files tell agents
 
-All four skills in `skills/` (`duckbot-brain/`, `openclaw-imports/`,
-`codex-imports/`, `cursor-imports/`) advertise `brain_wake_up` as the
-canonical session-start call. After v0.14.0, that instruction is
-finally true on every platform — the tool is on every thin entry
-point's surface.
+All three skills in `skills/` (`duckbot-brain/`, `codex-imports/`,
+`cursor-imports/`) advertise `brain_wake_up` as the canonical
+session-start call. That instruction is true on every entry point —
+the tool is on every thin surface.
 
 ## Adding a new tool
 
 1. Add the schema + dispatch case to `src/extensions/tools.py` (one
    TOOLS dict entry + one `if name == "..."` block in `dispatch()`)
-   AND/OR to `src/mcp_server.py`'s TOOLS list (the canonical 73-tool
+   AND/OR to `src/mcp_server.py`'s TOOLS list (the canonical 67-tool
    surface). Pick whichever surface the tool belongs to.
 2. If it's a core-agent tool (used at runtime), no further work — the
-   thin surface picks it up automatically. The OpenClaw shim
-   dynamically registers whatever `tools/list` returns, so new MCP
-   tools surface to OpenClaw automatically too.
+   thin surface picks it up automatically.
 3. If it has a Hermes-specific shape, also add the function-call
    wrapper to `function_call_schemas()` (it inherits from TOOLS so
    this is usually free).
 4. Add tests in `tests/test_extensions_tools.py` and/or
    `tests/test_skill_pipeline.py` as appropriate.
-5. Bump the manifest `version` fields (`extensions/duckbot-memory/openclaw.plugin.json`,
-   `src/plugins/memory/duckbot_brain/plugin.yaml`).
+5. Bump the manifest `version` fields
+   (`src/plugins/memory/duckbot_brain/plugin.yaml` and the
+   `hermes/plugins/` copy — they must stay byte-identical).
 6. Update CHANGELOG.md.

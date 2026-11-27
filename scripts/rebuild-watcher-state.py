@@ -86,7 +86,7 @@ def main() -> int:
         if src.startswith("~"):
             src = os.path.expanduser(src)
         elif not src.startswith("/"):
-            for prefix in (str(REPO_ROOT), str(Path.home() / ".openclaw" / "workspace")):
+            for prefix in (str(REPO_ROOT), str(Path.home() / ".hermes")):
                 cand = str(Path(prefix) / src)
                 if Path(cand).exists():
                     src = cand

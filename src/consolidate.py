@@ -98,7 +98,7 @@ def extract_facts_from_chunk(
 
     Resolution order:
       1. `agent_facts` argument — pre-extracted facts the calling agent
-         (OpenClaw / Hermes) already pulled out using its own LLM. This
+         (Hermes) already pulled out using its own LLM. This
          is the **preferred path** because it keeps the brain out of the
          LLM-loading business entirely. Pass them via `brain_remember(
          facts=[...])` or via `extract_facts_from_chunk(..., agent_facts=[...])`.

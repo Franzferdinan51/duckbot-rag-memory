@@ -489,7 +489,7 @@ def test_dispatch_brain_remember_default_still_queues(reset_singletons):
     surface._BRAIN = fake_brain
     out = surface.dispatch("brain_remember", {"text": "normal memory"})
     assert out["status"] == "queued"
-    assert out["source"] == "openclaw-extension://ad-hoc"
+    assert out["source"] == "extension://ad-hoc"
 
 
 def test_dispatch_brain_skills_list(reset_singletons):

@@ -1,8 +1,10 @@
-"""End-to-end smoke test for ALL advertised brain tools through real handle() dispatch.
+"""End-to-end smoke test for ALL advertised brain tools through real dispatch.
 
 This is the regression test for the connector routing bugs found on 2026-06-30.
 Each test exercises the real dispatch path:
-    src.connectors.openclaw.handle(tool_name, args) -> Brain -> Chroma -> back
+    src.mcp_server.HANDLERS[tool_name](args) -> Brain -> Chroma -> back
+(The pre-v0.19 dispatcher, src.connectors.openclaw.handle, was removed
+with OpenClaw support; the MCP server registry is the canonical route.)
 
 Before the fix: brain_doctor, brain_decay_apply, brain_update returned 'unknown tool'.
 After the fix: they all return real results.
@@ -10,12 +12,23 @@ After the fix: they all return real results.
 Run with: pytest tests/test_e2e_all_tools.py -v
 """
 
+import asyncio
 import time
-import sys
 import pytest
 
-sys.path.insert(0, "/Users/duckets/Desktop/duckbot-rag-memory")
-from src.connectors.openclaw import handle
+from src.mcp_server import HANDLERS
+
+
+def handle(name, args):
+    """Sync shim over the MCP server's async handler registry."""
+    fn = HANDLERS.get(name)
+    if fn is None:
+        # Mirror production: names without a native handler are served
+        # by the connector dispatcher in src.connectors.brain_tools
+        # (e.g. brain_doctor delegates to handle_doctor from there).
+        from src.connectors.brain_tools import handle as _connector_handle
+        return _connector_handle(name, args or {})
+    return asyncio.run(fn(args or {}))
 
 
 def _call(name, args=None, expect_none_error=False, timeout=15):
@@ -127,11 +140,6 @@ def test_brain_user_model():
     assert err is None, f"brain_user_model failed: {err}"
 
 
-def test_brain_dreaming_read():
-    r, err = _call("brain_dreaming_read", {})
-    assert err is None, f"brain_dreaming_read failed: {err}"
-
-
 def test_brain_nudge():
     r, err = _call("brain_nudge", {"k": 3})
     assert err is None, f"brain_nudge failed: {err}"
@@ -187,7 +195,7 @@ def test_brain_reflect():
 
 
 def test_brain_sync_dry_run():
-    r, err = _call("brain_sync", {"target": "openclaw", "dry_run": True})
+    r, err = _call("brain_sync", {"target": "hermes", "dry_run": True})
     assert err is None, f"brain_sync failed: {err}"
 
 
